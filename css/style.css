@@ -1,0 +1,172 @@
+/* ベースの配色（ライト / ダーク自動切替） */
+:root {
+  --color-bg: #fdfdfb;
+  --color-text: #1f1f1f;
+  --color-text-muted: #6b6b6b;
+  --color-link: #1a5fb4;
+  --color-link-visited: #6b3fa0;
+  --color-border: #e3e2de;
+  --font-serif: "Hiragino Mincho ProN", "Yu Mincho", "Georgia", serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans",
+    "Yu Gothic", sans-serif;
+  --measure: 38em;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #1a1a1a;
+    --color-text: #e6e6e6;
+    --color-text-muted: #9a9a9a;
+    --color-link: #7cb0ea;
+    --color-link-visited: #b79ee0;
+    --color-border: #333331;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  line-height: 1.85;
+  text-rendering: optimizeLegibility;
+}
+
+.page {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 5rem;
+}
+
+/* ヘッダー・ナビ */
+.site-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  margin-bottom: 3rem;
+}
+
+.site-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.site-title a {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.site-nav {
+  display: flex;
+  gap: 1.25rem;
+  font-size: 0.9rem;
+}
+
+.site-nav a {
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.site-nav a:hover,
+.site-nav a:focus {
+  color: var(--color-text);
+}
+
+/* 本文 */
+h1 {
+  font-size: 1.6rem;
+  line-height: 1.5;
+  margin: 0 0 1.5rem;
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin: 2.5rem 0 1rem;
+}
+
+p {
+  margin: 0 0 1.4em;
+}
+
+a {
+  color: var(--color-link);
+}
+
+a:visited {
+  color: var(--color-link-visited);
+}
+
+.lede {
+  color: var(--color-text-muted);
+  margin-bottom: 3rem;
+}
+
+/* エッセイ一覧 */
+.essay-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.essay-list li {
+  padding: 1.1rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.essay-list li:first-child {
+  border-top: 1px solid var(--color-border);
+}
+
+.essay-list a {
+  text-decoration: none;
+  font-size: 1.05rem;
+}
+
+.essay-list time {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  margin-top: 0.3rem;
+}
+
+/* エッセイ本文ページ */
+.essay-meta {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 2.5rem;
+}
+
+.essay-body h2 {
+  font-size: 1.15rem;
+}
+
+.essay-body p {
+  font-size: 1.02rem;
+}
+
+/* フッター */
+.site-footer {
+  margin-top: 5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 2rem;
+  font-size: 0.9rem;
+}
