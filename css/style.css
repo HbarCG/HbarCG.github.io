@@ -156,6 +156,30 @@ a:visited {
   font-size: 1.02rem;
 }
 
+/* 対談形式のエッセイ */
+.turn {
+  margin: 2.2em 0;
+  padding-left: 1.1rem;
+  border-left: 3px solid var(--color-border);
+}
+
+.turn-ai {
+  border-left-color: var(--color-link);
+}
+
+.turn .speaker {
+  margin: 0 0 0.6em;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.turn p:last-child {
+  margin-bottom: 0;
+}
+
 /* フッター */
 .site-footer {
   margin-top: 5rem;
