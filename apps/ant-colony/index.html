@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>コロニー継承 | ltshinfleet</title>
+  <meta name="description" content="女王アリの寿命が尽きるたびに世代を継いでいく、ブラウザRPGの試作版。">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/apps/ant-colony/style.css">
+</head>
+<body>
+  <div class="page page--wide">
+    <header class="site-header">
+      <p class="site-title"><a href="/">ltshinfleet</a></p>
+      <nav class="site-nav">
+        <a href="/essays/">Essays</a>
+        <a href="/apps/">Apps</a>
+        <a href="/about/">About</a>
+      </nav>
+    </header>
+
+    <main>
+      <p class="back-link"><a href="/apps/">← Apps</a></p>
+
+      <h1>コロニー継承</h1>
+      <p class="lede">
+        女王アリには寿命がある。働きアリを危険な遠征に送るほど資源は貯まるが、
+        失った分を補うための産卵が女王の寿命を削っていく。
+        寿命が尽きる前に、次代の女王候補を育てておこう。（試作版）
+      </p>
+
+      <div class="ant-game" id="ant-game">
+        <section class="ant-panel ant-panel--stage">
+          <canvas id="nest-canvas" width="480" height="280" aria-label="コロニーの様子"></canvas>
+          <div class="ant-status">
+            <div class="ant-status__row">
+              <span class="ant-status__label">第<span id="stat-generation">1</span>代</span>
+              <span class="ant-status__label">個体数 <strong id="stat-population">0</strong></span>
+              <span class="ant-status__label">資源 <strong id="stat-resource">0</strong></span>
+            </div>
+            <div class="ant-vitality">
+              <span class="ant-status__label">女王の活力</span>
+              <div class="ant-bar"><div class="ant-bar__fill" id="vitality-fill"></div></div>
+              <span id="vitality-text" class="ant-status__muted"></span>
+            </div>
+            <dl class="ant-stats">
+              <div><dt>戦闘力</dt><dd id="stat-combat">–</dd></div>
+              <div><dt>収集力</dt><dd id="stat-gather">–</dd></div>
+              <div><dt>繁殖力</dt><dd id="stat-fertility">–</dd></div>
+              <div><dt>寿命</dt><dd id="stat-lifespan">–</dd></div>
+            </dl>
+          </div>
+        </section>
+
+        <section class="ant-panel">
+          <h2>遠征</h2>
+          <p class="ant-hint">働きアリを外へ送り、資源を集める。リスクが高いほど資源も損耗も増える。</p>
+          <div class="ant-field">
+            <label for="expedition-count">送る数（最大 <span id="expedition-max">0</span>）</label>
+            <input type="range" id="expedition-count" min="0" max="0" value="0">
+            <output id="expedition-count-out">0</output>
+          </div>
+          <div class="ant-field">
+            <label for="expedition-risk">リスク</label>
+            <select id="expedition-risk">
+              <option value="low">低リスク</option>
+              <option value="mid" selected>中リスク</option>
+              <option value="high">高リスク</option>
+            </select>
+          </div>
+          <button type="button" id="btn-expedition">遠征に送る</button>
+        </section>
+
+        <section class="ant-panel">
+          <h2>産卵</h2>
+          <p class="ant-hint">個体数を増やせるが、女王の活力を消費する。繁殖力が高いほど1匹あたりのコストは下がる。</p>
+          <div class="ant-field">
+            <label for="egg-count">産卵数</label>
+            <input type="range" id="egg-count" min="0" max="30" value="0">
+            <output id="egg-count-out">0</output>
+          </div>
+          <p class="ant-hint" id="egg-cost-preview">消費する活力：0</p>
+          <button type="button" id="btn-egg">産卵する</button>
+        </section>
+
+        <section class="ant-panel">
+          <h2>次代女王候補</h2>
+          <p class="ant-hint">資源を投資すると、その候補の素質が確定・成長する。誰にも投資しないまま女王が死ぬとコロニーは全滅する。</p>
+          <div class="ant-candidates" id="candidates"></div>
+        </section>
+
+        <section class="ant-panel">
+          <h2>ログ</h2>
+          <div class="ant-log" id="ant-log"></div>
+        </section>
+
+        <section class="ant-panel">
+          <button type="button" id="btn-end-turn" class="ant-button--primary">この代のターンを終える</button>
+        </section>
+
+        <section class="ant-panel" id="history-panel" hidden>
+          <h2>歴代女王の記録</h2>
+          <ol class="ant-history" id="ant-history"></ol>
+        </section>
+      </div>
+
+      <div class="ant-modal" id="succession-modal" hidden>
+        <div class="ant-modal__box">
+          <h2 id="succession-title">世代交代</h2>
+          <div id="succession-body"></div>
+          <button type="button" id="btn-restart" hidden>もう一度、最初から</button>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <p>&copy; 2026 ltshinfleet</p>
+    </footer>
+  </div>
+
+  <script src="/apps/ant-colony/game.js"></script>
+</body>
+</html>
