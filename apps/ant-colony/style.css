@@ -27,14 +27,27 @@
   margin: 0 0 1rem;
 }
 
+.ant-link-button {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: var(--color-link);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* ステージ（Canvas + ステータス） */
 .ant-panel--stage {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
 }
 
 #nest-canvas {
+  display: block;
   width: 100%;
+  min-width: 0;
   height: auto;
   aspect-ratio: 480 / 280;
   background: var(--color-bg);
@@ -116,11 +129,47 @@
 
 .ant-field input[type="range"] {
   flex: 1 1 160px;
+  min-width: 0;
 }
 
 .ant-field select {
   font-size: 0.9rem;
   padding: 0.3rem 0.5rem;
+}
+
+@media (max-width: 480px) {
+  .ant-field {
+    display: block;
+  }
+
+  .ant-field label {
+    display: block;
+    margin-bottom: 0.3rem;
+  }
+
+  .ant-field input[type="range"] {
+    display: block;
+    width: 100%;
+  }
+
+  .ant-field output {
+    display: block;
+    text-align: right;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+  }
+
+  .ant-field select {
+    width: 100%;
+  }
+
+  .ant-vitality .ant-bar {
+    flex-basis: 100%;
+  }
+
+  .ant-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 button {

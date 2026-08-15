@@ -18,7 +18,44 @@
     },
   };
 
+  const FLAVOR = {
+    low: {
+      safe: [
+        '静かな下草を巡回し、{sent}匹全員が無事に資源を持ち帰った。',
+        '目立った危険もなく、いつも通りの収穫だった。',
+      ],
+      loss: [
+        '小さな諍いに巻き込まれ、{lost}匹を失った。',
+        '思わぬ雨に降られ、{lost}匹が帰ってこなかった。',
+      ],
+    },
+    mid: {
+      safe: [
+        '少し足を伸ばした遠征だったが、{sent}匹全員が戻ってきた。',
+        '手強い相手もいたが、うまく切り抜けた。',
+      ],
+      loss: [
+        '途中で捕食者に見つかり、{lost}匹が戻らなかった。',
+        '縄張り争いに巻き込まれ、{lost}匹を失った。',
+      ],
+    },
+    high: {
+      safe: [
+        '危険な縄張りに踏み込んだが、驚くほど無傷で戻ってきた。',
+        '大きな賭けだったが、{sent}匹全員が生きて帰った。',
+      ],
+      loss: [
+        '大型の甲虫に襲われ、{lost}匹を失う大きな代償を払った。',
+        '深追いしすぎた。{lost}匹が二度と巣に戻らなかった。',
+      ],
+    },
+  };
+
+  const SAVE_KEY = 'ant-colony-save';
+  const SAVE_VERSION = 2;
+
   let state = null;
+  let candidateDrafts = [];
 
   function freshQueen(stats) {
     const lifespan = stats.lifespan;
@@ -28,6 +65,10 @@
 
   function freshCandidates() {
     return Array.from({ length: CONFIG.CANDIDATE_SLOTS }, () => ({ invested: 0, base: null }));
+  }
+
+  function resetDrafts() {
+    candidateDrafts = new Array(CONFIG.CANDIDATE_SLOTS).fill(0);
   }
 
   function newGameState() {
@@ -41,9 +82,38 @@
       turnsThisReign: 0,
       resourceThisReign: 0,
       history: [],
-      log: [],
+      log: [`第1代の女王が即位した。`],
       gameOver: false,
+      awaitingSuccession: false,
     };
+  }
+
+  function saveState() {
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ version: SAVE_VERSION, state }));
+    } catch (e) {
+      /* private browsing / quota などで失敗しても致命的ではないので無視する */
+    }
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed.version !== SAVE_VERSION || !parsed.state) return null;
+      return parsed.state;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearSave() {
+    try {
+      localStorage.removeItem(SAVE_KEY);
+    } catch (e) {
+      /* 無視する */
+    }
   }
 
   function mutateStat(v) {
@@ -74,6 +144,12 @@
     state.log = state.log.slice(0, 40);
   }
 
+  function pickFlavor(riskKey, sent, lost) {
+    const bucket = FLAVOR[riskKey][lost > 0 ? 'loss' : 'safe'];
+    const template = bucket[Math.floor(Math.random() * bucket.length)];
+    return template.replace('{sent}', sent).replace('{lost}', lost);
+  }
+
   function eggCostPerUnit() {
     const fertility = state.queen.stats.fertility;
     return CONFIG.EGG_BASE_COST * (10 / (10 + fertility));
@@ -81,8 +157,8 @@
 
   function applyVitalityChange(delta) {
     state.queen.vitality = Math.max(0, state.queen.vitality + delta);
-    if (state.queen.vitality <= 0 && !state.gameOver) {
-      openSuccession();
+    if (state.queen.vitality <= 0) {
+      checkSuccession();
     }
   }
 
@@ -104,7 +180,9 @@
     state.resourceThisReign += gained;
     state.turnActions.expeditionUsed = true;
 
-    addLog(`${risk.label}の遠征：${sentCount}匹を送り、資源+${gained}、損耗${lost}匹。`);
+    const flavor = pickFlavor(riskKey, sentCount, lost);
+    const tail = lost > 0 ? `（資源+${gained}、損耗${lost}匹）` : `（資源+${gained}）`;
+    addLog(`${risk.label}の遠征：${flavor}${tail}`);
     animateExpedition(sentCount, lost, () => renderAll());
     renderAll();
   }
@@ -142,12 +220,13 @@
     }
     c.invested += amount;
     state.resource -= amount;
+    candidateDrafts[index] = 0;
     addLog(`候補${index + 1}に資源${amount}を投資した。`);
     renderAll();
   }
 
   function endTurn() {
-    if (state.gameOver) return;
+    if (state.gameOver || state.awaitingSuccession) return;
     state.turnsThisReign += 1;
     state.turnActions = { expeditionUsed: false, eggUsed: false };
     addLog('--- ターンを終えた ---');
@@ -155,11 +234,8 @@
     renderAll();
   }
 
-  function openSuccession() {
-    const modal = document.getElementById('succession-modal');
-    const title = document.getElementById('succession-title');
-    const body = document.getElementById('succession-body');
-    const restartBtn = document.getElementById('btn-restart');
+  function checkSuccession() {
+    if (state.gameOver || state.awaitingSuccession) return;
     const viable = state.candidates
       .map((c, i) => ({ c, i }))
       .filter((x) => x.c.base && x.c.invested > 0);
@@ -172,36 +248,11 @@
       outcome: viable.length > 0 ? 'succeeded' : 'wiped',
     });
 
-    body.innerHTML = '';
     if (viable.length === 0) {
       state.gameOver = true;
-      title.textContent = 'コロニー全滅';
-      const p = document.createElement('p');
-      p.textContent = `第${state.generation}代の女王が寿命を迎えたが、後継者は誰も育っていなかった。コロニーはここで途絶えた。`;
-      body.appendChild(p);
-      restartBtn.hidden = false;
     } else {
-      title.textContent = '世代交代';
-      const intro = document.createElement('p');
-      intro.textContent = `第${state.generation}代の女王が寿命を迎えた。次代を選んでほしい。`;
-      body.appendChild(intro);
-      viable.forEach(({ c, i }) => {
-        const fs = candidateFinalStats(c);
-        const row = document.createElement('div');
-        row.className = 'succession-option';
-        const info = document.createElement('span');
-        info.textContent = `候補${i + 1}｜戦${fmt(fs.combat)} 収${fmt(fs.gather)} 繁${fmt(fs.fertility)} 寿${fmt(fs.lifespan)}`;
-        const btn = document.createElement('button');
-        btn.textContent = 'この子を女王にする';
-        btn.addEventListener('click', () => chooseSuccessor(fs));
-        row.appendChild(info);
-        row.appendChild(btn);
-        body.appendChild(row);
-      });
-      restartBtn.hidden = true;
+      state.awaitingSuccession = true;
     }
-
-    modal.hidden = false;
   }
 
   function chooseSuccessor(stats) {
@@ -218,15 +269,23 @@
     state.turnActions = { expeditionUsed: false, eggUsed: false };
     state.turnsThisReign = 0;
     state.resourceThisReign = 0;
+    state.awaitingSuccession = false;
+    resetDrafts();
     addLog(`第${state.generation}代の女王が即位した。`);
-    document.getElementById('succession-modal').hidden = true;
     renderAll();
   }
 
   function restartGame() {
+    clearSave();
     state = newGameState();
-    document.getElementById('succession-modal').hidden = true;
+    resetDrafts();
     renderAll();
+  }
+
+  function requestReset() {
+    const ok = window.confirm('保存されている進行状況を削除して、最初からやり直します。よろしいですか？');
+    if (!ok) return;
+    restartGame();
   }
 
   function themeColors() {
@@ -356,6 +415,10 @@
       `${fmt(state.queen.vitality)} / ${fmt(state.queen.maxVitality)}`;
   }
 
+  function locked() {
+    return state.gameOver || state.awaitingSuccession;
+  }
+
   function renderExpeditionControls() {
     const slider = document.getElementById('expedition-count');
     const out = document.getElementById('expedition-count-out');
@@ -365,7 +428,7 @@
     max.textContent = state.population;
     out.textContent = slider.value;
     document.getElementById('btn-expedition').disabled =
-      state.turnActions.expeditionUsed || state.population <= 0 || state.gameOver;
+      state.turnActions.expeditionUsed || state.population <= 0 || locked() || Number(slider.value) <= 0;
   }
 
   function renderEggControls() {
@@ -374,14 +437,17 @@
     out.textContent = slider.value;
     const cost = Number(slider.value) * eggCostPerUnit();
     const preview = document.getElementById('egg-cost-preview');
-    preview.textContent = `消費する活力：${fmt(cost)}${cost > state.queen.vitality ? '（活力不足のため一部のみ実行される）' : ''}`;
-    document.getElementById('btn-egg').disabled = state.turnActions.eggUsed || state.gameOver;
+    preview.textContent = `消費する活力：${fmt(cost)}${cost > state.queen.vitality ? '(活力不足のため一部のみ実行される)' : ''}`;
+    document.getElementById('btn-egg').disabled =
+      state.turnActions.eggUsed || locked() || Number(slider.value) <= 0;
   }
 
   function renderCandidates() {
     const container = document.getElementById('candidates');
     container.innerHTML = '';
     state.candidates.forEach((c, i) => {
+      if (candidateDrafts[i] > state.resource) candidateDrafts[i] = state.resource;
+
       const el = document.createElement('div');
       el.className = 'ant-candidate';
 
@@ -407,19 +473,23 @@
       range.type = 'range';
       range.min = '0';
       range.max = String(state.resource);
-      range.value = '0';
-      range.disabled = state.resource <= 0 || state.gameOver;
+      range.value = String(candidateDrafts[i]);
+      range.disabled = state.resource <= 0 || locked();
       const out = document.createElement('output');
-      out.textContent = '0';
-      range.addEventListener('input', () => { out.textContent = range.value; });
+      out.textContent = String(candidateDrafts[i]);
+      const btn = document.createElement('button');
+      btn.textContent = '投資する';
+      btn.disabled = state.resource <= 0 || locked() || candidateDrafts[i] <= 0;
+      range.addEventListener('input', () => {
+        candidateDrafts[i] = Number(range.value);
+        out.textContent = range.value;
+        btn.disabled = state.resource <= 0 || locked() || candidateDrafts[i] <= 0;
+      });
       field.appendChild(label);
       field.appendChild(range);
       field.appendChild(out);
       el.appendChild(field);
 
-      const btn = document.createElement('button');
-      btn.textContent = '投資する';
-      btn.disabled = state.resource <= 0 || state.gameOver;
       btn.addEventListener('click', () => doInvest(i, Number(range.value)));
       el.appendChild(btn);
 
@@ -449,7 +519,56 @@
   }
 
   function renderEndTurnButton() {
-    document.getElementById('btn-end-turn').disabled = state.gameOver;
+    document.getElementById('btn-end-turn').disabled = locked();
+  }
+
+  function renderSuccessionModal() {
+    const modal = document.getElementById('succession-modal');
+    const title = document.getElementById('succession-title');
+    const body = document.getElementById('succession-body');
+    const restartBtn = document.getElementById('btn-restart');
+
+    if (state.gameOver) {
+      const lastGen = state.history.length ? state.history[state.history.length - 1].generation : state.generation;
+      title.textContent = 'コロニー全滅';
+      body.innerHTML = '';
+      const p = document.createElement('p');
+      p.textContent = `第${lastGen}代の女王が寿命を迎えたが、後継者は誰も育っていなかった。コロニーはここで途絶えた。`;
+      body.appendChild(p);
+      restartBtn.hidden = false;
+      modal.hidden = false;
+      return;
+    }
+
+    if (!state.awaitingSuccession) {
+      modal.hidden = true;
+      return;
+    }
+
+    title.textContent = '世代交代';
+    body.innerHTML = '';
+    const intro = document.createElement('p');
+    intro.textContent = `第${state.generation}代の女王が寿命を迎えた。次代を選んでほしい。`;
+    body.appendChild(intro);
+
+    const viable = state.candidates
+      .map((c, i) => ({ c, i }))
+      .filter((x) => x.c.base && x.c.invested > 0);
+    viable.forEach(({ c, i }) => {
+      const fs = candidateFinalStats(c);
+      const row = document.createElement('div');
+      row.className = 'succession-option';
+      const info = document.createElement('span');
+      info.textContent = `候補${i + 1}｜戦${fmt(fs.combat)} 収${fmt(fs.gather)} 繁${fmt(fs.fertility)} 寿${fmt(fs.lifespan)}`;
+      const btn = document.createElement('button');
+      btn.textContent = 'この子を女王にする';
+      btn.addEventListener('click', () => chooseSuccessor(fs));
+      row.appendChild(info);
+      row.appendChild(btn);
+      body.appendChild(row);
+    });
+    restartBtn.hidden = true;
+    modal.hidden = false;
   }
 
   function renderAll() {
@@ -460,15 +579,18 @@
     renderLog();
     renderHistory();
     renderEndTurnButton();
+    renderSuccessionModal();
     drawScene(state.population, null);
+    saveState();
   }
 
   function init() {
-    state = newGameState();
-    addLog(`第1代の女王が即位した。`);
+    const loaded = loadState();
+    state = loaded || newGameState();
+    resetDrafts();
 
-    document.getElementById('expedition-count').addEventListener('input', (e) => {
-      document.getElementById('expedition-count-out').textContent = e.target.value;
+    document.getElementById('expedition-count').addEventListener('input', () => {
+      renderExpeditionControls();
     });
     document.getElementById('egg-count').addEventListener('input', () => {
       renderEggControls();
@@ -487,6 +609,7 @@
 
     document.getElementById('btn-end-turn').addEventListener('click', endTurn);
     document.getElementById('btn-restart').addEventListener('click', restartGame);
+    document.getElementById('btn-reset-save').addEventListener('click', requestReset);
 
     renderAll();
   }
