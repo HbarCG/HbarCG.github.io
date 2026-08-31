@@ -145,7 +145,13 @@ a:visited {
 .essay-meta {
   color: var(--color-text-muted);
   font-size: 0.9rem;
-  margin-bottom: 2.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.essay-stats {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  margin: 0 0 2.5rem;
 }
 
 .essay-body h2 {
