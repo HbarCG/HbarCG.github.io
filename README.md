@@ -1,4 +1,4 @@
-# ltshinfleet.github.io
+# HbarCG.github.io
 
 個人で運営する、文章・思考・実験のためのサイト。
 
@@ -40,4 +40,4 @@
 
 ## 公開
 
-`main` ブランチの内容がそのまま https://ltshinfleet.github.io/ に公開される。
+`main` ブランチの内容がそのまま https://HbarCG.github.io/ に公開される。

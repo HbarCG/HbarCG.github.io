@@ -5,7 +5,7 @@
 
 ## 所有権
 
-- コード・文章・ドメインはすべて所有者（ltshinfleet）が所有する
+- コード・文章・ドメインはすべて所有者（HbarCG）が所有する
 - 特定のAIサービスへの依存を避ける。誰が読んでも理解できるシンプルなコードにする
 - 将来、別のAIや別の開発者が作業を引き継げる状態を保つ（AIにしかわからないコード・ブラックボックス化を避ける）
 
@@ -57,8 +57,8 @@
 
 ## Git / GitHub
 
-- リモートリポジトリ: https://github.com/ltshinfleet/ltshinfleet.github.io
-- GitHub Pagesで自動公開される（`main` ブランチの内容がそのまま https://ltshinfleet.github.io/ に反映される）
+- リモートリポジトリ: https://github.com/HbarCG/HbarCG.github.io
+- GitHub Pagesで自動公開される（`main` ブランチの内容がそのまま https://HbarCG.github.io/ に反映される）
 - コミットの `user.email` は GitHub の非公開アドレス（`users.noreply.github.com`）を使用している。
   公開リポジトリのため、実際のメールアドレスに戻さないこと
 - この開発環境では Git Credential Manager のブラウザポップアップ認証が機能しない。
