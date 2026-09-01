@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Store | HbarCG</title>
+  <meta name="description" content="Google Playを介さない、独自のAndroidアプリ配信リポジトリ。">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="page">
+    <header class="site-header">
+      <p class="site-title"><a href="/">HbarCG</a></p>
+      <nav class="site-nav">
+        <a href="/essays/">Essays</a>
+        <a href="/apps/">Apps</a>
+        <a href="/about/">About</a>
+      </nav>
+    </header>
+
+    <main>
+      <h1>Store</h1>
+      <p>
+        Google PlayやAppleのApp Storeのような、特定の企業を介さないアプリ配信の実験です。
+        F-Droidが使っているオープンな仕組み（<a href="https://f-droid.org/">F-Droid</a>互換のリポジトリ形式）で
+        アプリを配布しています。誰でも同じ仕組みでリポジトリを立てられるよう、独自のクライアントは作らず
+        既存のF-Droid互換クライアントで使える形にしています。
+      </p>
+
+      <h2>使い方</h2>
+      <ol>
+        <li>Android端末に <a href="https://f-droid.org/">F-Droid</a> または
+          <a href="https://github.com/Droid-ify/client">Droid-ify</a> などF-Droid互換クライアントをインストールする</li>
+        <li>クライアントの「リポジトリを追加」から、以下のURLを追加する</li>
+      </ol>
+      <p>
+        <code>https://ltshinfleet.github.io/store/repo</code>
+      </p>
+      <p>
+        リポジトリの署名フィンガープリント（追加時に一致を確認してください）：<br>
+        <code>B6:73:AE:F9:8F:22:1A:FB:28:8C:79:13:64:19:33:3A:33:D2:F7:88:9A:65:51:99:6D:58:84:EA:B2:64:F3:57</code>
+      </p>
+
+      <h2>現状</h2>
+      <p>
+        現在は配信の仕組みを検証するためのプレースホルダーアプリが1つ入っているだけです。
+        実際に使えるアプリは今後追加していきます。
+      </p>
+
+      <h2>注意</h2>
+      <p>
+        Google Playの審査を経由しないため、インストール時に端末側で警告が表示されます。
+        これはAndroidの仕様であり、このリポジトリ自体の問題ではありません。
+      </p>
+    </main>
+
+    <footer class="site-footer">
+      <p>&copy; 2026 HbarCG</p>
+    </footer>
+  </div>
+</body>
+</html>
