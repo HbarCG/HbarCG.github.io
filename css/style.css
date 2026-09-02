@@ -68,6 +68,20 @@ body {
   text-decoration: none;
 }
 
+.site-title .mark-hb {
+  position: relative;
+}
+
+.site-title .mark-hb::after {
+  content: "";
+  position: absolute;
+  left: -8%;
+  right: -8%;
+  top: 24%;
+  height: 13%;
+  background: currentColor;
+}
+
 .site-nav {
   display: flex;
   gap: 1.25rem;
