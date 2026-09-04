@@ -1,11 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
   <style>
     path.h { stroke: #1f1f1f; }
+    path.bar { stroke: #d64526; }
     @media (prefers-color-scheme: dark) {
       path.h { stroke: #e6e6e6; }
+      path.bar { stroke: #ff6b4a; }
     }
   </style>
   <path class="h" d="M14,9 L14,39 M34,9 L34,39 M14,24 L34,24"
         fill="none" stroke-width="5" stroke-linecap="square"/>
-  <path d="M8,9 L40,9" fill="none" stroke="#d64526" stroke-width="5" stroke-linecap="square"/>
+  <path class="bar" d="M8,9 L40,9" fill="none" stroke-width="5" stroke-linecap="square"/>
 </svg>

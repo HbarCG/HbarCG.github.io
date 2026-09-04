@@ -6,6 +6,7 @@
   --color-link: #1a5fb4;
   --color-link-visited: #6b3fa0;
   --color-border: #e3e2de;
+  --color-accent-bar: #d64526;
   --font-serif: "Hiragino Mincho ProN", "Yu Mincho", "Georgia", serif;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans",
     "Yu Gothic", sans-serif;
@@ -20,6 +21,7 @@
     --color-link: #7cb0ea;
     --color-link-visited: #b79ee0;
     --color-border: #333331;
+    --color-accent-bar: #ff6b4a;
   }
 }
 
@@ -79,7 +81,7 @@ body {
   right: -4%;
   top: 12%;
   height: 11%;
-  background: #d64526;
+  background: var(--color-accent-bar);
 }
 
 .site-nav {
