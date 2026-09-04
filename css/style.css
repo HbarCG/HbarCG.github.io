@@ -75,11 +75,11 @@ body {
 .site-title .mark-hb::after {
   content: "";
   position: absolute;
-  left: -8%;
-  right: -8%;
-  top: 24%;
-  height: 13%;
-  background: currentColor;
+  left: -4%;
+  right: -4%;
+  top: 12%;
+  height: 11%;
+  background: #d64526;
 }
 
 .site-nav {
