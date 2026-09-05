@@ -80,8 +80,8 @@ body {
   position: absolute;
   left: -4%;
   right: -4%;
-  top: 12%;
-  height: 11%;
+  top: 4px;
+  height: 2px;
   background: var(--color-accent-bar);
 }
 
