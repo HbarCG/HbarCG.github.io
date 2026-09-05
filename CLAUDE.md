@@ -55,6 +55,18 @@
 
 既存の記事やコードを理解してから変更し、既存機能を壊さないことを最優先する。
 
+## 費用の記録
+
+- HbarCGの取り組みで新たに費用が発生する仕組み（外部APIの従量課金、有料サービスなど）を
+  導入するときは、必ず `data/costs.json` に費用を記録する仕組みとセットで実装すること
+  （記録方法は `scripts/costs-ledger.mjs` の `appendCostEntry()` を参照・再利用する）
+- 記録した費用は `.github/workflows/monthly-cost-report.yml` が毎月1日に集計し、
+  Gmail経由で lt.shin.fleet@gmail.com にレポートメールを送る
+  （実装は `scripts/send-cost-report.mjs` / `scripts/send-email.mjs`）
+- サイト上では `/costs/` で月別に確認できる（ナビには載せていない非掲載ページ）
+- このリポジトリはGitHub上で完全公開なので、`data/costs.json`や関連コードに
+  個人情報（メールアドレス等）を直接書かないこと。宛先などはGitHub Secretsに置く
+
 ## Git / GitHub
 
 - リモートリポジトリ: https://github.com/HbarCG/HbarCG.github.io

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>費用の記録 | HbarCG</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/main.js" defer></script>
+</head>
+<body>
+  <div class="page">
+    <header class="site-header">
+      <p class="site-title"><a href="/">HbarCG</a></p>
+      <nav class="site-nav">
+        <a href="/essays/">Essays</a>
+        <a href="/apps/">Apps</a>
+        <a href="/about/">About</a>
+      </nav>
+    </header>
+
+    <main>
+      <h1>費用の記録</h1>
+      <p class="lede">HbarCGの取り組みでかかった費用を月ごとに記録しています。サイトの読者向けページではありません。</p>
+
+      <div id="costs-content">
+        <p>読み込み中…</p>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <p>&copy; 2026 HbarCG</p>
+    </footer>
+  </div>
+
+  <script>
+    (async function () {
+      const el = document.getElementById("costs-content");
+      let entries;
+      try {
+        const res = await fetch("/data/costs.json");
+        entries = await res.json();
+      } catch (e) {
+        el.textContent = "データの読み込みに失敗しました。";
+        return;
+      }
+
+      if (!entries || entries.length === 0) {
+        el.textContent = "まだ記録された費用はありません。";
+        return;
+      }
+
+      const byMonth = {};
+      for (const entry of entries) {
+        const month = entry.date.slice(0, 7);
+        if (!byMonth[month]) byMonth[month] = [];
+        byMonth[month].push(entry);
+      }
+
+      const months = Object.keys(byMonth).sort().reverse();
+      const grandTotal = entries.reduce((sum, e) => sum + e.amount_usd, 0);
+
+      const frag = document.createDocumentFragment();
+
+      const totalP = document.createElement("p");
+      totalP.innerHTML = `<strong>累計: $${grandTotal.toFixed(2)}</strong>`;
+      frag.appendChild(totalP);
+
+      for (const month of months) {
+        const monthEntries = byMonth[month];
+        const monthTotal = monthEntries.reduce((sum, e) => sum + e.amount_usd, 0);
+
+        const h2 = document.createElement("h2");
+        h2.textContent = `${month}（$${monthTotal.toFixed(2)}）`;
+        frag.appendChild(h2);
+
+        const table = document.createElement("table");
+        table.style.width = "100%";
+        table.style.borderCollapse = "collapse";
+        table.style.fontSize = "0.9rem";
+
+        const thead = document.createElement("thead");
+        thead.innerHTML =
+          "<tr><th style=\"text-align:left;border-bottom:1px solid var(--color-border);padding:0.4em 0\">日付</th>" +
+          "<th style=\"text-align:left;border-bottom:1px solid var(--color-border);padding:0.4em 0\">カテゴリ</th>" +
+          "<th style=\"text-align:left;border-bottom:1px solid var(--color-border);padding:0.4em 0\">内容</th>" +
+          "<th style=\"text-align:right;border-bottom:1px solid var(--color-border);padding:0.4em 0\">金額</th></tr>";
+        table.appendChild(thead);
+
+        const tbody = document.createElement("tbody");
+        for (const entry of monthEntries) {
+          const tr = document.createElement("tr");
+          const td = (text, align) => {
+            const cell = document.createElement("td");
+            cell.textContent = text;
+            cell.style.padding = "0.4em 0";
+            cell.style.borderBottom = "1px solid var(--color-border)";
+            if (align) cell.style.textAlign = align;
+            return cell;
+          };
+          tr.appendChild(td(entry.date));
+          tr.appendChild(td(entry.category));
+          tr.appendChild(td(entry.note));
+          tr.appendChild(td(`$${entry.amount_usd.toFixed(2)}`, "right"));
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+        frag.appendChild(table);
+      }
+
+      el.innerHTML = "";
+      el.appendChild(frag);
+    })();
+  </script>
+</body>
+</html>

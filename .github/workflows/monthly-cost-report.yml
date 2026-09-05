@@ -1,0 +1,32 @@
+name: Monthly cost report email
+
+on:
+  schedule:
+    # 毎月1日 00:00 UTC (日本時間 09:00) に前月分をレポート
+    - cron: "0 0 1 * *"
+  workflow_dispatch:
+    inputs:
+      target_month:
+        description: "集計対象月 (YYYY-MM)。空欄なら前月を自動集計"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Send monthly cost report
+        env:
+          TARGET_MONTH: ${{ inputs.target_month }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          REPORT_TO_EMAIL: ${{ secrets.REPORT_TO_EMAIL }}
+        run: node scripts/send-cost-report.mjs

@@ -1,0 +1,56 @@
+name: Announce new essay on X
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "essays/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify X credentials (manual run only, posts nothing)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+        run: node scripts/verify-x-auth.mjs
+
+      - name: Announce new essays on X
+        if: github.event_name == 'push'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+        run: node scripts/announce-x.mjs
+
+      - name: Commit updated cost ledger
+        if: github.event_name == 'push'
+        run: |
+          if ! git diff --quiet -- data/costs.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add data/costs.json
+            git commit -m "chore: record X API announcement cost"
+            git push
+          else
+            echo "台帳に変更なし。コミットをスキップします。"
+          fi
