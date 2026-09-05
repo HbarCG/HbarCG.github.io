@@ -65,7 +65,8 @@ body {
   letter-spacing: 0.02em;
 }
 
-.site-title a {
+.site-title a,
+.site-title a:visited {
   color: var(--color-text);
   text-decoration: none;
 }
