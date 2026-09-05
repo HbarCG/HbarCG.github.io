@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>雨雲レーダー（試作版） | HbarCG</title>
+  <meta name="description" content="気象庁の高解像度降水ナウキャストを地図に重ねて表示する試作アプリ。">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <link rel="stylesheet" href="/apps/rain-radar/style.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="page page--wide">
+    <header class="site-header">
+      <p class="site-title"><a href="/"><span class="mark-hb">Hb</span>arCG</a></p>
+      <nav class="site-nav">
+        <a href="/essays/">Essays</a>
+        <a href="/apps/">Apps</a>
+        <a href="/about/">About</a>
+      </nav>
+    </header>
+
+    <main>
+      <p class="back-link"><a href="/apps/">← Apps</a></p>
+
+      <h1>雨雲レーダー（試作版）</h1>
+      <p class="lede">
+        気象庁の高解像度降水ナウキャストを地図に重ねて表示します。
+        現時点では最新の降水強度を表示するだけの最小構成（MVP）で、
+        時系列アニメーションは未実装です。地点をクリックすると、その地点の推定降水強度が表示されます。
+      </p>
+
+      <div id="rain-radar-app" class="rr-app">
+        <div id="rr-map" class="rr-map"></div>
+        <div class="rr-panel">
+          <p id="rr-status" class="rr-status">読み込み中…</p>
+          <div class="rr-legend">
+            <span class="rr-legend__title">降水強度 (mm/h)</span>
+            <div class="rr-legend__scale">
+              <span class="rr-swatch" style="background:rgb(242,242,255)"></span><span class="rr-legend__label">0-1</span>
+              <span class="rr-swatch" style="background:rgb(160,210,255)"></span><span class="rr-legend__label">1-5</span>
+              <span class="rr-swatch" style="background:rgb(33,140,255)"></span><span class="rr-legend__label">5-10</span>
+              <span class="rr-swatch" style="background:rgb(0,65,255)"></span><span class="rr-legend__label">10-20</span>
+              <span class="rr-swatch" style="background:rgb(250,245,0)"></span><span class="rr-legend__label">20-30</span>
+              <span class="rr-swatch" style="background:rgb(255,153,0)"></span><span class="rr-legend__label">30-50</span>
+              <span class="rr-swatch" style="background:rgb(255,40,0)"></span><span class="rr-legend__label">50-80</span>
+              <span class="rr-swatch" style="background:rgb(180,0,104)"></span><span class="rr-legend__label">80-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="rr-credit">
+        地図データ: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>／
+        降水データ: <a href="https://www.jma.go.jp/" target="_blank" rel="noopener">気象庁</a>（高解像度降水ナウキャスト）
+      </p>
+    </main>
+
+    <footer class="site-footer">
+      <p>&copy; 2026 HbarCG</p>
+    </footer>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="/apps/rain-radar/app.js"></script>
+</body>
+</html>

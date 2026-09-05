@@ -1,0 +1,66 @@
+.rr-app {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.rr-map {
+  flex: 1 1 480px;
+  height: 60vh;
+  min-height: 360px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+.rr-panel {
+  flex: 0 0 200px;
+}
+
+.rr-status {
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  margin: 0 0 1rem;
+}
+
+.rr-legend__title {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.4rem;
+}
+
+.rr-legend__scale {
+  display: grid;
+  grid-template-columns: 1.2rem 1fr;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+}
+
+.rr-swatch {
+  display: inline-block;
+  width: 1.2rem;
+  height: 1rem;
+  border-radius: 2px;
+  border: 1px solid var(--color-border);
+}
+
+.rr-legend__label {
+  font-size: 0.85rem;
+}
+
+.rr-credit {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.rr-popup {
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .rr-map {
+    height: 50vh;
+  }
+}
