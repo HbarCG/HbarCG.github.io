@@ -27,8 +27,8 @@
       <h1>雨雲レーダー（試作版）</h1>
       <p class="lede">
         気象庁の高解像度降水ナウキャストを地図に重ねて表示します。
-        現時点では最新の降水強度を表示するだけの最小構成（MVP）で、
-        時系列アニメーションは未実装です。地点をクリックすると、その地点の推定降水強度が表示されます。
+        直近約3時間の推移を再生・シークでき、地図の操作中も裏で時間は進み続けます。
+        地点をクリックすると、その地点の推定降水強度が表示されます。
       </p>
 
       <div id="rain-radar-app" class="rr-app">
@@ -48,6 +48,16 @@
               <span class="rr-swatch" style="background:rgb(180,0,104)"></span><span class="rr-legend__label">80-</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div class="rr-controls">
+        <button type="button" id="rr-play" class="rr-play-btn" aria-label="再生">▶</button>
+        <input type="range" id="rr-slider" class="rr-slider" min="0" max="0" step="1" value="0" aria-label="表示時刻を選択">
+        <div class="rr-speed" role="group" aria-label="再生速度">
+          <button type="button" data-speed="0.5">0.5x</button>
+          <button type="button" data-speed="1" class="is-active">1x</button>
+          <button type="button" data-speed="2">2x</button>
         </div>
       </div>
 
