@@ -2,6 +2,62 @@
 
 `store/`以下で公開しているF-Droid互換の独自Androidアプリ配信リポジトリを、
 今後どう更新するかのメモです。作業の頻度が低く忘れやすいので、ここに残します。
+別のセッション・別のAIエージェントが引き継ぐ前提で書いています。
+
+現状（2026-09時点）は、配信の仕組みを検証するためのプレースホルダーアプリ
+（`io.github.hbarcg.store.placeholder`）が1つ入っているだけ。実際のアプリが
+完成したら、下の「実アプリを公開する手順」で置き換える。
+
+## 実アプリを公開する手順（プレースホルダーからの切り替え）
+
+前提：リリース用のAPK（署名前でよい）がビルドできている状態。
+
+1. **そのアプリ専用の署名鍵を作る（そのアプリの初回リリース時のみ）**
+
+   リポジトリ全体の鍵（`~/fdroid-workdir/keystore.p12`、index/entry.jarの
+   署名用）とは別に、**アプリ本体を署名する鍵**が必要。これは今後そのアプリを
+   アップデートするたびに毎回同じものを使い続ける必要がある
+   （鍵を変えるとAndroid側が「別アプリ」とみなし、既存ユーザーが
+   上書きインストールできなくなる）。
+
+   ```bash
+   export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+   export PATH="$JAVA_HOME/bin:/usr/bin:/bin"
+   keytool -genkeypair -v -keystore ~/app-keystores/<アプリ名>.keystore \
+     -alias <アプリ名> -keyalg RSA -keysize 2048 -validity 10000 \
+     -dname "CN=<アプリ名>, OU=Store, O=HbarCG, L=Unknown, S=Unknown, C=JP"
+   ```
+
+   作成したら、`docs/android-store-operations.md`の「署名鍵について」と同じ要領で、
+   このアプリ専用の鍵（ファイル・パスワード・エイリアス）もパスワードマネージャーに
+   バックアップしておく（リポジトリの鍵とは別エントリとして保存すること）。
+
+2. **APKに署名する**
+
+   ```bash
+   BT=/root/android-sdk/build-tools/35.0.0
+   $BT/zipalign -f -p 4 app-release-unsigned.apk app-release-aligned.apk
+   $BT/apksigner sign --ks ~/app-keystores/<アプリ名>.keystore \
+     --out app-release.apk app-release-aligned.apk
+   $BT/apksigner verify app-release.apk
+   ```
+
+3. **プレースホルダーを外す**
+
+   ```bash
+   rm /root/fdroid-workdir/repo/placeholder.apk
+   ```
+
+   （複数アプリを並べて公開したい場合はこのステップは飛ばし、
+   `repo/`に複数のAPKを置いたまま次に進めばよい）
+
+4. 署名済みAPK（`app-release.apk`）を`~/fdroid-workdir/repo/`に置く
+
+5. あとは下の「新しいアプリを追加する手順」の2〜5と同じ
+   （`fdroid update` → entry.jar手動修正 → `store/repo/`へコピー → commit・push）
+
+6. `store/index.html`の説明文（プレースホルダーの説明になっている部分）を
+   実際のアプリ内容に合わせて書き換える
 
 ## 新しいアプリを追加する手順
 
