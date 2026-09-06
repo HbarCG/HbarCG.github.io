@@ -33,9 +33,20 @@
       </p>
 
       <div id="rain-radar-app" class="rr-app">
-        <div id="rr-map" class="rr-map"></div>
+        <div class="rr-map-wrap">
+          <div id="rr-map" class="rr-map"></div>
+
+          <p id="rr-status" class="rr-status-badge">読み込み中…</p>
+
+          <div class="rr-scrub-bar">
+            <button type="button" id="rr-step-prev" class="rr-step-btn" aria-label="1コマ戻る" title="1コマ戻る">«</button>
+            <button type="button" id="rr-play" class="rr-play-btn" aria-label="再生">▶</button>
+            <button type="button" id="rr-step-next" class="rr-step-btn" aria-label="1コマ進む" title="1コマ進む">»</button>
+            <input type="range" id="rr-slider" class="rr-slider" min="0" max="1000" step="1" value="0" aria-label="表示時刻を選択(矢印キーで1コマ送り)">
+          </div>
+        </div>
+
         <div class="rr-panel">
-          <p id="rr-status" class="rr-status">読み込み中…</p>
           <div class="rr-legend">
             <span id="rr-legend-title" class="rr-legend__title">降水の強さ（目安）</span>
             <div id="rr-legend-scale" class="rr-legend__scale"></div>
@@ -44,8 +55,14 @@
       </div>
 
       <div class="rr-controls">
-        <button type="button" id="rr-play" class="rr-play-btn" aria-label="再生">▶</button>
-        <input type="range" id="rr-slider" class="rr-slider" min="0" max="0" step="1" value="0" aria-label="表示時刻を選択">
+        <div class="rr-jumps" role="group" aria-label="時刻へジャンプ">
+          <button type="button" data-jump="-360">−6時間</button>
+          <button type="button" data-jump="-60">−1時間</button>
+          <button type="button" data-jump="0" class="rr-jump-now">現在</button>
+          <button type="button" data-jump="60">+1時間</button>
+          <button type="button" data-jump="360">+6時間</button>
+          <button type="button" data-jump="1440">+24時間</button>
+        </div>
         <div class="rr-speed" role="group" aria-label="再生速度">
           <button type="button" data-speed="0.5">0.5x</button>
           <button type="button" data-speed="1" class="is-active">1x</button>

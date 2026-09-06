@@ -54,14 +54,20 @@
     { key: "strong", words: "強い", range: "10以上" },
   ];
 
+  const SLIDER_MAX = 1000; // スライダーは実時間に比例させる(コマ数には比例させない)
+
   const statusEl = document.getElementById("rr-status");
   const playBtn = document.getElementById("rr-play");
+  const stepPrevBtn = document.getElementById("rr-step-prev");
+  const stepNextBtn = document.getElementById("rr-step-next");
   const slider = document.getElementById("rr-slider");
   const speedButtons = Array.from(document.querySelectorAll("[data-speed]"));
+  const jumpButtons = Array.from(document.querySelectorAll("[data-jump]"));
   const legendScaleEl = document.getElementById("rr-legend-scale");
 
   const map = L.map("rr-map");
   map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+  map.attributionControl.setPosition("topleft"); // 右下の帰属表示が下部の時間送りバーと重なるのを避ける
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
@@ -168,10 +174,73 @@
     statusEl.textContent = `表示時刻: ${formatJmaTime(t.validtime)}（${rel}${forecastTag}）`;
   }
 
+  function frameTimeMs(index) {
+    const t = timeline.times[index];
+    return t ? parseJmaTimeToDate(t.validtime).getTime() : null;
+  }
+
+  // スライダーはコマ数ではなく実経過時間に比例させる。実況は5分刻み、
+  // 予報は3時間刻みとコマの間隔が大きく異なるため、コマ数に比例させると
+  // 「同じ1目盛りなのに進む時間が全然違う」という分かりにくさが生まれるため。
+  function timeToSliderValue(ms) {
+    const tMin = frameTimeMs(0);
+    const tMax = frameTimeMs(timeline.times.length - 1);
+    if (tMin === null || tMax === null || tMax === tMin) {
+      return 0;
+    }
+    const ratio = (ms - tMin) / (tMax - tMin);
+    return Math.round(Math.min(1, Math.max(0, ratio)) * SLIDER_MAX);
+  }
+
+  function findNearestIndexByTime(targetMs) {
+    let bestIndex = 0;
+    let bestDiff = Infinity;
+    for (let i = 0; i < timeline.times.length; i++) {
+      const diff = Math.abs(frameTimeMs(i) - targetMs);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestIndex = i;
+      }
+    }
+    return bestIndex;
+  }
+
+  function sliderValueToNearestIndex(value) {
+    const tMin = frameTimeMs(0);
+    const tMax = frameTimeMs(timeline.times.length - 1);
+    if (tMin === null || tMax === null) {
+      return 0;
+    }
+    const targetMs = tMin + (value / SLIDER_MAX) * (tMax - tMin);
+    return findNearestIndexByTime(targetMs);
+  }
+
   function renderFrame() {
     rainLayer.redraw();
-    slider.value = String(timeline.index);
+    const ms = frameTimeMs(timeline.index);
+    if (ms !== null) {
+      slider.value = String(timeToSliderValue(ms));
+    }
     updateStatusLabel();
+  }
+
+  function stepFrame(delta) {
+    if (timeline.times.length === 0) {
+      return;
+    }
+    pause();
+    timeline.index = Math.min(timeline.times.length - 1, Math.max(0, timeline.index + delta));
+    renderFrame();
+  }
+
+  function jumpToOffsetMinutes(minutes) {
+    if (timeline.times.length === 0) {
+      return;
+    }
+    pause();
+    const liveMs = timeline.liveIndex >= 0 ? frameTimeMs(timeline.liveIndex) : Date.now();
+    timeline.index = findNearestIndexByTime(liveMs + minutes * 60000);
+    renderFrame();
   }
 
   function scheduleNextFrame() {
@@ -214,8 +283,27 @@
 
   slider.addEventListener("input", () => {
     pause();
-    timeline.index = Number(slider.value);
+    timeline.index = sliderValueToNearestIndex(Number(slider.value));
     renderFrame();
+  });
+
+  // スライダーの矢印キーはネイティブだと1/1000刻みで動いてしまい実用的でないため、
+  // 必ずデータのある1コマ分だけ動くように上書きする。
+  slider.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+      e.preventDefault();
+      stepFrame(-1);
+    } else if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+      e.preventDefault();
+      stepFrame(1);
+    }
+  });
+
+  stepPrevBtn.addEventListener("click", () => stepFrame(-1));
+  stepNextBtn.addEventListener("click", () => stepFrame(1));
+
+  jumpButtons.forEach((btn) => {
+    btn.addEventListener("click", () => jumpToOffsetMinutes(Number(btn.dataset.jump)));
   });
 
   speedButtons.forEach((btn) => {
@@ -269,7 +357,6 @@
       const prevWasAtEdge = hadTimes && timeline.index === timeline.times.length - 1;
 
       timeline.times = times;
-      slider.max = String(Math.max(0, times.length - 1));
 
       if (!hadTimes) {
         timeline.index = Math.max(0, timeline.liveIndex);

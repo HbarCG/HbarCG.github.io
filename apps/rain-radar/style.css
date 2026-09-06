@@ -5,8 +5,12 @@
   margin: 1.5rem 0;
 }
 
-.rr-map {
+.rr-map-wrap {
+  position: relative;
   flex: 1 1 480px;
+}
+
+.rr-map {
   height: 60vh;
   min-height: 360px;
   border: 1px solid var(--color-border);
@@ -17,10 +21,38 @@
   flex: 0 0 200px;
 }
 
-.rr-status {
-  font-size: 0.9rem;
+/* 地図の上に直接重ねる現在時刻表示と時間送りバー。
+   画面(地図)と時間操作の間に距離があると、操作しながら地図の変化を
+   見られないため、常に同じ視界に収まるよう地図に密着させている。 */
+.rr-status-badge {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 500;
+  margin: 0;
+  padding: 0.3rem 0.6rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 0.8rem;
   color: var(--color-text-muted);
-  margin: 0 0 1rem;
+  max-width: calc(100% - 1rem);
+}
+
+.rr-scrub-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-border);
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
 }
 
 .rr-legend__title {
@@ -52,28 +84,59 @@
 .rr-controls {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem;
   margin: 0 0 1.25rem;
   padding: 0.6rem 0.8rem;
   border: 1px solid var(--color-border);
   border-radius: 4px;
 }
 
-.rr-play-btn {
+.rr-play-btn,
+.rr-step-btn {
   flex: 0 0 auto;
-  width: 2.4rem;
-  height: 2.4rem;
+  width: 2rem;
+  height: 2rem;
   border-radius: 50%;
   border: 1px solid var(--color-border);
   background: var(--color-bg);
   color: var(--color-text);
-  font-size: 1rem;
+  font-size: 0.9rem;
   line-height: 1;
   cursor: pointer;
 }
 
-.rr-play-btn:hover {
+.rr-play-btn:hover,
+.rr-step-btn:hover {
   border-color: var(--color-link);
+}
+
+.rr-jumps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.rr-jumps button {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  border-radius: 3px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.rr-jumps button:hover {
+  border-color: var(--color-link);
+  color: var(--color-text);
+}
+
+.rr-jumps .rr-jump-now {
+  font-weight: bold;
+  border-color: var(--color-link);
+  color: var(--color-text);
 }
 
 .rr-slider {
