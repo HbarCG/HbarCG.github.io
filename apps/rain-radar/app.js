@@ -12,46 +12,52 @@
   const PREFETCH_CONCURRENCY = 6;
   const COLOR_MATCH_THRESHOLD = 60; // ユークリッド距離の許容値(アンチエイリアス誤差を吸収)
 
-  // 気象庁ホームページの配色設定指針より
-  const MODE_CONFIG = {
-    nowcast: {
-      label: "ナウキャスト(実況+60分先)",
-      unit: "mm/h",
-      granularity: "minute",
-      note: "5分間隔。直近約3時間の実況と60分先までの予報を表示します。",
-      // 降水量・解析雨量・レーダー/ナウキャスト用の配色(強い順)
-      colorTable: [
-        { rgb: [180, 0, 104], label: "80以上" },
-        { rgb: [255, 40, 0], label: "50~80" },
-        { rgb: [255, 153, 0], label: "30~50" },
-        { rgb: [250, 245, 0], label: "20~30" },
-        { rgb: [0, 65, 255], label: "10~20" },
-        { rgb: [33, 140, 255], label: "5~10" },
-        { rgb: [160, 210, 255], label: "1~5" },
-        { rgb: [242, 242, 255], label: "0~1" },
-      ],
-    },
-    forecast: {
-      label: "予報(3時間ごと)",
-      unit: "mm/3h",
-      granularity: "hour",
-      note: "3時間ごとの降水量予報。配信されている範囲(実測で約43時間先まで)を再生できます。",
-      // 天気分布予報(mm/3h)用の配色(強い順)
-      colorTable: [
-        { rgb: [250, 245, 0], label: "10以上" },
-        { rgb: [0, 65, 255], label: "5~10" },
-        { rgb: [33, 140, 255], label: "1~5" },
-      ],
-    },
+  // 気象庁ホームページの配色設定指針より。ナウキャスト(mm/h, 8段階)と
+  // 天気分布予報(mm/3h, 3段階)は同じ基本パレットの一部を共有している。
+  const NOWCAST_NATIVE_COLORS = [
+    { rgb: [180, 0, 104], label: "80以上" },
+    { rgb: [255, 40, 0], label: "50~80" },
+    { rgb: [255, 153, 0], label: "30~50" },
+    { rgb: [250, 245, 0], label: "20~30" },
+    { rgb: [0, 65, 255], label: "10~20" },
+    { rgb: [33, 140, 255], label: "5~10" },
+    { rgb: [160, 210, 255], label: "1~5" },
+    { rgb: [242, 242, 255], label: "0~1" },
+  ];
+  const FORECAST_NATIVE_COLORS = [
+    { rgb: [250, 245, 0], label: "10以上" },
+    { rgb: [0, 65, 255], label: "5~10" },
+    { rgb: [33, 140, 255], label: "1~5" },
+  ];
+
+  // 表示上は常にこの3段階(天気分布予報の粒度)に丸めて統一する。
+  const NOWCAST_TO_UNIFIED = {
+    "80以上": "strong",
+    "50~80": "strong",
+    "30~50": "strong",
+    "20~30": "strong",
+    "10~20": "strong",
+    "5~10": "medium",
+    "1~5": "weak",
+    "0~1": "weak",
   };
+  const FORECAST_LABEL_TO_UNIFIED = {
+    "10以上": "strong",
+    "5~10": "medium",
+    "1~5": "weak",
+  };
+  // 弱い→強いの順。ナウキャスト(mm/h)と天気分布予報(mm/3h)で単位が異なるため、
+  // 表示は単位を出さず相対的な強さの言葉+目安の範囲にとどめる。
+  const UNIFIED_TIERS = [
+    { key: "weak", words: "弱い", range: "1~5" },
+    { key: "medium", words: "やや強い", range: "5~10" },
+    { key: "strong", words: "強い", range: "10以上" },
+  ];
 
   const statusEl = document.getElementById("rr-status");
   const playBtn = document.getElementById("rr-play");
   const slider = document.getElementById("rr-slider");
   const speedButtons = Array.from(document.querySelectorAll("[data-speed]"));
-  const modeButtons = Array.from(document.querySelectorAll("[data-mode]"));
-  const modeNoteEl = document.getElementById("rr-mode-note");
-  const legendTitleEl = document.getElementById("rr-legend-title");
   const legendScaleEl = document.getElementById("rr-legend-scale");
 
   const map = L.map("rr-map");
@@ -63,12 +69,12 @@
   }).addTo(map);
 
   // 「地図の表示範囲(zoom/center)」はLeafletのmapオブジェクトが自律的に管理する。
-  // 「時間軸の現在位置・表示モード」はこのtimelineだけが持ち、互いのstateを直接参照しない。
-  let activeMode = "nowcast";
+  // 「時間軸の現在位置」はこのtimelineだけが持ち、互いのstateを直接参照しない。
+  // ナウキャスト(実況+60分先)と天気分布予報(3時間ごと)を1本につないだ単一の時系列。
   const timeline = {
     times: [], // 古い→新しい順の [{basetime, validtime, category, element, forecast}, ...]
     index: 0,
-    liveIndex: -1, // ナウキャストの「実況の最新」に相当するindex(予報モードでは未使用)
+    liveIndex: -1, // 実況の「現在」に相当するindex
     playing: false,
     speed: 1,
   };
@@ -110,6 +116,10 @@
     return hours > 0 ? `${hours}時間後` : `${-hours}時間前`;
   }
 
+  function byValidtimeAsc(a, b) {
+    return a.validtime < b.validtime ? -1 : a.validtime > b.validtime ? 1 : 0;
+  }
+
   // タイムラインの現在フレームだけを見て降水タイルを返すレイヤー。
   // redraw()は現在の地図表示範囲にあるタイルだけを再取得するため、
   // パン/ズーム中でも全体再読み込みにはならない。
@@ -131,16 +141,12 @@
   }).addTo(map);
 
   function renderLegend() {
-    const mode = MODE_CONFIG[activeMode];
-    legendTitleEl.textContent = `降水強度 (${mode.unit})`;
-    const rows = mode.colorTable.slice().reverse();
-    legendScaleEl.innerHTML = rows
-      .map((entry) => {
-        const [r, g, b] = entry.rgb;
-        return `<span class="rr-swatch" style="background:rgb(${r},${g},${b})"></span><span class="rr-legend__label">${entry.label}</span>`;
-      })
-      .join("");
-    modeNoteEl.textContent = mode.note;
+    const noRainRow = `<span class="rr-swatch" style="background:rgba(0,0,0,0.05)"></span><span class="rr-legend__label">降水なし</span>`;
+    const tierRows = UNIFIED_TIERS.map((tier) => {
+      const native = FORECAST_NATIVE_COLORS.find((e) => e.label === tier.range);
+      return `<span class="rr-swatch" style="background:rgb(${native.rgb.join(",")})"></span><span class="rr-legend__label">${tier.words}（${tier.range}）</span>`;
+    });
+    legendScaleEl.innerHTML = [noRainRow].concat(tierRows).join("");
   }
 
   function updateStatusLabel() {
@@ -148,13 +154,13 @@
     if (!t) {
       return;
     }
-    const mode = MODE_CONFIG[activeMode];
     let rel;
-    if (activeMode === "nowcast" && timeline.index === timeline.liveIndex) {
+    if (timeline.index === timeline.liveIndex) {
       rel = "現在";
     } else {
+      const granularity = t.element === "hrpns" ? "minute" : "hour";
       const diffMs = parseJmaTimeToDate(t.validtime).getTime() - Date.now();
-      rel = formatRelativeLabel(diffMs, mode.granularity);
+      rel = formatRelativeLabel(diffMs, granularity);
     }
     const forecastTag = t.forecast ? "・予報" : "";
     statusEl.textContent = `表示時刻: ${formatJmaTime(t.validtime)}（${rel}${forecastTag}）`;
@@ -220,58 +226,43 @@
     });
   });
 
-  modeButtons.forEach((btn) => {
-    btn.addEventListener("click", () => switchMode(btn.dataset.mode));
-  });
+  // ナウキャスト(実況+60分先)と天気分布予報(3時間ごと)を1本の時系列に結合する。
+  // どちらのAPIも配列の並び順を仕様として明記していないため、必ず自前でソートする。
+  async function loadUnifiedTimes() {
+    const [res1, res2, res3] = await Promise.all([
+      fetch(NOWCAST_N1_URL),
+      fetch(NOWCAST_N2_URL),
+      fetch(FORECAST_URL),
+    ]);
+    const n1 = await res1.json();
+    const n2 = await res2.json();
+    const wdist = await res3.json();
 
-  async function fetchNowcastTimes() {
-    const [res1, res2] = await Promise.all([fetch(NOWCAST_N1_URL), fetch(NOWCAST_N2_URL)]);
-    const n1 = await res1.json(); // 実測: 古い→新しい順
-    const n2 = await res2.json(); // 実測: 新しい→古い順(要ソート)
-
-    const past = n1.map((e) => ({
-      basetime: e.basetime,
-      validtime: e.validtime,
-      category: "nowc",
-      element: "hrpns",
-      forecast: false,
-    }));
-    const future = n2
+    const past = n1
       .slice()
-      .sort((a, b) => (a.validtime < b.validtime ? -1 : 1))
-      .map((e) => ({
-        basetime: e.basetime,
-        validtime: e.validtime,
-        category: "nowc",
-        element: "hrpns",
-        forecast: true,
-      }));
+      .sort(byValidtimeAsc)
+      .map((e) => ({ basetime: e.basetime, validtime: e.validtime, category: "nowc", element: "hrpns", forecast: false }));
+    const nearFuture = n2
+      .slice()
+      .sort(byValidtimeAsc)
+      .map((e) => ({ basetime: e.basetime, validtime: e.validtime, category: "nowc", element: "hrpns", forecast: true }));
+
+    const nowcastAll = past.concat(nearFuture);
+    const lastNowcastValidtime = nowcastAll.length ? nowcastAll[nowcastAll.length - 1].validtime : "00000000000000";
+
+    const farFuture = wdist
+      .filter((e) => Array.isArray(e.elements) && e.elements.includes("r3") && e.validtime > lastNowcastValidtime)
+      .slice()
+      .sort(byValidtimeAsc)
+      .map((e) => ({ basetime: e.basetime, validtime: e.validtime, category: "wdist", element: "r3", forecast: true }));
 
     timeline.liveIndex = past.length - 1;
-    return past.concat(future);
-  }
-
-  async function fetchForecastTimes() {
-    const res = await fetch(FORECAST_URL);
-    const data = await res.json();
-    const withR3 = data
-      .filter((e) => Array.isArray(e.elements) && e.elements.includes("r3"))
-      .slice()
-      .sort((a, b) => (a.validtime < b.validtime ? -1 : 1));
-
-    timeline.liveIndex = -1; // 予報モードには「現在」に相当するフレームがない
-    return withR3.map((e) => ({
-      basetime: e.basetime,
-      validtime: e.validtime,
-      category: "wdist",
-      element: "r3",
-      forecast: true,
-    }));
+    return nowcastAll.concat(farFuture);
   }
 
   async function loadTimesList() {
     try {
-      const times = activeMode === "nowcast" ? await fetchNowcastTimes() : await fetchForecastTimes();
+      const times = await loadUnifiedTimes();
       const hadTimes = timeline.times.length > 0;
       const prevWasAtEdge = hadTimes && timeline.index === timeline.times.length - 1;
 
@@ -279,9 +270,9 @@
       slider.max = String(Math.max(0, times.length - 1));
 
       if (!hadTimes) {
-        timeline.index = activeMode === "nowcast" ? Math.max(0, timeline.liveIndex) : 0;
+        timeline.index = Math.max(0, timeline.liveIndex);
       } else if (prevWasAtEdge) {
-        timeline.index = times.length - 1; // 最新/最終フレームを見ていた場合は追従する
+        timeline.index = times.length - 1; // 最終フレームを見ていた場合は追従する
       } else {
         timeline.index = Math.min(timeline.index, times.length - 1);
       }
@@ -291,19 +282,6 @@
     } catch (err) {
       statusEl.textContent = "降水データの取得に失敗しました。時間をおいて再読み込みしてください。";
     }
-  }
-
-  async function switchMode(mode) {
-    if (mode === activeMode) {
-      return;
-    }
-    pause();
-    activeMode = mode;
-    modeButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.mode === mode));
-    renderLegend();
-    timeline.times = [];
-    statusEl.textContent = "読み込み中…";
-    await loadTimesList();
   }
 
   function initView() {
@@ -370,7 +348,7 @@
     async function worker() {
       while (cursor < jobs.length) {
         if (myToken !== prefetchToken) {
-          return; // 新しい表示範囲/モード用のプリフェッチに切り替わったので打ち切り
+          return; // 新しい表示範囲用のプリフェッチに切り替わったので打ち切り
         }
         const url = jobs[cursor++];
         await preloadImage(url);
@@ -390,6 +368,8 @@
   });
 
   // --- クリックした地点の推定降水強度をポップアップ表示 ---
+  // ナウキャスト(mm/h, 8段階)・天気分布予報(mm/3h, 3段階)のどちらの色かをまず native な
+  // パレットで判定し、表示は常に天気分布予報側の3段階(降水なし/1~5/5~10/10以上)に丸める。
   function getTileCanvasCtx(url) {
     if (pixelTileCache.has(url)) {
       return pixelTileCache.get(url);
@@ -412,14 +392,14 @@
     return promise;
   }
 
-  function describeIntensity(r, g, b, a) {
-    const mode = MODE_CONFIG[activeMode];
+  function describeIntensity(t, r, g, b, a) {
     if (a === 0) {
-      return `推定降水強度: 0 ${mode.unit}（降水なし）`;
+      return "推定降水強度: 降水なし";
     }
+    const nativeTable = t.element === "hrpns" ? NOWCAST_NATIVE_COLORS : FORECAST_NATIVE_COLORS;
     let best = null;
     let bestDist = Infinity;
-    for (const entry of mode.colorTable) {
+    for (const entry of nativeTable) {
       const [er, eg, eb] = entry.rgb;
       const dist = (r - er) ** 2 + (g - eg) ** 2 + (b - eb) ** 2;
       if (dist < bestDist) {
@@ -430,7 +410,9 @@
     if (!best || bestDist > COLOR_MATCH_THRESHOLD ** 2) {
       return "推定降水強度: 不明（色の判定範囲外）";
     }
-    return `推定降水強度: 約 ${best.label} ${mode.unit}`;
+    const key = t.element === "hrpns" ? NOWCAST_TO_UNIFIED[best.label] : FORECAST_LABEL_TO_UNIFIED[best.label];
+    const tier = UNIFIED_TIERS.find((tt) => tt.key === key);
+    return `推定降水強度: ${tier.words}（${tier.range}相当）`;
   }
 
   map.on("click", async (e) => {
@@ -459,7 +441,7 @@
       const [r, g, b, a] = ctx.getImageData(px, py, 1, 1).data;
       const label = formatJmaTime(t.validtime);
       popup.setContent(
-        `<div class="rr-popup">${describeIntensity(r, g, b, a)}<br><span style="color:var(--color-text-muted)">表示時刻: ${label}</span></div>`
+        `<div class="rr-popup">${describeIntensity(t, r, g, b, a)}<br><span style="color:var(--color-text-muted)">表示時刻: ${label}</span></div>`
       );
     } catch (err) {
       popup.setContent('<div class="rr-popup">この地点のデータを取得できませんでした。</div>');

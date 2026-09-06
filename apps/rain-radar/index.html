@@ -26,23 +26,18 @@
 
       <h1>雨雲レーダー（試作版）</h1>
       <p class="lede">
-        気象庁のデータを地図に重ねて表示します。「ナウキャスト」は直近約3時間の実況＋60分先までの予報、
-        「予報」は3時間ごとの降水量予報を配信されている限り(実測で約43時間先まで)再生できます。
+        気象庁のデータを地図に重ねて表示します。直近約3時間の実況から、配信されている限りの
+        先の予報(実測で約43時間先まで)まで、ひとつのタイムラインで連続して再生・シークできます。
         地図の操作中も裏で時間は進み続けます。地点をクリックすると、その地点の推定降水強度が表示されます。
+        タイルの格子の粗さはデータ源によって変わりますが、強度の目安は一貫した3段階に丸めて表示します。
       </p>
-
-      <div class="rr-mode" role="group" aria-label="表示モード">
-        <button type="button" data-mode="nowcast" class="is-active">ナウキャスト(実況+60分先)</button>
-        <button type="button" data-mode="forecast">予報(3時間ごと)</button>
-      </div>
-      <p id="rr-mode-note" class="rr-mode-note"></p>
 
       <div id="rain-radar-app" class="rr-app">
         <div id="rr-map" class="rr-map"></div>
         <div class="rr-panel">
           <p id="rr-status" class="rr-status">読み込み中…</p>
           <div class="rr-legend">
-            <span id="rr-legend-title" class="rr-legend__title">降水強度 (mm/h)</span>
+            <span id="rr-legend-title" class="rr-legend__title">降水の強さ（目安）</span>
             <div id="rr-legend-scale" class="rr-legend__scale"></div>
           </div>
         </div>
