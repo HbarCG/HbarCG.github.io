@@ -56,7 +56,7 @@
 
   const SLIDER_MAX = 1000; // スライダーは実時間に比例させる(コマ数には比例させない)
 
-  const statusEl = document.getElementById("rr-status");
+  const bubbleEl = document.getElementById("rr-scrub-bubble");
   const playBtn = document.getElementById("rr-play");
   const stepPrevBtn = document.getElementById("rr-step-prev");
   const stepNextBtn = document.getElementById("rr-step-next");
@@ -113,6 +113,24 @@
     return `${y}/${mo}/${d} ${h}:${mi}`;
   }
 
+  function formatShortJmaTime(str) {
+    // シークバー上のバブル用。日付は今日と異なる場合だけ添える。
+    const jst = new Date(parseJmaTimeToDate(str).getTime() + 9 * 60 * 60 * 1000);
+    const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const h = String(jst.getUTCHours()).padStart(2, "0");
+    const mi = String(jst.getUTCMinutes()).padStart(2, "0");
+    const sameDay =
+      jst.getUTCFullYear() === nowJst.getUTCFullYear() &&
+      jst.getUTCMonth() === nowJst.getUTCMonth() &&
+      jst.getUTCDate() === nowJst.getUTCDate();
+    if (sameDay) {
+      return `${h}:${mi}`;
+    }
+    const mo = String(jst.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(jst.getUTCDate()).padStart(2, "0");
+    return `${mo}/${d} ${h}:${mi}`;
+  }
+
   function formatRelativeLabel(diffMs, granularity) {
     if (granularity === "minute") {
       const mins = Math.round(diffMs / 60000);
@@ -157,7 +175,7 @@
     legendScaleEl.innerHTML = [noRainRow].concat(tierRows).join("");
   }
 
-  function updateStatusLabel() {
+  function updateScrubBubble() {
     const t = timeline.times[timeline.index];
     if (!t) {
       return;
@@ -171,7 +189,14 @@
       rel = formatRelativeLabel(diffMs, granularity);
     }
     const forecastTag = t.forecast ? "・予報" : "";
-    statusEl.textContent = `表示時刻: ${formatJmaTime(t.validtime)}（${rel}${forecastTag}）`;
+    bubbleEl.textContent = `${rel} ${formatShortJmaTime(t.validtime)}${forecastTag}`;
+
+    // バブルをスライダーのつまみの位置に追従させる
+    const trackWidth = slider.getBoundingClientRect().width;
+    const thumbSize = 16; // 主要ブラウザのネイティブつまみ幅の概算値
+    const percent = Number(slider.value) / SLIDER_MAX;
+    const leftPx = thumbSize / 2 + percent * Math.max(0, trackWidth - thumbSize);
+    bubbleEl.style.left = `${leftPx}px`;
   }
 
   function frameTimeMs(index) {
@@ -221,7 +246,7 @@
     if (ms !== null) {
       slider.value = String(timeToSliderValue(ms));
     }
-    updateStatusLabel();
+    updateScrubBubble();
   }
 
   function stepFrame(delta) {
@@ -299,6 +324,12 @@
     }
   });
 
+  window.addEventListener("resize", () => {
+    if (timeline.times.length > 0) {
+      updateScrubBubble();
+    }
+  });
+
   stepPrevBtn.addEventListener("click", () => stepFrame(-1));
   stepNextBtn.addEventListener("click", () => stepFrame(1));
 
@@ -369,7 +400,7 @@
       renderFrame();
       prefetchTimeline();
     } catch (err) {
-      statusEl.textContent = "降水データの取得に失敗しました。時間をおいて再読み込みしてください。";
+      bubbleEl.textContent = "データ取得に失敗しました";
     }
   }
 

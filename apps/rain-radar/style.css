@@ -17,26 +17,48 @@
   border-radius: 4px;
 }
 
-.rr-panel {
-  flex: 0 0 200px;
-}
-
-/* 地図の上に直接重ねる現在時刻表示と時間送りバー。
+/* 地図の上に直接重ねる強度の凡例と時間送りバー。
    画面(地図)と時間操作の間に距離があると、操作しながら地図の変化を
    見られないため、常に同じ視界に収まるよう地図に密着させている。 */
-.rr-status-badge {
+.rr-legend-badge {
   position: absolute;
   top: 0.5rem;
   right: 0.5rem;
   z-index: 500;
-  margin: 0;
   padding: 0.3rem 0.6rem;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: 4px;
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
   max-width: calc(100% - 1rem);
+}
+
+.rr-legend__title {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.rr-legend__scale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 0.6rem;
+}
+
+.rr-swatch {
+  display: inline-block;
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 2px;
+  border: 1px solid var(--color-border);
+  vertical-align: -0.15rem;
+  margin-right: 0.2rem;
+}
+
+.rr-legend__label {
+  font-size: 0.75rem;
+  white-space: nowrap;
 }
 
 .rr-scrub-bar {
@@ -55,30 +77,26 @@
   border-bottom-right-radius: 4px;
 }
 
-.rr-legend__title {
-  display: block;
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
-  margin-bottom: 0.4rem;
+.rr-slider-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-top: 1.5rem;
 }
 
-.rr-legend__scale {
-  display: grid;
-  grid-template-columns: 1.2rem 1fr;
-  align-items: center;
-  gap: 0.25rem 0.5rem;
-}
-
-.rr-swatch {
-  display: inline-block;
-  width: 1.2rem;
-  height: 1rem;
-  border-radius: 2px;
+.rr-scrub-bubble {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: var(--color-text);
+  background: var(--color-bg);
   border: 1px solid var(--color-border);
-}
-
-.rr-legend__label {
-  font-size: 0.85rem;
+  border-radius: 3px;
+  padding: 0.1rem 0.4rem;
+  pointer-events: none;
 }
 
 .rr-controls {
@@ -140,8 +158,8 @@
 }
 
 .rr-slider {
-  flex: 1 1 auto;
-  min-width: 0;
+  display: block;
+  width: 100%;
 }
 
 .rr-speed {
@@ -179,9 +197,5 @@
 @media (max-width: 640px) {
   .rr-map {
     height: 50vh;
-  }
-
-  .rr-panel {
-    flex: 1 1 100%;
   }
 }
