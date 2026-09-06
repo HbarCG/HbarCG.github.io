@@ -86,23 +86,25 @@
     return `https://www.jma.go.jp/bosai/jmatile/data/${t.category}/${t.basetime}/none/${t.validtime}/surf/${t.element}/${z}/${x}/${y}.png`;
   }
 
-  function formatJmaTime(str) {
-    const y = str.slice(0, 4);
-    const mo = str.slice(4, 6);
-    const d = str.slice(6, 8);
-    const h = str.slice(8, 10);
-    const mi = str.slice(10, 12);
-    return `${y}/${mo}/${d} ${h}:${mi}`;
-  }
-
   function parseJmaTimeToDate(str) {
+    // JMAのbasetime/validtimeはUTC基準の値(JSTではない)
     const y = Number(str.slice(0, 4));
     const mo = Number(str.slice(4, 6));
     const d = Number(str.slice(6, 8));
     const h = Number(str.slice(8, 10));
     const mi = Number(str.slice(10, 12));
-    // JMAの時刻は日本時間(UTC+9)なので、UTC相当に変換してからDateにする
-    return new Date(Date.UTC(y, mo - 1, d, h, mi, 0) - 9 * 60 * 60 * 1000);
+    return new Date(Date.UTC(y, mo - 1, d, h, mi, 0));
+  }
+
+  function formatJmaTime(str) {
+    // 表示は日本時間(UTC+9)に変換する
+    const jst = new Date(parseJmaTimeToDate(str).getTime() + 9 * 60 * 60 * 1000);
+    const y = jst.getUTCFullYear();
+    const mo = String(jst.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(jst.getUTCDate()).padStart(2, "0");
+    const h = String(jst.getUTCHours()).padStart(2, "0");
+    const mi = String(jst.getUTCMinutes()).padStart(2, "0");
+    return `${y}/${mo}/${d} ${h}:${mi}`;
   }
 
   function formatRelativeLabel(diffMs, granularity) {
