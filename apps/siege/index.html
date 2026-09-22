@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>攻城（試作版） | HbarCG</title>
+  <meta name="description" content="運要素を排した中世戦争風の対称盤面ゲーム。ロジック検証用のプロトタイプ。">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/apps/siege/style.css">
+</head>
+<body>
+  <div class="page page--wide">
+    <header class="site-header">
+      <p class="site-title"><a href="/"><span class="mark-hb">Hb</span>arCG</a></p>
+      <nav class="site-nav">
+        <a href="/essays/">Essays</a>
+        <a href="/apps/">Apps</a>
+        <a href="/about/">About</a>
+      </nav>
+    </header>
+
+    <main>
+      <p class="back-link"><a href="/apps/">← Apps</a></p>
+
+      <h1>攻城（試作版）</h1>
+      <p class="lede">
+        将棋のようにシンプルだが、内政と軍事の配分で勝負が決まる2人用の対称盤面ゲーム。
+        毎回ランダムだが左右対称に生成される盤面、ダイスを使わない戦闘解決、
+        森に潜んだ部隊は近づかないと見えない視野ルールを検証中の試作版です。
+        現時点では交互手番のロジック検証モードで、同時発表・通信対戦は未実装です。
+      </p>
+
+      <div class="siege-game" id="siege-game">
+        <section class="siege-panel siege-panel--board">
+          <div class="siege-toolbar">
+            <span id="turn-indicator"></span>
+            <span id="ap-indicator"></span>
+            <label class="siege-view-toggle">
+              視点:
+              <select id="view-mode">
+                <option value="true">デバッグ（両軍表示）</option>
+                <option value="A">A視点</option>
+                <option value="B">B視点</option>
+              </select>
+            </label>
+          </div>
+          <div id="winner-banner" class="siege-winner" hidden></div>
+
+          <div class="siege-legend">
+            <div class="siege-legend__group">
+              <span class="siege-legend__item"><i class="swatch terrain-plain"></i>平地</span>
+              <span class="siege-legend__item"><i class="swatch terrain-forest"></i>森（隠密）</span>
+              <span class="siege-legend__item"><i class="swatch terrain-mountain"></i>山（防御+2）</span>
+              <span class="siege-legend__item"><i class="swatch terrain-river"></i>川（通行不可）</span>
+              <span class="siege-legend__item"><i class="swatch terrain-bridge"></i>橋（渡河可）</span>
+              <span class="siege-legend__item"><i class="swatch terrain-settlement"></i>集落（資源産出）</span>
+            </div>
+            <div class="siege-legend__group">
+              <span class="siege-legend__item"><i class="swatch unit-sample side-A">王/歩/騎/弓</i>A軍ユニット</span>
+              <span class="siege-legend__item"><i class="swatch unit-sample side-B">王/歩/騎/弓</i>B軍ユニット</span>
+              <span class="siege-legend__item"><i class="swatch outline-sample owner-A"></i>A軍が所有する集落</span>
+              <span class="siege-legend__item"><i class="swatch outline-sample owner-B"></i>B軍が所有する集落</span>
+            </div>
+            <div class="siege-legend__group">
+              <span class="siege-legend__item"><i class="swatch outline-sample reach"></i>選択中ユニットの移動先</span>
+              <span class="siege-legend__item"><i class="swatch outline-sample attackable"></i>攻撃できる相手</span>
+              <span class="siege-legend__item"><i class="swatch outline-sample selected-tile"></i>選択中のマス</span>
+              <span class="siege-legend__item"><i class="fortress-badge-sample">城2</i>城塞（数字＝強化レベル）</span>
+            </div>
+          </div>
+
+          <div id="board" class="siege-board"></div>
+        </section>
+
+        <section class="siege-panel siege-panel--controls">
+          <h2>兵種</h2>
+          <table class="siege-unit-table" id="unit-table" aria-label="兵種ごとの移動力・戦闘力・射程・コスト">
+            <thead>
+              <tr><th>種類</th><th>移動</th><th>戦闘力</th><th>射程</th><th>コスト</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <p class="siege-hint">
+            戦闘力は、防御側なら地形補正（山+2・森+1）と城塞レベル分が加算される。
+            攻撃側が防御側を上回った時だけ撃破。同値以下なら防御側が生き残り、攻撃側は無傷でその場に留まる。
+          </p>
+
+          <h2>行動</h2>
+          <div class="siege-actions">
+            <button type="button" data-recruit="infantry">歩兵を編成</button>
+            <button type="button" data-recruit="cavalry">騎兵を編成</button>
+            <button type="button" data-recruit="archer">弓兵を編成</button>
+            <button type="button" id="btn-fortress">城塞を強化（AP2・レベルごとに資源増）</button>
+          </div>
+          <p class="siege-hint">
+            編成は自陣の集落マスを選択してから。城塞強化は自軍ユニットがいるマスを選択してから。
+          </p>
+          <button type="button" id="btn-end-turn" class="siege-end-turn">手番を終了</button>
+          <button type="button" id="btn-new-game" class="siege-new-game">盤面を作り直す</button>
+
+          <h2>資源</h2>
+          <p class="siege-hint" id="income-rule"></p>
+          <dl class="siege-resources">
+            <div><dt>A軍</dt><dd id="res-A"></dd></div>
+            <div class="siege-income-row"><dt></dt><dd id="income-A" class="siege-income"></dd></div>
+            <div><dt>B軍</dt><dd id="res-B"></dd></div>
+            <div class="siege-income-row"><dt></dt><dd id="income-B" class="siege-income"></dd></div>
+          </dl>
+
+          <h2>ログ</h2>
+          <ul id="log" class="siege-log"></ul>
+        </section>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <p>&copy; 2026 HbarCG</p>
+    </footer>
+  </div>
+
+  <script src="/apps/siege/game.js"></script>
+</body>
+</html>
