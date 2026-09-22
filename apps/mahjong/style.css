@@ -91,9 +91,7 @@
   align-items: center;
 }
 
-.mj-seat--left .mj-pond,
 .mj-seat--left .mj-melds,
-.mj-seat--right .mj-pond,
 .mj-seat--right .mj-melds {
   justify-content: center;
 }
@@ -114,6 +112,12 @@
       "center"
       "right"
       "bottom";
+  }
+
+  /* この幅では左右の席も全幅になるので、河は上下と同じ6列に戻す */
+  .mj-seat--left .mj-pond,
+  .mj-seat--right .mj-pond {
+    grid-template-columns: repeat(6, auto);
   }
 }
 
@@ -192,7 +196,6 @@
   margin-bottom: 0.3rem;
 }
 
-.mj-pond,
 .mj-hand,
 .mj-melds {
   display: flex;
@@ -201,8 +204,20 @@
   min-height: 1.8rem;
 }
 
+/* 河（捨て牌）は実際の卓と同じく6枚ごとに改行する固定グリッドで並べる。
+   幅に応じて何枚並ぶか変わるflex-wrapだと、実物の河の形にならないため。 */
 .mj-pond {
+  display: grid;
+  grid-template-columns: repeat(6, auto);
+  gap: 0.2rem;
+  min-height: 1.8rem;
   margin-bottom: 0.3rem;
+  justify-content: center;
+}
+
+.mj-seat--left .mj-pond,
+.mj-seat--right .mj-pond {
+  grid-template-columns: repeat(3, auto);
 }
 
 .mj-tile {
