@@ -807,6 +807,33 @@ function tileButtonClass(id) {
   return cls.join(' ');
 }
 
+// 牌1枚分の中身(絵柄+小さいラベル)を組み立てて要素に追加する。
+function fillTileElement(node, id) {
+  const type = tileType(id);
+  node.setAttribute('aria-label', tileLabel(id));
+  const glyph = document.createElement('span');
+  glyph.className = 'mj-tile-glyph';
+  glyph.textContent = tileGlyph(type);
+  glyph.setAttribute('aria-hidden', 'true');
+  const label = document.createElement('span');
+  label.className = 'mj-tile-label';
+  label.textContent = tileTypeLabel(type);
+  label.setAttribute('aria-hidden', 'true');
+  node.appendChild(glyph);
+  node.appendChild(label);
+}
+
+function meldKindLabel(kind) {
+  switch (kind) {
+    case 'pon': return 'ポン';
+    case 'chi': return 'チー';
+    case 'minkan': return '明槓';
+    case 'ankan': return '暗槓';
+    case 'kakan': return '加槓';
+    default: return kind;
+  }
+}
+
 function renderHandRow(containerId, tiles, opts) {
   const box = el(containerId);
   box.innerHTML = '';
@@ -814,7 +841,7 @@ function renderHandRow(containerId, tiles, opts) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = tileButtonClass(id);
-    btn.textContent = tileTypeLabel(tileType(id));
+    fillTileElement(btn, id);
     if (opts && opts.discardable) {
       const enabled = opts.discardable.includes(id);
       btn.disabled = !enabled;
@@ -832,7 +859,7 @@ function renderPond(containerId, discards) {
   for (const d of discards) {
     const span = document.createElement('span');
     span.className = tileButtonClass(d.tile) + (d.calledBy !== null ? ' mj-tile--called' : '');
-    span.textContent = tileTypeLabel(tileType(d.tile));
+    fillTileElement(span, d.tile);
     box.appendChild(span);
   }
 }
@@ -841,10 +868,22 @@ function renderMelds(containerId, melds) {
   const box = el(containerId);
   box.innerHTML = '';
   for (const m of melds) {
-    const span = document.createElement('span');
-    span.className = 'mj-meld';
-    span.textContent = `[${m.kind}:${m.tiles.map((t) => tileTypeLabel(tileType(t))).join('')}]`;
-    box.appendChild(span);
+    const wrap = document.createElement('span');
+    wrap.className = 'mj-meld';
+    const kindEl = document.createElement('span');
+    kindEl.className = 'mj-meld-kind';
+    kindEl.textContent = meldKindLabel(m.kind);
+    wrap.appendChild(kindEl);
+    const tilesRow = document.createElement('span');
+    tilesRow.className = 'mj-meld-tiles';
+    for (const t of m.tiles) {
+      const tileSpan = document.createElement('span');
+      tileSpan.className = `${tileButtonClass(t)} mj-tile--mini`;
+      fillTileElement(tileSpan, t);
+      tilesRow.appendChild(tileSpan);
+    }
+    wrap.appendChild(tilesRow);
+    box.appendChild(wrap);
   }
 }
 

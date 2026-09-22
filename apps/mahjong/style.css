@@ -103,18 +103,31 @@
 
 .mj-tile {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-width: 2rem;
-  height: 2.4rem;
-  padding: 0 0.2rem;
+  gap: 0.05rem;
+  min-width: 2.3rem;
+  height: 3.2rem;
+  padding: 0.15rem 0.2rem;
   border: 1px solid var(--color-border);
   border-radius: 4px;
   background: var(--color-bg);
   color: var(--color-text);
-  font-size: 0.85rem;
   font-family: var(--font-sans);
   cursor: default;
+}
+
+.mj-tile-glyph {
+  font-family: 'Segoe UI Symbol', 'Segoe UI Historic', 'Noto Sans Symbols 2', sans-serif;
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.mj-tile-label {
+  font-size: 0.6rem;
+  color: var(--color-text-muted);
+  line-height: 1;
 }
 
 button.mj-tile:not(:disabled) {
@@ -125,6 +138,10 @@ button.mj-tile:not(:disabled) {
 button.mj-tile:not(:disabled):hover {
   background: var(--color-link);
   color: var(--color-bg);
+}
+
+button.mj-tile:not(:disabled):hover .mj-tile-label {
+  color: inherit;
 }
 
 .mj-tile--m { border-left: 3px solid #2f7d3c; }
@@ -142,11 +159,37 @@ button.mj-tile:not(:disabled):hover {
 }
 
 .mj-meld {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   padding: 0.2rem 0.4rem;
   border: 1px solid var(--color-border);
   border-radius: 4px;
-  font-size: 0.8rem;
+}
+
+.mj-meld-kind {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.mj-meld-tiles {
+  display: inline-flex;
+  gap: 0.15rem;
+}
+
+.mj-tile--mini {
+  min-width: 1.7rem;
+  height: 2.3rem;
+  padding: 0.1rem;
+}
+
+.mj-tile--mini .mj-tile-glyph {
+  font-size: 1.1rem;
+}
+
+.mj-tile--mini .mj-tile-label {
+  font-size: 0.5rem;
 }
 
 .mj-human-area {

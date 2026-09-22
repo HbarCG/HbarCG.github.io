@@ -69,6 +69,28 @@ function tileLabel(id) {
   return isRedFive(id) ? `${label}(赤)` : label;
 }
 
+// Unicode「麻将牌」ブロック(U+1F000-1F02B)の記号を牌の絵柄として使う。
+// 画像ファイルを追加せずに牌を視覚的に表示するための最小限の手段。
+// VS15(︎)を付けて、環境によってカラー絵文字化されず線画として描画されるようにする。
+const HONOR_GLYPH_CODEPOINTS = {
+  27: 0x1f000, // 東
+  28: 0x1f001, // 南
+  29: 0x1f002, // 西
+  30: 0x1f003, // 北
+  31: 0x1f006, // 白
+  32: 0x1f005, // 發
+  33: 0x1f004, // 中
+};
+
+function tileGlyph(type) {
+  let codepoint;
+  if (type < 9) codepoint = 0x1f007 + type; // 1m-9m
+  else if (type < 18) codepoint = 0x1f019 + (type - 9); // 1p-9p
+  else if (type < 27) codepoint = 0x1f010 + (type - 18); // 1s-9s
+  else codepoint = HONOR_GLYPH_CODEPOINTS[type];
+  return String.fromCodePoint(codepoint) + '︎';
+}
+
 function sortTilesByType(tiles) {
   return tiles.slice().sort((a, b) => {
     const ta = tileType(a);
