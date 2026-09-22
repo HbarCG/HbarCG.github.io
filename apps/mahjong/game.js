@@ -849,12 +849,14 @@ function renderHandRow(containerId, tiles, opts) {
   }
 }
 
-function renderPond(containerId, discards) {
+// mini=true のときは副露と同じ縮小牌で描画する。対面・上家・下家の捨て牌は
+// 卓の左右幅が限られるため、実寸のままだと1行1枚になって縦に伸びきってしまう。
+function renderPond(containerId, discards, mini) {
   const box = el(containerId);
   box.innerHTML = '';
   for (const d of discards) {
     const span = document.createElement('span');
-    span.className = tileButtonClass(d.tile) + (d.calledBy !== null ? ' mj-tile--called' : '');
+    span.className = tileButtonClass(d.tile) + (mini ? ' mj-tile--mini' : '') + (d.calledBy !== null ? ' mj-tile--called' : '');
     fillTileElement(span, d.tile);
     box.appendChild(span);
   }
@@ -897,7 +899,7 @@ function renderInfo() {
 function renderCpu(seat) {
   const p = state.players[seat];
   el(`mj-cpu-${seat}-count`).textContent = `手牌: ${p.hand.length}枚`;
-  renderPond(`mj-cpu-${seat}-pond`, p.discards);
+  renderPond(`mj-cpu-${seat}-pond`, p.discards, true);
   renderMelds(`mj-cpu-${seat}-melds`, p.melds);
 }
 

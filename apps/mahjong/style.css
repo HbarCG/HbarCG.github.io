@@ -82,29 +82,13 @@
   padding: 0.5rem 0;
 }
 
-/* 左右の対局者は、名前・手牌枚数を外側、副露と捨て牌を卓の中央側に寄せて配置する
-   （捨て牌が卓の真ん中に集まっていく実卓の感覚を出すため）。 */
+/* 左右の対局者は幅が限られるので、捨て牌・副露は縮小牌(mj-tile--mini)で
+   複数列に折り返して表示する（実寸のままだと1行1枚になり縦に伸びきってしまうため）。 */
 .mj-seat--left,
 .mj-seat--right {
   display: flex;
-  align-items: flex-start;
-  gap: 0.6rem;
-}
-
-.mj-seat--left { flex-direction: row; }
-.mj-seat--right { flex-direction: row-reverse; }
-
-.mj-seat-label {
-  flex: 0 0 auto;
-  text-align: center;
-}
-
-.mj-seat-felt {
-  flex: 1 1 auto;
-  display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  min-width: 0;
+  align-items: center;
 }
 
 .mj-seat--left .mj-pond,
