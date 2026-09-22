@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>麻雀（試作版） | HbarCG</title>
+  <meta name="description" content="CPU3人と対局する基本ルールのリーチ麻雀。CPUの強さを段階調整でき、対局後に天鳳風の棋譜テキストをコピーできる試作版。">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/apps/mahjong/style.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="page page--wide">
+    <header class="site-header">
+      <p class="site-title"><a href="/"><span class="mark-hb">Hbar</span>CG</a></p>
+      <nav class="site-nav">
+        <a href="/essays/">Essays</a>
+        <a href="/apps/">Apps</a>
+        <a href="/about/">About</a>
+      </nav>
+    </header>
+
+    <main>
+      <p class="back-link"><a href="/apps/">← Apps</a></p>
+
+      <h1>麻雀（試作版）</h1>
+      <p class="lede">
+        CPU3人と対局する4人打ちリーチ麻雀。演出は最小限、東風戦・基本役のみの試作版です。
+        CPUの強さは総合レベル(1〜5)と読みの深さ(0〜3)の2軸で調整できます。
+        対局後は棋譜を天鳳風のテキスト形式でコピーできます（完全互換ではありません）。
+      </p>
+
+      <div class="mj-game" id="mj-game">
+        <section class="mj-panel mj-panel--board">
+          <div class="mj-info-row">
+            <span id="mj-round"></span>
+            <span id="mj-wall-count"></span>
+            <span id="mj-dora"></span>
+          </div>
+          <div class="mj-scores">
+            <span id="mj-score-0"></span>
+            <span id="mj-score-1"></span>
+            <span id="mj-score-2"></span>
+            <span id="mj-score-3"></span>
+          </div>
+
+          <div id="mj-banner" class="mj-banner" hidden></div>
+          <div id="mj-prompt" class="mj-prompt" hidden></div>
+
+          <div class="mj-cpu-row">
+            <div class="mj-cpu-block">
+              <h3>CPU1</h3>
+              <div id="mj-cpu-1-count" class="mj-hand-count"></div>
+              <div id="mj-cpu-1-melds" class="mj-melds"></div>
+              <div id="mj-cpu-1-pond" class="mj-pond"></div>
+            </div>
+            <div class="mj-cpu-block">
+              <h3>CPU2</h3>
+              <div id="mj-cpu-2-count" class="mj-hand-count"></div>
+              <div id="mj-cpu-2-melds" class="mj-melds"></div>
+              <div id="mj-cpu-2-pond" class="mj-pond"></div>
+            </div>
+            <div class="mj-cpu-block">
+              <h3>CPU3</h3>
+              <div id="mj-cpu-3-count" class="mj-hand-count"></div>
+              <div id="mj-cpu-3-melds" class="mj-melds"></div>
+              <div id="mj-cpu-3-pond" class="mj-pond"></div>
+            </div>
+          </div>
+
+          <div class="mj-human-area">
+            <h3>あなた</h3>
+            <div id="mj-human-melds" class="mj-melds"></div>
+            <div id="mj-human-pond" class="mj-pond"></div>
+            <div id="mj-human-hand" class="mj-hand"></div>
+          </div>
+        </section>
+
+        <section class="mj-panel mj-panel--controls">
+          <h2>CPU設定</h2>
+          <label class="mj-config-row">
+            総合レベル
+            <select id="mj-level">
+              <option value="1">1（最弱・最短手順のみ）</option>
+              <option value="2">2</option>
+              <option value="3" selected>3（標準）</option>
+              <option value="4">4（危険牌を読んで降りる）</option>
+              <option value="5">5（最強・押し引き判断）</option>
+            </select>
+          </label>
+          <label class="mj-config-row">
+            読みの深さ
+            <select id="mj-depth">
+              <option value="0">0（フラット）</option>
+              <option value="1" selected>1（現物のみ）</option>
+              <option value="2">2（＋スジ・ワンチャンス）</option>
+              <option value="3">3（＋壁読み）</option>
+            </select>
+          </label>
+          <p class="mj-hint">読みの深さはレベル4以上でのみ効果があります。</p>
+          <button type="button" id="mj-new-game" class="mj-new-game">新しい対局を始める</button>
+
+          <h2>ログ</h2>
+          <ul id="mj-log" class="mj-log"></ul>
+
+          <h2>棋譜（天鳳風テキスト）</h2>
+          <textarea id="mj-kifu-text" class="mj-kifu-text" readonly rows="8" placeholder="対局終了後にここへ棋譜が表示されます"></textarea>
+          <button type="button" id="mj-copy-kifu">コピー</button>
+          <span id="mj-copy-status" class="mj-hint"></span>
+        </section>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <p>&copy; 2026 HbarCG</p>
+    </footer>
+  </div>
+
+  <script src="/apps/mahjong/tiles.js"></script>
+  <script src="/apps/mahjong/shanten.js"></script>
+  <script src="/apps/mahjong/yaku.js"></script>
+  <script src="/apps/mahjong/ai.js"></script>
+  <script src="/apps/mahjong/kifu.js"></script>
+  <script src="/apps/mahjong/game.js"></script>
+</body>
+</html>
