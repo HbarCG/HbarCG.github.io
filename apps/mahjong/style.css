@@ -108,7 +108,6 @@
   justify-content: center;
   gap: 0.05rem;
   min-width: 2.3rem;
-  height: 3.2rem;
   padding: 0.15rem 0.2rem;
   border: 1px solid var(--color-border);
   border-radius: 4px;
@@ -118,10 +117,10 @@
   cursor: default;
 }
 
-.mj-tile-glyph {
-  font-family: 'Segoe UI Symbol', 'Segoe UI Historic', 'Noto Sans Symbols 2', sans-serif;
-  font-size: 1.6rem;
-  line-height: 1;
+.mj-tile-art {
+  display: block;
+  width: 2.1rem;
+  height: auto;
 }
 
 .mj-tile-label {
@@ -136,12 +135,8 @@ button.mj-tile:not(:disabled) {
 }
 
 button.mj-tile:not(:disabled):hover {
-  background: var(--color-link);
-  color: var(--color-bg);
-}
-
-button.mj-tile:not(:disabled):hover .mj-tile-label {
-  color: inherit;
+  border-color: var(--color-link);
+  box-shadow: 0 0 0 2px var(--color-link);
 }
 
 .mj-tile--m { border-left: 3px solid #2f7d3c; }
@@ -150,8 +145,7 @@ button.mj-tile:not(:disabled):hover .mj-tile-label {
 .mj-tile--z { border-left: 3px solid #6b6b6b; }
 
 .mj-tile--red {
-  color: #d64526;
-  font-weight: 600;
+  border-color: #c8281f;
 }
 
 .mj-tile--called {
@@ -179,13 +173,12 @@ button.mj-tile:not(:disabled):hover .mj-tile-label {
 }
 
 .mj-tile--mini {
-  min-width: 1.7rem;
-  height: 2.3rem;
+  min-width: 1.6rem;
   padding: 0.1rem;
 }
 
-.mj-tile--mini .mj-tile-glyph {
-  font-size: 1.1rem;
+.mj-tile--mini .mj-tile-art {
+  width: 1.5rem;
 }
 
 .mj-tile--mini .mj-tile-label {

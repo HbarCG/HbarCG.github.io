@@ -807,19 +807,15 @@ function tileButtonClass(id) {
   return cls.join(' ');
 }
 
-// 牌1枚分の中身(絵柄+小さいラベル)を組み立てて要素に追加する。
+// 牌1枚分の中身(SVG絵柄+小さいラベル)を組み立てて要素に追加する。
 function fillTileElement(node, id) {
   const type = tileType(id);
   node.setAttribute('aria-label', tileLabel(id));
-  const glyph = document.createElement('span');
-  glyph.className = 'mj-tile-glyph';
-  glyph.textContent = tileGlyph(type);
-  glyph.setAttribute('aria-hidden', 'true');
+  node.appendChild(buildTileArt(id));
   const label = document.createElement('span');
   label.className = 'mj-tile-label';
   label.textContent = tileTypeLabel(type);
   label.setAttribute('aria-hidden', 'true');
-  node.appendChild(glyph);
   node.appendChild(label);
 }
 
