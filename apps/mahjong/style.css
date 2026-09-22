@@ -1,5 +1,18 @@
 /* 麻雀アプリ固有のスタイル。配色・余白は root の css/style.css の変数を使う。 */
 
+:root {
+  --mj-table-bg: #dcebe0;
+  --mj-table-rim: #8a6a4a;
+  --mj-active-glow: var(--color-accent-bar);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --mj-table-bg: #16241b;
+    --mj-table-rim: #4a3826;
+  }
+}
+
 .page--wide {
   max-width: 64em;
 }
@@ -21,6 +34,116 @@
   border: 1px solid var(--color-border);
   border-radius: 6px;
   padding: 1rem 1.1rem;
+}
+
+/* 卓（テーブル）：上=対面、左=上家、右=下家、下=自分の4辺で囲む。
+   緑の卓面＋木目色のふちで「テーブルに座って対局している」見た目を作る。 */
+.mj-table {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) minmax(0, 2.6fr) minmax(8rem, 1fr);
+  grid-template-areas:
+    "top    top    top"
+    "left   center right"
+    "bottom bottom bottom";
+  gap: 0.9rem;
+  padding: 0.9rem;
+  border: 5px solid var(--mj-table-rim);
+  border-radius: 16px;
+  background: var(--mj-table-bg);
+}
+
+.mj-seat--top { grid-area: top; }
+.mj-seat--left { grid-area: left; }
+.mj-seat--right { grid-area: right; }
+.mj-seat--bottom { grid-area: bottom; }
+.mj-table-center {
+  grid-area: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 0.3rem 0;
+}
+
+.mj-table-center .mj-info-row,
+.mj-table-center .mj-scores {
+  justify-content: center;
+}
+
+.mj-table-center .mj-banner,
+.mj-table-center .mj-prompt {
+  width: 100%;
+}
+
+.mj-seat--top,
+.mj-seat--bottom {
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0.5rem 0;
+}
+
+/* 左右の対局者は、名前・手牌枚数を外側、副露と捨て牌を卓の中央側に寄せて配置する
+   （捨て牌が卓の真ん中に集まっていく実卓の感覚を出すため）。 */
+.mj-seat--left,
+.mj-seat--right {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.mj-seat--left { flex-direction: row; }
+.mj-seat--right { flex-direction: row-reverse; }
+
+.mj-seat-label {
+  flex: 0 0 auto;
+  text-align: center;
+}
+
+.mj-seat-felt {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.mj-seat--left .mj-pond,
+.mj-seat--left .mj-melds,
+.mj-seat--right .mj-pond,
+.mj-seat--right .mj-melds {
+  justify-content: center;
+}
+
+/* 今まさに手番のプレイヤーの卓を、枠色を変えて目立たせる */
+.mj-seat--active {
+  outline: 2px solid var(--mj-active-glow);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (max-width: 40em) {
+  .mj-table {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "top"
+      "left"
+      "center"
+      "right"
+      "bottom";
+  }
+}
+
+.mj-seat-tag {
+  font-size: 0.75em;
+  font-weight: normal;
+  color: var(--color-text-muted);
+}
+
+.mj-seat-wind {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-accent-bar);
 }
 
 .mj-info-row {
@@ -68,18 +191,15 @@
   gap: 0.5rem;
 }
 
-.mj-cpu-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.8rem;
-  margin-bottom: 1.2rem;
-}
-
-.mj-cpu-block h3,
-.mj-human-area h3 {
+.mj-seat h3 {
   margin: 0 0 0.3rem;
   font-size: 0.9rem;
   color: var(--color-text-muted);
+}
+
+.mj-seat--left h3,
+.mj-seat--right h3 {
+  text-align: center;
 }
 
 .mj-hand-count {
@@ -183,11 +303,6 @@ button.mj-tile:not(:disabled):hover {
 
 .mj-tile--mini .mj-tile-label {
   font-size: 0.5rem;
-}
-
-.mj-human-area {
-  border-top: 1px solid var(--color-border);
-  padding-top: 0.8rem;
 }
 
 .mj-config-row {

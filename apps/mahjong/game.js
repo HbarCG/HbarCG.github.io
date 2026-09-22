@@ -890,6 +890,7 @@ function renderInfo() {
   for (let s = 0; s < 4; s++) {
     const p = state.players[s];
     el(`mj-score-${s}`).textContent = `${seatLabel(s)}${s === state.oya ? '(親)' : ''}: ${p.score}点${p.riichi ? ' [リーチ]' : ''}`;
+    el(`mj-wind-${s}`).textContent = tileTypeLabel(seatWindType(s)) + (s === state.oya ? '・親' : '');
   }
 }
 
@@ -900,6 +901,16 @@ function renderCpu(seat) {
   renderMelds(`mj-cpu-${seat}-melds`, p.melds);
 }
 
+// 今の手番（直前に牌を引いた席）を卓上で目立たせ、初めて見る人でも
+// 「今どこが動いているか」がひと目でわかるようにする。
+function renderActiveSeat() {
+  const activeSeat = state.lastDrawnTile ? state.lastDrawnTile.seat : null;
+  for (let s = 0; s < 4; s++) {
+    const seatEl = document.querySelector(`.mj-seat[data-seat="${s}"]`);
+    if (seatEl) seatEl.classList.toggle('mj-seat--active', s === activeSeat);
+  }
+}
+
 function render(opts) {
   if (!state) return;
   renderInfo();
@@ -907,6 +918,7 @@ function render(opts) {
   renderPond('mj-human-pond', state.players[0].discards);
   renderMelds('mj-human-melds', state.players[0].melds);
   for (let s = 1; s < 4; s++) renderCpu(s);
+  renderActiveSeat();
 }
 
 function renderAll(opts) { render(opts); }

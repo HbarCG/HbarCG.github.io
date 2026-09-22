@@ -32,47 +32,61 @@
 
       <div class="mj-game" id="mj-game">
         <section class="mj-panel mj-panel--board">
-          <div class="mj-info-row">
-            <span id="mj-round"></span>
-            <span id="mj-wall-count"></span>
-            <span id="mj-dora"></span>
-          </div>
-          <div class="mj-scores">
-            <span id="mj-score-0"></span>
-            <span id="mj-score-1"></span>
-            <span id="mj-score-2"></span>
-            <span id="mj-score-3"></span>
-          </div>
-
-          <div id="mj-banner" class="mj-banner" hidden></div>
-          <div id="mj-prompt" class="mj-prompt" hidden></div>
-
-          <div class="mj-cpu-row">
-            <div class="mj-cpu-block">
-              <h3>CPU1</h3>
-              <div id="mj-cpu-1-count" class="mj-hand-count"></div>
-              <div id="mj-cpu-1-melds" class="mj-melds"></div>
-              <div id="mj-cpu-1-pond" class="mj-pond"></div>
-            </div>
-            <div class="mj-cpu-block">
-              <h3>CPU2</h3>
+          <div class="mj-table">
+            <div class="mj-seat mj-seat--top" data-seat="2">
+              <h3>CPU2 <span class="mj-seat-tag">対面</span> <span id="mj-wind-2" class="mj-seat-wind"></span></h3>
               <div id="mj-cpu-2-count" class="mj-hand-count"></div>
               <div id="mj-cpu-2-melds" class="mj-melds"></div>
               <div id="mj-cpu-2-pond" class="mj-pond"></div>
             </div>
-            <div class="mj-cpu-block">
-              <h3>CPU3</h3>
-              <div id="mj-cpu-3-count" class="mj-hand-count"></div>
-              <div id="mj-cpu-3-melds" class="mj-melds"></div>
-              <div id="mj-cpu-3-pond" class="mj-pond"></div>
-            </div>
-          </div>
 
-          <div class="mj-human-area">
-            <h3>あなた</h3>
-            <div id="mj-human-melds" class="mj-melds"></div>
-            <div id="mj-human-pond" class="mj-pond"></div>
-            <div id="mj-human-hand" class="mj-hand"></div>
+            <div class="mj-seat mj-seat--left" data-seat="3">
+              <div class="mj-seat-label">
+                <h3>CPU3 <span class="mj-seat-tag">上家</span></h3>
+                <span id="mj-wind-3" class="mj-seat-wind"></span>
+                <div id="mj-cpu-3-count" class="mj-hand-count"></div>
+              </div>
+              <div class="mj-seat-felt">
+                <div id="mj-cpu-3-melds" class="mj-melds"></div>
+                <div id="mj-cpu-3-pond" class="mj-pond"></div>
+              </div>
+            </div>
+
+            <div class="mj-table-center">
+              <div class="mj-info-row">
+                <span id="mj-round"></span>
+                <span id="mj-wall-count"></span>
+                <span id="mj-dora"></span>
+              </div>
+              <div class="mj-scores">
+                <span id="mj-score-0"></span>
+                <span id="mj-score-1"></span>
+                <span id="mj-score-2"></span>
+                <span id="mj-score-3"></span>
+              </div>
+
+              <div id="mj-banner" class="mj-banner" hidden></div>
+              <div id="mj-prompt" class="mj-prompt" hidden></div>
+            </div>
+
+            <div class="mj-seat mj-seat--right" data-seat="1">
+              <div class="mj-seat-label">
+                <h3>CPU1 <span class="mj-seat-tag">下家</span></h3>
+                <span id="mj-wind-1" class="mj-seat-wind"></span>
+                <div id="mj-cpu-1-count" class="mj-hand-count"></div>
+              </div>
+              <div class="mj-seat-felt">
+                <div id="mj-cpu-1-melds" class="mj-melds"></div>
+                <div id="mj-cpu-1-pond" class="mj-pond"></div>
+              </div>
+            </div>
+
+            <div class="mj-seat mj-seat--bottom mj-human-area" data-seat="0">
+              <h3>あなた <span id="mj-wind-0" class="mj-seat-wind"></span></h3>
+              <div id="mj-human-melds" class="mj-melds"></div>
+              <div id="mj-human-pond" class="mj-pond"></div>
+              <div id="mj-human-hand" class="mj-hand"></div>
+            </div>
           </div>
         </section>
 
