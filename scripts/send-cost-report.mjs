@@ -1,26 +1,17 @@
 // data/costs.json を集計し、前月分の費用レポートをメールで送る。
 // GitHub Actions (.github/workflows/monthly-cost-report.yml) から毎月1日に実行される。
 
-import { readLedger } from "./costs-ledger.mjs";
+import { readLedger, previousMonthKey, formatAmount, formatTotal } from "./costs-ledger.mjs";
 import { sendEmail } from "./send-email.mjs";
-
-function previousMonthKey() {
-  const now = new Date();
-  const year = now.getUTCFullYear();
-  const month = now.getUTCMonth(); // 0-11、前月を指す
-  const prev = new Date(Date.UTC(year, month - 1, 1));
-  return `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, "0")}`;
-}
 
 function buildReport(monthKey) {
   const ledger = readLedger();
   const entries = ledger.filter((entry) => entry.date.startsWith(monthKey));
 
   const byCategory = {};
-  let total = 0;
   for (const entry of entries) {
-    byCategory[entry.category] = (byCategory[entry.category] || 0) + entry.amount_usd;
-    total += entry.amount_usd;
+    if (!byCategory[entry.category]) byCategory[entry.category] = [];
+    byCategory[entry.category].push(entry);
   }
 
   const lines = [`HbarCG 月次費用レポート（${monthKey}）`, ""];
@@ -29,15 +20,15 @@ function buildReport(monthKey) {
     lines.push("この月は記録された費用はありませんでした。");
   } else {
     lines.push("カテゴリ別内訳:");
-    for (const [category, amount] of Object.entries(byCategory)) {
-      lines.push(`  - ${category}: $${amount.toFixed(2)}`);
+    for (const [category, categoryEntries] of Object.entries(byCategory)) {
+      lines.push(`  - ${category}: ${formatTotal(categoryEntries)}`);
     }
     lines.push("");
-    lines.push(`合計: $${total.toFixed(2)}`);
+    lines.push(`合計: ${formatTotal(entries)}`);
     lines.push("");
     lines.push("明細:");
     for (const entry of entries) {
-      lines.push(`  ${entry.date}  $${entry.amount_usd.toFixed(2)}  [${entry.category}] ${entry.note}`);
+      lines.push(`  ${entry.date}  ${formatAmount(entry)}  [${entry.category}] ${entry.note}`);
     }
   }
 

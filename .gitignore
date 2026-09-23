@@ -1,3 +1,6 @@
 .DS_Store
 Thumbs.db
 .playwright-mcp/
+
+# 有料記事の平文原稿と鍵。公開リポジトリには絶対に入れない（scripts/encrypt-paid.mjs を参照）
+paid-src/

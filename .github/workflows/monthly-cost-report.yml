@@ -11,7 +11,8 @@ on:
         required: false
 
 permissions:
-  contents: read
+  # Stripeの手数料を data/costs.json に追記してコミットするため
+  contents: write
 
 jobs:
   report:
@@ -22,6 +23,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Record Stripe fees
+        env:
+          TARGET_MONTH: ${{ inputs.target_month }}
+          STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
+        run: node scripts/record-stripe-fees.mjs
+
+      - name: Commit updated cost ledger
+        run: |
+          if ! git diff --quiet -- data/costs.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add data/costs.json
+            git commit -m "chore: record Stripe fees"
+            git push
+          else
+            echo "台帳に変更なし。コミットをスキップします。"
+          fi
 
       - name: Send monthly cost report
         env:

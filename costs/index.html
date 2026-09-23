@@ -57,21 +57,34 @@
         byMonth[month].push(entry);
       }
 
+      // 金額はドル建て（amount_usd）か円建て（amount_jpy）。換算せず通貨ごとに合計する
+      // （scripts/costs-ledger.mjs の formatAmount / formatTotal と同じ考え方）
+      const formatAmount = (e) =>
+        e.amount_jpy !== undefined ? `¥${e.amount_jpy.toLocaleString("ja-JP")}` : `$${e.amount_usd.toFixed(2)}`;
+      const formatTotal = (list) => {
+        const usd = list.reduce((sum, e) => sum + (e.amount_usd || 0), 0);
+        const jpy = list.reduce((sum, e) => sum + (e.amount_jpy || 0), 0);
+        const parts = [];
+        if (usd || !jpy) parts.push(`$${usd.toFixed(2)}`);
+        if (jpy) parts.push(`¥${jpy.toLocaleString("ja-JP")}`);
+        return parts.join(" + ");
+      };
+
       const months = Object.keys(byMonth).sort().reverse();
-      const grandTotal = entries.reduce((sum, e) => sum + e.amount_usd, 0);
 
       const frag = document.createDocumentFragment();
 
       const totalP = document.createElement("p");
-      totalP.innerHTML = `<strong>累計: $${grandTotal.toFixed(2)}</strong>`;
+      const totalStrong = document.createElement("strong");
+      totalStrong.textContent = `累計: ${formatTotal(entries)}`;
+      totalP.appendChild(totalStrong);
       frag.appendChild(totalP);
 
       for (const month of months) {
         const monthEntries = byMonth[month];
-        const monthTotal = monthEntries.reduce((sum, e) => sum + e.amount_usd, 0);
 
         const h2 = document.createElement("h2");
-        h2.textContent = `${month}（$${monthTotal.toFixed(2)}）`;
+        h2.textContent = `${month}（${formatTotal(monthEntries)}）`;
         frag.appendChild(h2);
 
         const table = document.createElement("table");
@@ -101,7 +114,7 @@
           tr.appendChild(td(entry.date));
           tr.appendChild(td(entry.category));
           tr.appendChild(td(entry.note));
-          tr.appendChild(td(`$${entry.amount_usd.toFixed(2)}`, "right"));
+          tr.appendChild(td(formatAmount(entry), "right"));
           tbody.appendChild(tr);
         }
         table.appendChild(tbody);
