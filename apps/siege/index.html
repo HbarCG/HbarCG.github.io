@@ -16,11 +16,12 @@
   <meta name="twitter:card" content="summary">
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="/apps/siege/style.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 </head>
 <body>
   <div class="page page--wide">
     <header class="site-header">
-      <p class="site-title"><a href="/"><span class="mark-hb">Hb</span>arCG</a></p>
+      <p class="site-title"><a href="/"><span class="mark-hb">Hbar</span>CG</a></p>
       <nav class="site-nav">
         <a href="/essays/">Essays</a>
         <a href="/apps/">Apps</a>
@@ -33,10 +34,7 @@
 
       <h1>攻城（試作版）</h1>
       <p class="lede">
-        将棋のようにシンプルだが、内政と軍事の配分で勝負が決まる2人用の対称盤面ゲーム。
-        毎回ランダムだが左右対称に生成される盤面、ダイスを使わない戦闘解決、
-        森に潜んだ部隊は近づかないと見えない視野ルールを検証中の試作版です。
-        現時点では交互手番のロジック検証モードで、同時発表・通信対戦は未実装です。
+        将棋のようにシンプルだが、内政と軍事の配分で勝負が決まる2人用の対称盤面ゲーム。毎回ランダムだが左右対称に生成される盤面、ダイスを使わない戦闘解決、森に潜んだ部隊は近づかないと見えない視野ルールを検証中の試作版です。現時点では交互手番のロジック検証モードで、同時発表・通信対戦は未実装です。
       </p>
 
       <div class="siege-game" id="siege-game">
@@ -90,8 +88,7 @@
             <tbody></tbody>
           </table>
           <p class="siege-hint">
-            戦闘力は、防御側なら地形補正（山+2・森+1）と城塞レベル分が加算される。
-            攻撃側が防御側を上回った時だけ撃破。同値以下なら防御側が生き残り、攻撃側は無傷でその場に留まる。
+            戦闘力は、防御側なら地形補正（山+2・森+1）と城塞レベル分が加算される。攻撃側が防御側を上回った時だけ撃破。同値以下なら防御側が生き残り、攻撃側は無傷でその場に留まる。
           </p>
 
           <h2>行動</h2>
