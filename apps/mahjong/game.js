@@ -79,6 +79,7 @@ function setupHand() {
     state.players[s].melds = [];
     state.players[s].discards = [];
     state.players[s].riichi = false;
+    state.players[s].riichiSidewaysPending = false;
     state.players[s].ippatsuWindow = false;
     state.players[s].furitenPermanent = false;
     state.players[s].furitenTemp = false;
@@ -91,6 +92,7 @@ function setupHand() {
   state.doraRevealed = 1;
   state.uraDoraIndicators = dealt.uraDoraIndicators;
   state.lastDrawnTile = null;
+  state.lastDiscardSeat = null;
 
   state.kifuLines.push(kifuInit({
     kyoku: state.kyoku, honba: state.honba, kyotaku: state.kyotaku,
@@ -275,7 +277,7 @@ function getKakanOptions(hand, melds) {
 // ---------------------------------------------------------------------------
 
 function waitForHumanDiscard(riichiTiles) {
-  renderAll({ discardable: riichiTiles || state.players[0].hand.slice() });
+  render({ discardable: riichiTiles || state.players[0].hand.slice() });
   return new Promise((resolve) => { discardResolver = resolve; });
 }
 
@@ -522,7 +524,10 @@ async function performCall(seat, call, fromSeat, tileId) {
   removeIdsFromHand(seat, call.tiles);
   state.players[seat].melds.push(meld);
   const lastDiscard = state.players[fromSeat].discards[state.players[fromSeat].discards.length - 1];
-  if (lastDiscard) lastDiscard.calledBy = seat;
+  if (lastDiscard) {
+    lastDiscard.calledBy = seat;
+    if (lastDiscard.sideways) state.players[fromSeat].riichiSidewaysPending = true;
+  }
   state.kifuLines.push(kifuCall(seat, call.kind, meld.tiles, fromSeat));
   breakAllIppatsu();
   if (call.kind === 'minkan') revealNewDora();
@@ -554,10 +559,16 @@ async function discardPhase(seat) {
     return await discardPhase(seat);
   }
 
+  const player = state.players[seat];
+  const wasRiichi = player.riichi;
   const discardTile = await getDiscard(seat);
   removeIdsFromHand(seat, [discardTile]);
   const tsumogiri = state.lastDrawnTile && state.lastDrawnTile.seat === seat && state.lastDrawnTile.tile === discardTile;
-  state.players[seat].discards.push({ tile: discardTile, tsumogiri, calledBy: null });
+  // リーチ宣言牌は河に横向きで置く。宣言牌が鳴かれた場合は次の捨て牌を横向きにする(実卓の慣習)。
+  const sideways = (!wasRiichi && player.riichi) || player.riichiSidewaysPending;
+  player.riichiSidewaysPending = false;
+  player.discards.push({ tile: discardTile, tsumogiri, calledBy: null, sideways });
+  state.lastDiscardSeat = seat;
   state.kifuLines.push(kifuDiscard(seat, discardTile, tsumogiri));
   updateFuriten(seat);
   render();
@@ -663,7 +674,7 @@ async function settleTsumo(seat) {
   }));
 
   pushLog(`${seatLabel(seat)}がツモ和了（${result.han}翻${result.fu}符 ${totalGain}点）`);
-  renderHandResult({ seats: [seat], result, total: totalGain, method: 'ツモ' });
+  renderHandResult({ seats: [seat], result, total: totalGain, method: 'ツモ', tile: state.lastDrawnTile.tile });
   await waitForContinue('局が終了しました');
   finishKyoku(isDealer, !isDealer);
 }
@@ -690,7 +701,7 @@ async function settleRon(outcome) {
     if (!kyotakuGiven && seat === priority[0]) { gain += state.kyotaku * 1000; kyotakuGiven = true; }
     state.players[seat].score += gain;
     deltas[seat] += gain;
-    results.push({ seat, result });
+    results.push({ seat, result, points: payments.total });
 
     state.kifuLines.push(kifuAgari({
       who: seat, fromWho: outcome.fromSeat, handTiles: state.players[seat].hand, melds: state.players[seat].melds,
@@ -702,7 +713,7 @@ async function settleRon(outcome) {
   }
   state.kyotaku = 0;
 
-  renderHandResult({ seats: outcome.seats, results, method: 'ロン', fromSeat: outcome.fromSeat });
+  renderHandResult({ seats: outcome.seats, results, method: 'ロン', fromSeat: outcome.fromSeat, tile: outcome.tile });
   await waitForContinue('局が終了しました');
   const dealerWon = outcome.seats.includes(state.oya);
   finishKyoku(dealerWon, !dealerWon);
@@ -738,6 +749,7 @@ async function settleRyuukyoku() {
 
 async function playHand() {
   setupHand();
+  hideBanner();
   render();
   let seat = state.oya;
   let outcome = await takeTurn(seat);
@@ -799,24 +811,112 @@ function clearPrompt() {
   box.hidden = true;
 }
 
-function tileButtonClass(id) {
-  const type = tileType(id);
-  const suit = suitOfType(type);
-  const cls = ['mj-tile', `mj-tile--${suit}`];
-  if (isRedFive(id)) cls.push('mj-tile--red');
-  return cls.join(' ');
-}
-
-// 牌1枚分の中身(SVG絵柄+小さいラベル)を組み立てて要素に追加する。
-function fillTileElement(node, id) {
-  const type = tileType(id);
+// 牌1枚分の要素を作る。牌の大きさは親要素のCSS変数 --tw で決まる。
+// opts.tag: 'span'(既定) か 'button' / opts.side: 横向き / opts.classes: 追加クラス
+function makeTile(id, opts) {
+  const o = opts || {};
+  const node = document.createElement(o.tag || 'span');
+  if (o.tag === 'button') node.type = 'button';
+  const cls = ['mj-tile'];
+  if (o.side) cls.push('mj-tile--side');
+  if (o.classes) cls.push(...o.classes);
+  node.className = cls.join(' ');
   node.setAttribute('aria-label', tileLabel(id));
   node.appendChild(buildTileArt(id));
-  const label = document.createElement('span');
-  label.className = 'mj-tile-label';
-  label.textContent = tileTypeLabel(type);
-  label.setAttribute('aria-hidden', 'true');
-  node.appendChild(label);
+  return node;
+}
+
+function makeBackTile() {
+  const node = document.createElement('span');
+  node.className = 'mj-tile mj-tile--back';
+  node.setAttribute('aria-hidden', 'true');
+  return node;
+}
+
+// 自分の手牌。ツモ直後(14枚目がある状態)は、ツモった牌を右端に少し離して置く。
+function renderHandRow(containerId, tiles, opts) {
+  const box = el(containerId);
+  box.innerHTML = '';
+  const drawn = state.lastDrawnTile;
+  let ordered = tiles;
+  let drawnId = null;
+  if (drawn && drawn.seat === 0 && tiles.length % 3 === 2 && tiles.includes(drawn.tile)) {
+    drawnId = drawn.tile;
+    ordered = tiles.filter((id) => id !== drawnId).concat([drawnId]);
+  }
+  const discardable = opts && opts.discardable;
+  for (const id of ordered) {
+    const classes = [];
+    if (id === drawnId) classes.push('mj-tile--drawn');
+    const enabled = Boolean(discardable && discardable.includes(id));
+    if (discardable && !enabled) classes.push('mj-tile--locked');
+    const btn = makeTile(id, { tag: 'button', classes });
+    btn.disabled = !enabled;
+    if (enabled) btn.addEventListener('click', () => onHandTileClick(id));
+    box.appendChild(btn);
+  }
+  box.parentElement.classList.toggle('mj-hand-area--turn', Boolean(discardable));
+}
+
+// 河は実卓と同じく 6枚・6枚・残り全部 の3段で並べる。
+function renderPond(containerId, discards, isLastDiscarder) {
+  const box = el(containerId);
+  box.innerHTML = '';
+  const rows = [discards.slice(0, 6), discards.slice(6, 12), discards.slice(12)];
+  rows.forEach((rowDiscards, r) => {
+    if (rowDiscards.length === 0) return;
+    const row = document.createElement('div');
+    row.className = 'mj-pond-row';
+    rowDiscards.forEach((d, i) => {
+      const isLast = isLastDiscarder && r * 6 + i === discards.length - 1 && d.calledBy === null;
+      const classes = [];
+      if (d.tsumogiri) classes.push('mj-tile--tsumogiri');
+      if (d.calledBy !== null) classes.push('mj-tile--called');
+      if (isLast) classes.push('mj-tile--last');
+      row.appendChild(makeTile(d.tile, { side: d.sideways, classes }));
+    });
+    box.appendChild(row);
+  });
+}
+
+// 鳴いた牌を「誰から鳴いたか」がわかる位置に横向きで置く（実卓の置き方）。
+//   上家から → 左端 / 対面から → 左から2枚目 / 下家から → 右端
+// 暗槓は両端を裏向き、加槓は横向きの牌の上に足した牌を重ねる。
+function buildMeldElement(meld, seat) {
+  const wrap = document.createElement('span');
+  wrap.className = 'mj-meld';
+  wrap.setAttribute('aria-label', meldKindLabel(meld.kind));
+
+  if (meld.kind === 'ankan') {
+    wrap.appendChild(makeBackTile());
+    wrap.appendChild(makeTile(meld.tiles[1]));
+    wrap.appendChild(makeTile(meld.tiles[2]));
+    wrap.appendChild(makeBackTile());
+    return wrap;
+  }
+
+  const tiles = meld.tiles.slice();
+  let addedTile = null;
+  if (meld.kind === 'kakan') addedTile = tiles.pop();
+  const calledIdx = tiles.indexOf(meld.calledTile);
+  const others = tiles.filter((_, i) => i !== calledIdx);
+
+  let called;
+  if (addedTile !== null) {
+    called = document.createElement('span');
+    called.className = 'mj-tile-stack';
+    called.appendChild(makeTile(addedTile, { side: true }));
+    called.appendChild(makeTile(meld.calledTile, { side: true }));
+  } else {
+    called = makeTile(meld.calledTile, { side: true });
+  }
+
+  const relative = (meld.calledFrom - seat + 4) % 4; // 1=下家 2=対面 3=上家
+  const pos = relative === 3 ? 0 : relative === 2 ? 1 : others.length;
+  const nodes = others.map((t) => makeTile(t));
+  nodes.splice(pos, 0, called);
+  for (const n of nodes) wrap.appendChild(n);
+  return wrap;
 }
 
 function meldKindLabel(kind) {
@@ -830,77 +930,57 @@ function meldKindLabel(kind) {
   }
 }
 
-function renderHandRow(containerId, tiles, opts) {
+function renderMelds(containerId, melds, seat) {
   const box = el(containerId);
   box.innerHTML = '';
-  for (const id of tiles) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = tileButtonClass(id);
-    fillTileElement(btn, id);
-    if (opts && opts.discardable) {
-      const enabled = opts.discardable.includes(id);
-      btn.disabled = !enabled;
-      if (enabled) btn.addEventListener('click', () => onHandTileClick(id));
-    } else {
-      btn.disabled = true;
-    }
-    box.appendChild(btn);
-  }
+  for (const m of melds) box.appendChild(buildMeldElement(m, seat));
 }
 
-// mini=true のときは副露と同じ縮小牌で描画する。対面・上家・下家の捨て牌は
-// 卓の左右幅が限られるため、実寸のままだと1行1枚になって縦に伸びきってしまう。
-function renderPond(containerId, discards, mini) {
+// CPUの手牌は裏向きで枚数分並べる。ツモ直後はツモ牌を少し離す。
+function renderBacks(containerId, count, justDrew) {
   const box = el(containerId);
   box.innerHTML = '';
-  for (const d of discards) {
-    const span = document.createElement('span');
-    span.className = tileButtonClass(d.tile) + (mini ? ' mj-tile--mini' : '') + (d.calledBy !== null ? ' mj-tile--called' : '');
-    fillTileElement(span, d.tile);
-    box.appendChild(span);
-  }
-}
-
-function renderMelds(containerId, melds) {
-  const box = el(containerId);
-  box.innerHTML = '';
-  for (const m of melds) {
-    const wrap = document.createElement('span');
-    wrap.className = 'mj-meld';
-    const kindEl = document.createElement('span');
-    kindEl.className = 'mj-meld-kind';
-    kindEl.textContent = meldKindLabel(m.kind);
-    wrap.appendChild(kindEl);
-    const tilesRow = document.createElement('span');
-    tilesRow.className = 'mj-meld-tiles';
-    for (const t of m.tiles) {
-      const tileSpan = document.createElement('span');
-      tileSpan.className = `${tileButtonClass(t)} mj-tile--mini`;
-      fillTileElement(tileSpan, t);
-      tilesRow.appendChild(tileSpan);
-    }
-    wrap.appendChild(tilesRow);
-    box.appendChild(wrap);
+  for (let i = 0; i < count; i++) {
+    const back = makeBackTile();
+    if (justDrew && i === count - 1) back.classList.add('mj-tile--drawn');
+    box.appendChild(back);
   }
 }
 
 function renderInfo() {
-  el('mj-round').textContent = `東${state.kyoku}局 ${state.honba}本場 供託${state.kyotaku}本`;
-  el('mj-wall-count').textContent = `残り山: ${Math.max(0, state.wall.length - state.wallIndex)}`;
-  el('mj-dora').textContent = `ドラ表示: ${state.doraIndicators.slice(0, state.doraRevealed).map(tileLabel).join(' ')}`;
+  // 対局終了時は kyoku が5になるので、表示は東4局で止める
+  el('mj-round').textContent = `東${Math.min(state.kyoku, 4)}局`;
+  el('mj-round-sub').textContent = `${state.honba}本場・供託${state.kyotaku}`;
+  el('mj-wall-count').textContent = `残り ${Math.max(0, state.wall.length - state.wallIndex)}枚`;
+
+  // ドラ表示牌は5枚分の枠を置き、まだめくられていない分は裏向きにする
+  const dora = el('mj-dora');
+  dora.innerHTML = '';
+  state.doraIndicators.forEach((id, i) => {
+    dora.appendChild(i < state.doraRevealed ? makeTile(id) : makeBackTile());
+  });
+
   for (let s = 0; s < 4; s++) {
     const p = state.players[s];
-    el(`mj-score-${s}`).textContent = `${seatLabel(s)}${s === state.oya ? '(親)' : ''}: ${p.score}点${p.riichi ? ' [リーチ]' : ''}`;
-    el(`mj-wind-${s}`).textContent = tileTypeLabel(seatWindType(s)) + (s === state.oya ? '・親' : '');
+    const wind = el(`mj-wind-${s}`);
+    wind.textContent = tileTypeLabel(seatWindType(s));
+    wind.classList.toggle('mj-plate-wind--oya', s === state.oya);
+    wind.title = s === state.oya ? '親' : '';
+    el(`mj-score-${s}`).textContent = String(p.score);
+    seatElement(s).classList.toggle('mj-seat--riichi', p.riichi);
   }
+}
+
+function seatElement(seat) {
+  return document.querySelector(`.mj-seat[data-seat="${seat}"]`);
 }
 
 function renderCpu(seat) {
   const p = state.players[seat];
-  el(`mj-cpu-${seat}-count`).textContent = `手牌: ${p.hand.length}枚`;
-  renderPond(`mj-cpu-${seat}-pond`, p.discards, true);
-  renderMelds(`mj-cpu-${seat}-melds`, p.melds);
+  const justDrew = Boolean(state.lastDrawnTile && state.lastDrawnTile.seat === seat && p.hand.length % 3 === 2);
+  renderBacks(`mj-cpu-${seat}-hand`, p.hand.length, justDrew);
+  renderPond(`mj-cpu-${seat}-pond`, p.discards, state.lastDiscardSeat === seat);
+  renderMelds(`mj-cpu-${seat}-melds`, p.melds, seat);
 }
 
 // 今の手番（直前に牌を引いた席）を卓上で目立たせ、初めて見る人でも
@@ -908,8 +988,7 @@ function renderCpu(seat) {
 function renderActiveSeat() {
   const activeSeat = state.lastDrawnTile ? state.lastDrawnTile.seat : null;
   for (let s = 0; s < 4; s++) {
-    const seatEl = document.querySelector(`.mj-seat[data-seat="${s}"]`);
-    if (seatEl) seatEl.classList.toggle('mj-seat--active', s === activeSeat);
+    seatElement(s).classList.toggle('mj-seat--active', s === activeSeat);
   }
 }
 
@@ -917,13 +996,11 @@ function render(opts) {
   if (!state) return;
   renderInfo();
   renderHandRow('mj-human-hand', state.players[0].hand, opts);
-  renderPond('mj-human-pond', state.players[0].discards);
-  renderMelds('mj-human-melds', state.players[0].melds);
+  renderPond('mj-human-pond', state.players[0].discards, state.lastDiscardSeat === 0);
+  renderMelds('mj-human-melds', state.players[0].melds, 0);
   for (let s = 1; s < 4; s++) renderCpu(s);
   renderActiveSeat();
 }
-
-function renderAll(opts) { render(opts); }
 
 function renderLog() {
   const box = el('mj-log');
@@ -936,31 +1013,74 @@ function renderLog() {
   box.scrollTop = box.scrollHeight;
 }
 
+function hideBanner() {
+  const box = el('mj-banner');
+  box.innerHTML = '';
+  box.hidden = true;
+}
+
+function bannerLine(box, text, className) {
+  const p = document.createElement('p');
+  p.className = className;
+  p.textContent = text;
+  box.appendChild(p);
+}
+
+// 和了した手を「手牌 ＋ 和了牌(少し離す) ＋ 副露」の並びで表示する
+function bannerHand(box, seat, winTile) {
+  const player = state.players[seat];
+  const hand = sortTilesByType(player.hand.filter((id) => id !== winTile));
+  const row = document.createElement('div');
+  row.className = 'mj-banner-hand';
+  for (const id of hand) row.appendChild(makeTile(id));
+  row.appendChild(makeTile(winTile, { classes: ['mj-tile--drawn', 'mj-tile--last'] }));
+  for (const m of player.melds) {
+    const meldEl = buildMeldElement(m, seat);
+    meldEl.classList.add('mj-banner-meld');
+    row.appendChild(meldEl);
+  }
+  box.appendChild(row);
+}
+
+function yakuText(result) {
+  return result.yaku.map((y) => y[0]).join('・');
+}
+
 function renderHandResult(info) {
   const box = el('mj-banner');
+  box.innerHTML = '';
   box.hidden = false;
   if (info.ryuukyoku) {
-    box.textContent = `流局: 聴牌 ${info.tenpaiSeats.map(seatLabel).join('、') || 'なし'}`;
+    bannerLine(box, '流局', 'mj-banner-title');
+    bannerLine(box, `聴牌: ${info.tenpaiSeats.map(seatLabel).join('、') || 'なし'}`, 'mj-banner-detail');
     return;
   }
   if (info.method === 'ツモ') {
+    const seat = info.seats[0];
     const r = info.result;
-    box.textContent = `${seatLabel(info.seats[0])} ツモ和了 ${r.yaku.map((y) => y[0]).join('・')} ${r.han}翻${r.fu}符 ${info.total}点`;
-  } else {
-    const parts = info.results.map(({ seat, result }) => `${seatLabel(seat)}: ${result.yaku.map((y) => y[0]).join('・')} ${result.han}翻${result.fu}符`);
-    box.textContent = `ロン和了(${seatLabel(info.fromSeat)}から) ${parts.join(' / ')}`;
+    bannerLine(box, `${seatLabel(seat)} ツモ`, 'mj-banner-title');
+    bannerHand(box, seat, info.tile);
+    bannerLine(box, yakuText(r), 'mj-banner-detail');
+    bannerLine(box, `${r.han}翻${r.fu}符　${info.total}点`, 'mj-banner-points');
+    return;
+  }
+  for (const { seat, result, points } of info.results) {
+    bannerLine(box, `${seatLabel(seat)} ロン（${seatLabel(info.fromSeat)}から）`, 'mj-banner-title');
+    bannerHand(box, seat, info.tile);
+    bannerLine(box, yakuText(result), 'mj-banner-detail');
+    bannerLine(box, `${result.han}翻${result.fu}符　${points}点`, 'mj-banner-points');
   }
 }
 
 function renderFinalResult(kifuText) {
   const box = el('mj-banner');
+  box.innerHTML = '';
   box.hidden = false;
-  const ranking = state.players
+  bannerLine(box, '対局終了', 'mj-banner-title');
+  state.players
     .map((p, s) => ({ s, score: p.score }))
     .sort((a, b) => b.score - a.score)
-    .map((r, i) => `${i + 1}位 ${seatLabel(r.s)}(${r.score}点)`)
-    .join(' / ');
-  box.textContent = `対局終了: ${ranking}`;
+    .forEach((r, i) => bannerLine(box, `${i + 1}位　${seatLabel(r.s)}　${r.score}点`, 'mj-banner-detail'));
   el('mj-kifu-text').value = kifuText;
 }
 

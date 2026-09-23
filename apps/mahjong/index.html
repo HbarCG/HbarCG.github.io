@@ -31,64 +31,61 @@
       </p>
 
       <div class="mj-game" id="mj-game">
-        <section class="mj-panel mj-panel--board">
-          <div class="mj-table">
+        <section class="mj-board" aria-label="卓">
+          <!-- 正方形の卓。4人分の席レイヤー(河・名札・手牌/副露)を同じ配置で作り、
+               CSSで卓の中心を軸に 0/90/180/270度 回転させて四方に並べる。 -->
+          <div class="mj-table" id="mj-table">
+            <!-- 中央の枠は名札より下に描くため、席レイヤーより先に置く -->
+            <div class="mj-center">
+              <div id="mj-round" class="mj-round"></div>
+              <div id="mj-round-sub" class="mj-round-sub"></div>
+              <div id="mj-dora" class="mj-dora" aria-label="ドラ表示牌"></div>
+              <div id="mj-wall-count" class="mj-wall-count"></div>
+            </div>
+
+            <div class="mj-seat mj-seat--bottom" data-seat="0">
+              <div class="mj-plate"><span id="mj-wind-0" class="mj-plate-wind"></span><span class="mj-plate-name">あなた</span><span id="mj-score-0" class="mj-plate-score"></span><span class="mj-riichi-stick" aria-hidden="true"></span></div>
+              <div id="mj-human-pond" class="mj-pond"></div>
+              <div class="mj-edge">
+                <div class="mj-backs"></div>
+                <div id="mj-human-melds" class="mj-melds"></div>
+              </div>
+            </div>
+
+            <div class="mj-seat mj-seat--right" data-seat="1">
+              <div class="mj-plate"><span id="mj-wind-1" class="mj-plate-wind"></span><span class="mj-plate-name">CPU1</span><span id="mj-score-1" class="mj-plate-score"></span><span class="mj-riichi-stick" aria-hidden="true"></span></div>
+              <div id="mj-cpu-1-pond" class="mj-pond"></div>
+              <div class="mj-edge">
+                <div id="mj-cpu-1-hand" class="mj-backs"></div>
+                <div id="mj-cpu-1-melds" class="mj-melds"></div>
+              </div>
+            </div>
+
             <div class="mj-seat mj-seat--top" data-seat="2">
-              <h3>CPU2 <span class="mj-seat-tag">対面</span> <span id="mj-wind-2" class="mj-seat-wind"></span></h3>
-              <div id="mj-cpu-2-count" class="mj-hand-count"></div>
-              <div class="mj-rotate-wrap mj-rotate-wrap--180">
-                <div class="mj-rotate-inner">
-                  <div id="mj-cpu-2-melds" class="mj-melds"></div>
-                  <div id="mj-cpu-2-pond" class="mj-pond"></div>
-                </div>
+              <div class="mj-plate"><span id="mj-wind-2" class="mj-plate-wind"></span><span class="mj-plate-name">CPU2</span><span id="mj-score-2" class="mj-plate-score"></span><span class="mj-riichi-stick" aria-hidden="true"></span></div>
+              <div id="mj-cpu-2-pond" class="mj-pond"></div>
+              <div class="mj-edge">
+                <div id="mj-cpu-2-hand" class="mj-backs"></div>
+                <div id="mj-cpu-2-melds" class="mj-melds"></div>
               </div>
             </div>
 
             <div class="mj-seat mj-seat--left" data-seat="3">
-              <h3>CPU3 <span class="mj-seat-tag">上家</span> <span id="mj-wind-3" class="mj-seat-wind"></span></h3>
-              <div id="mj-cpu-3-count" class="mj-hand-count"></div>
-              <div class="mj-rotate-wrap mj-rotate-wrap--90">
-                <div class="mj-rotate-inner">
-                  <div id="mj-cpu-3-melds" class="mj-melds"></div>
-                  <div id="mj-cpu-3-pond" class="mj-pond"></div>
-                </div>
+              <div class="mj-plate"><span id="mj-wind-3" class="mj-plate-wind"></span><span class="mj-plate-name">CPU3</span><span id="mj-score-3" class="mj-plate-score"></span><span class="mj-riichi-stick" aria-hidden="true"></span></div>
+              <div id="mj-cpu-3-pond" class="mj-pond"></div>
+              <div class="mj-edge">
+                <div id="mj-cpu-3-hand" class="mj-backs"></div>
+                <div id="mj-cpu-3-melds" class="mj-melds"></div>
               </div>
             </div>
 
-            <div class="mj-table-center">
-              <div class="mj-info-row">
-                <span id="mj-round"></span>
-                <span id="mj-wall-count"></span>
-                <span id="mj-dora"></span>
-              </div>
-              <div class="mj-scores">
-                <span id="mj-score-0"></span>
-                <span id="mj-score-1"></span>
-                <span id="mj-score-2"></span>
-                <span id="mj-score-3"></span>
-              </div>
+            <div id="mj-banner" class="mj-banner" hidden></div>
+          </div>
 
-              <div id="mj-banner" class="mj-banner" hidden></div>
-              <div id="mj-prompt" class="mj-prompt" hidden></div>
-            </div>
-
-            <div class="mj-seat mj-seat--right" data-seat="1">
-              <h3>CPU1 <span class="mj-seat-tag">下家</span> <span id="mj-wind-1" class="mj-seat-wind"></span></h3>
-              <div id="mj-cpu-1-count" class="mj-hand-count"></div>
-              <div class="mj-rotate-wrap mj-rotate-wrap--neg90">
-                <div class="mj-rotate-inner">
-                  <div id="mj-cpu-1-melds" class="mj-melds"></div>
-                  <div id="mj-cpu-1-pond" class="mj-pond"></div>
-                </div>
-              </div>
-            </div>
-
-            <div class="mj-seat mj-seat--bottom mj-human-area" data-seat="0">
-              <h3>あなた <span id="mj-wind-0" class="mj-seat-wind"></span></h3>
-              <div id="mj-human-melds" class="mj-melds"></div>
-              <div id="mj-human-pond" class="mj-pond"></div>
-              <div id="mj-human-hand" class="mj-hand"></div>
-            </div>
+          <!-- 自分の手牌は卓の外に大きく表示する（タップしやすさ優先）。 -->
+          <div class="mj-hand-area">
+            <div id="mj-prompt" class="mj-prompt" hidden></div>
+            <div id="mj-human-hand" class="mj-hand" aria-label="あなたの手牌"></div>
           </div>
         </section>
 

@@ -1,34 +1,534 @@
-/* 麻雀アプリ固有のスタイル。配色・余白は root の css/style.css の変数を使う。 */
+/* 麻雀アプリ固有のスタイル。卓以外の配色・余白は root の css/style.css の変数を使う。
+ *
+ * 卓の考え方:
+ *   - 卓(.mj-table)は正方形。container-type を指定し、中の牌や文字の大きさを
+ *     「卓の幅に対する割合(cqw)」で決める。画面幅が変わっても卓全体が
+ *     同じ比率のまま拡大縮小するので、スマホでも配置が崩れない。
+ *   - 4人の席(.mj-seat)はどれも「卓の下側に座っている人」として同じ配置で作り、
+ *     卓の中心を軸に回転させて四方に並べる（右=下家 -90度、上=対面 180度、左=上家 90度）。
+ *     こうすると河・副露・名札が自動的に各自の向きになる。
+ *   - 牌1枚の大きさは --tw(牌の幅)で決め、高さは幅の1.4倍に固定する。
+ */
 
 :root {
-  --mj-table-bg: #dcebe0;
-  --mj-table-rim: #8a6a4a;
-  --mj-active-glow: var(--color-accent-bar);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --mj-table-bg: #16241b;
-    --mj-table-rim: #4a3826;
-  }
+  --mj-felt: #1f6446;
+  --mj-felt-dark: #184f37;
+  --mj-rim: #6b4a2e;
+  --mj-center: #123b29;
+  --mj-tile-face: #fbf7ea;
+  --mj-tile-edge: #c7ab72;
+  --mj-tile-back: #d9822b;
+  --mj-tile-back-edge: #9c5716;
+  --mj-highlight: #ffcf4a;
 }
 
 .page--wide {
-  max-width: 64em;
+  max-width: 76em;
 }
 
 .mj-game {
   display: grid;
-  grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 17rem;
   gap: 1.5rem;
   align-items: start;
 }
 
-@media (max-width: 46em) {
+@media (max-width: 56em) {
   .mj-game {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   卓全体（木枠＋卓面＋自分の手牌エリア）
+   --------------------------------------------------------------------------- */
+
+.mj-board {
+  /* 卓(正方形)＋手牌エリアが1画面に収まる幅に抑える */
+  width: min(100%, calc(100vh - 7rem));
+  min-width: min(100%, 20rem);
+  margin: 0 auto;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--mj-rim);
+  box-sizing: border-box;
+}
+
+.mj-table {
+  /* 卓の寸法（卓の幅に対する割合）。狭い画面では下の @container で上書きする */
+  --c0: 37%;          /* 中央の枠の左上の位置 */
+  --cs: 26%;          /* 中央の枠の一辺 */
+  --pd: 5.6%;         /* 名札の奥行き */
+  --pond-tw: 4.3cqw;  /* 河の牌の幅 */
+  --edge-tw: 3.2cqw;  /* CPUの手牌・副露の牌の幅 */
+  --edge-tw-me: 3.8cqw; /* 自分の副露の牌の幅 */
+  position: relative;
+  aspect-ratio: 1 / 1;
+  container-type: inline-size;
+  border-radius: 9px;
+  background: radial-gradient(circle at 50% 50%, var(--mj-felt) 55%, var(--mj-felt-dark) 100%);
+  overflow: hidden;
+  color: #fff;
+}
+
+/* ---------------------------------------------------------------------------
+   席レイヤー（下側に座った人の配置を作り、回転させて四方に置く）
+   --------------------------------------------------------------------------- */
+
+.mj-seat {
+  position: absolute;
+  inset: 0;
+}
+
+.mj-seat--right { transform: rotate(-90deg); }
+.mj-seat--top { transform: rotate(180deg); }
+.mj-seat--left { transform: rotate(90deg); }
+
+/* 名札: 中央の枠の内側、各自の手前の辺に置く（風・名前・点数・リーチ棒） */
+.mj-plate {
+  position: absolute;
+  left: var(--c0);
+  width: var(--cs);
+  top: calc(var(--c0) + var(--cs) - var(--pd));
+  height: var(--pd);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  font-size: max(10px, 1.75cqw);
+  line-height: 1;
+  white-space: nowrap;
+  border-radius: 0.5cqw;
+  color: #d8e8de;
+}
+
+.mj-plate-wind {
+  font-weight: 700;
+  color: #fff;
+}
+
+.mj-plate-wind--oya {
+  color: var(--mj-highlight);
+}
+
+.mj-plate-score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: #fff;
+}
+
+/* 手番の人の名札を光らせ、「今どこが動いているか」をひと目でわかるようにする */
+.mj-seat--active .mj-plate {
+  background: rgba(255, 207, 74, 0.22);
+  box-shadow: inset 0 -0.35cqw 0 var(--mj-highlight);
+}
+
+/* リーチ棒（千点棒）。リーチ中だけ表示する */
+.mj-riichi-stick {
+  display: none;
+  width: 5cqw;
+  height: 0.9cqw;
+  border-radius: 0.45cqw;
+  background: radial-gradient(circle, #d8281f 0 0.3cqw, transparent 0.32cqw), #fff;
+}
+
+.mj-seat--riichi .mj-riichi-stick {
+  display: inline-block;
+}
+
+/* 河（捨て牌）: 中央の枠のすぐ手前から、6枚ずつ3段目まで並べる（3段目以降は横に伸ばす）。
+   横向き(リーチ宣言牌)が混ざっても列がずれないよう、段ごとにflexで並べる。 */
+.mj-pond {
+  --tw: var(--pond-tw);
+  position: absolute;
+  left: var(--c0);
+  top: calc(var(--c0) + var(--cs) + 0.6%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35cqw;
+}
+
+.mj-pond-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.2cqw;
+}
+
+/* 卓の手前の辺: 左に手牌(CPUは裏向き)、右に副露を置く（実際の卓と同じ位置関係） */
+.mj-edge {
+  --tw: var(--edge-tw);
+  position: absolute;
+  left: 7%;
+  right: 7%;
+  bottom: 1.4%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1cqw;
+}
+
+.mj-seat--bottom .mj-edge {
+  --tw: var(--edge-tw-me);
+}
+
+.mj-backs {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.1cqw;
+}
+
+/* 副露: 最初に鳴いた面子を一番右に置き、以降は左へ足していく */
+.mj-melds {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: flex-end;
+  gap: 0.7cqw;
+  margin-left: auto;
+}
+
+.mj-meld {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.1cqw;
+}
+
+/* 加槓: 横向きの牌の上にもう1枚横向きで重ねる */
+.mj-tile-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1cqw;
+}
+
+/* ---------------------------------------------------------------------------
+   中央の枠（局・ドラ・残り枚数）
+   --------------------------------------------------------------------------- */
+
+.mj-center {
+  position: absolute;
+  left: var(--c0);
+  top: var(--c0);
+  width: var(--cs);
+  height: var(--cs);
+  box-sizing: border-box;
+  padding: var(--pd) 0;
+  border-radius: 1.2cqw;
+  background: var(--mj-center);
+  box-shadow: inset 0 0 0 0.25cqw rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7cqw;
+  text-align: center;
+  line-height: 1.1;
+}
+
+.mj-round {
+  font-size: max(12px, 2.6cqw);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.mj-round-sub,
+.mj-wall-count {
+  font-size: max(9px, 1.45cqw);
+  color: #b9d3c3;
+  white-space: nowrap;
+}
+
+.mj-dora {
+  --tw: 2.5cqw;
+  display: flex;
+  gap: 0.15cqw;
+}
+
+/* 卓が狭い(スマホ)ときは、文字が最小サイズで下げ止まって中央の枠からあふれるので、
+   中央の枠と河を相対的に大きくし、そのぶん卓の端の手牌・副露を小さくする。 */
+@container (max-width: 520px) {
+  .mj-seat,
+  .mj-center {
+    --c0: 34%;
+    --cs: 32%;
+    --pd: 6%;
+    --pond-tw: 4.6cqw;
+    --edge-tw: 2.8cqw;
+    --edge-tw-me: 3.3cqw;
+  }
+}
+
+/* スマホでは卓をページの左右余白まで広げ、少しでも牌を大きく表示する */
+@media (max-width: 40em) {
+  .mj-board {
+    width: calc(100% + 2.5rem);
+    margin: 0 -1.25rem;
+    padding: 4px;
+    border-radius: 0;
+  }
+
+  .mj-hand-area {
+    margin-top: 4px;
+    padding: 0.5rem 0.2rem 0.6rem;
+  }
+
+  .mj-hand {
+    --tw: calc((100cqw - 0.4rem) / 14.6);
+    gap: 0;
+  }
+
+  .mj-prompt {
+    left: 0.3rem;
+    max-width: calc(100% - 0.6rem);
+    padding: 0.4rem 0.5rem;
+  }
+
+  .mj-prompt-text {
+    font-size: 0.78rem;
+  }
+
+  .mj-prompt-buttons button {
+    min-width: 3.5rem;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.85rem;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   牌
+   --------------------------------------------------------------------------- */
+
+.mj-tile {
+  position: relative;
+  flex: none;
+  display: inline-block;
+  width: var(--tw);
+  height: calc(var(--tw) * 1.4);
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: calc(var(--tw) * 0.12);
+  background: var(--mj-tile-face);
+  /* 下側に少しだけ牌の厚みと影を付けて、卓の上に置かれた感じを出す */
+  box-shadow:
+    0 calc(var(--tw) * 0.07) 0 var(--mj-tile-edge),
+    0 calc(var(--tw) * 0.09) calc(var(--tw) * 0.12) rgba(0, 0, 0, 0.35);
+  color: #1c1c1c;
+  font: inherit;
+  cursor: default;
+}
+
+.mj-tile-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 裏向きの牌（CPUの手牌・暗槓の両端・未公開のドラ） */
+.mj-tile--back {
+  background: var(--mj-tile-back);
+  box-shadow:
+    inset 0 0 0 calc(var(--tw) * 0.06) var(--mj-tile-back-edge),
+    0 calc(var(--tw) * 0.07) 0 var(--mj-tile-face),
+    0 calc(var(--tw) * 0.09) calc(var(--tw) * 0.12) rgba(0, 0, 0, 0.35);
+}
+
+/* 横向きの牌（鳴いた牌・リーチ宣言牌）。枠の幅と高さを入れ替え、絵柄を90度回す */
+.mj-tile--side {
+  width: calc(var(--tw) * 1.4);
+  height: var(--tw);
+}
+
+.mj-tile--side .mj-tile-art {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--tw);
+  height: calc(var(--tw) * 1.4);
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+/* 河の状態表示 */
+.mj-tile--tsumogiri {
+  filter: brightness(0.9);
+}
+
+.mj-tile--called {
+  opacity: 0.35;
+}
+
+.mj-tile--last {
+  outline: max(2px, 0.35cqw) solid var(--mj-highlight);
+  outline-offset: 1px;
+}
+
+/* ---------------------------------------------------------------------------
+   和了・流局などの結果表示（卓の上に重ねる）
+   --------------------------------------------------------------------------- */
+
+.mj-banner {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(88%, 30rem);
+  box-sizing: border-box;
+  padding: 1rem 1.2rem;
+  border-radius: 8px;
+  background: rgba(253, 253, 251, 0.97);
+  color: #1f1f1f;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  text-align: center;
+  z-index: 5;
+}
+
+.mj-banner[hidden] {
+  display: none;
+}
+
+.mj-banner p {
+  margin: 0.2rem 0;
+}
+
+.mj-banner-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.mj-banner-hand {
+  --tw: min(1.9rem, 5.2cqw);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 1px;
+  margin: 0.6rem 0;
+}
+
+.mj-banner-meld {
+  margin-left: calc(var(--tw) * 0.35);
+}
+
+.mj-banner-points {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------
+   自分の手牌エリア（卓の外・大きめの牌）
+   --------------------------------------------------------------------------- */
+
+.mj-hand-area {
+  position: relative;
+  container-type: inline-size;
+  margin-top: 6px;
+  padding: 0.7rem 0.5rem 0.8rem;
+  border-radius: 9px;
+  background: var(--mj-felt-dark);
+}
+
+/* 自分が打牌する番のときだけ、手牌エリアの枠を光らせる */
+.mj-hand-area--turn {
+  box-shadow: inset 0 0 0 2px var(--mj-highlight);
+}
+
+.mj-hand {
+  /* 13枚＋ツモ牌＋間隔が1行に収まる大きさにする */
+  --tw: min(3.3rem, calc((100cqw - 1rem) / 15));
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 1px;
+  min-height: calc(var(--tw) * 1.5);
+}
+
+/* ツモってきた牌は手牌から少し離して右端に置く */
+.mj-tile--drawn {
+  margin-left: calc(var(--tw) * 0.45);
+}
+
+button.mj-tile:not(:disabled) {
+  cursor: pointer;
+  transition: transform 0.08s;
+}
+
+button.mj-tile:not(:disabled):hover,
+button.mj-tile:not(:disabled):focus-visible {
+  transform: translateY(calc(var(--tw) * -0.18));
+  outline: none;
+  box-shadow:
+    0 calc(var(--tw) * 0.07) 0 var(--mj-tile-edge),
+    0 0 0 2px var(--mj-highlight);
+}
+
+/* リーチ時など、打牌できない牌を暗くする */
+.mj-tile--locked {
+  filter: brightness(0.55);
+}
+
+/* 鳴き・リーチ・ツモなどの選択肢。手牌のすぐ上、卓の左下（自分の側で
+   副露と重ならない空きスペース）に1行で重ねて出す */
+.mj-prompt {
+  position: absolute;
+  left: 0.5rem;
+  bottom: calc(100% + 0.6rem);
+  max-width: calc(100% - 1rem);
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+  padding: 0.45rem 0.6rem 0.45rem 0.9rem;
+  border-radius: 8px;
+  background: rgba(10, 30, 20, 0.92);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  z-index: 6;
+}
+
+.mj-prompt[hidden] {
+  display: none;
+}
+
+.mj-prompt-text {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.mj-prompt-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.mj-prompt-buttons button {
+  min-width: 4.5rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+/* 先頭の選択肢(ポン・ロン・リーチなど「する」側)を強調する */
+.mj-prompt-buttons button:first-child {
+  border-color: var(--mj-highlight);
+  background: var(--mj-highlight);
+  color: #1f1f1f;
+  font-weight: 700;
+}
+
+.mj-prompt-buttons button:hover {
+  filter: brightness(1.15);
+}
+
+/* ---------------------------------------------------------------------------
+   右側の設定パネル
+   --------------------------------------------------------------------------- */
 
 .mj-panel {
   border: 1px solid var(--color-border);
@@ -36,333 +536,14 @@
   padding: 1rem 1.1rem;
 }
 
-/* 卓（テーブル）：上=対面、左=上家、右=下家、下=自分の4辺で囲む。
-   緑の卓面＋木目色のふちで「テーブルに座って対局している」見た目を作る。 */
-.mj-table {
-  display: grid;
-  grid-template-columns: minmax(12rem, 1fr) minmax(0, 2.2fr) minmax(12rem, 1fr);
-  grid-template-areas:
-    "top    top    top"
-    "left   center right"
-    "bottom bottom bottom";
-  gap: 0.9rem;
-  padding: 0.9rem;
-  border: 5px solid var(--mj-table-rim);
-  border-radius: 16px;
-  background: var(--mj-table-bg);
-}
-
-.mj-seat--top { grid-area: top; }
-.mj-seat--left { grid-area: left; }
-.mj-seat--right { grid-area: right; }
-.mj-seat--bottom { grid-area: bottom; }
-.mj-table-center {
-  grid-area: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 0.3rem 0;
-}
-
-.mj-table-center .mj-info-row,
-.mj-table-center .mj-scores {
-  justify-content: center;
-}
-
-.mj-table-center .mj-banner,
-.mj-table-center .mj-prompt {
-  width: 100%;
-}
-
-.mj-seat--top,
-.mj-seat--bottom {
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-  padding: 0.5rem 0;
-}
-
-.mj-seat--left,
-.mj-seat--right {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.mj-seat--left .mj-melds,
-.mj-seat--right .mj-melds {
-  justify-content: center;
-}
-
-/* 河・副露を卓の中心を向くように回転させ、実卓を上から見たような配置にする。
-   対面(180°)は幅と高さが変わらないのでそのまま回転すればよいが、
-   上家・下家(±90°)は見た目の幅と高さが入れ替わるため、固定サイズの正方形の
-   枠(mj-rotate-wrap)の中に中身(mj-rotate-inner)を中央配置してから回転させる。
-   これをしないと回転後の見た目のサイズがレイアウトの確保領域とずれて、
-   他の要素と重なったり隙間ができたりする。 */
-.mj-rotate-wrap {
-  margin: 0.4rem auto 0;
-}
-
-.mj-rotate-wrap--180 {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.mj-rotate-wrap--180 .mj-rotate-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  transform: rotate(180deg);
-}
-
-.mj-rotate-wrap--90,
-.mj-rotate-wrap--neg90 {
-  position: relative;
-  width: 11.5rem;
-  height: 13.5rem;
-  overflow: visible;
-}
-
-.mj-rotate-wrap--90 .mj-rotate-inner,
-.mj-rotate-wrap--neg90 .mj-rotate-inner {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 13rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.mj-rotate-wrap--90 .mj-rotate-inner {
-  transform: translate(-50%, -50%) rotate(90deg);
-}
-
-.mj-rotate-wrap--neg90 .mj-rotate-inner {
-  transform: translate(-50%, -50%) rotate(-90deg);
-}
-
-/* 今まさに手番のプレイヤーの卓を、枠色を変えて目立たせる */
-.mj-seat--active {
-  outline: 2px solid var(--mj-active-glow);
-  outline-offset: 2px;
-  border-radius: 6px;
-}
-
-@media (max-width: 40em) {
-  .mj-table {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "top"
-      "left"
-      "center"
-      "right"
-      "bottom";
-  }
-
-  /* この幅では左右の席も全幅の1カラム表示になるので、回転させると逆に
-     見づらくなる。回転をやめて上下の席と同じ向き・並びに揃える。 */
-  .mj-rotate-wrap--90,
-  .mj-rotate-wrap--neg90 {
-    width: auto;
-    height: auto;
-  }
-
-  .mj-rotate-wrap--180 .mj-rotate-inner,
-  .mj-rotate-wrap--90 .mj-rotate-inner,
-  .mj-rotate-wrap--neg90 .mj-rotate-inner {
-    position: static;
-    width: auto;
-    transform: none;
-  }
-}
-
-.mj-seat-tag {
-  font-size: 0.75em;
-  font-weight: normal;
-  color: var(--color-text-muted);
-}
-
-.mj-seat-wind {
-  display: inline-block;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--color-accent-bar);
-}
-
-.mj-info-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1.2rem;
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
-  margin-bottom: 0.4rem;
-}
-
-.mj-scores {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem 1.2rem;
-  font-size: 0.9rem;
-  margin-bottom: 1rem;
-}
-
-.mj-banner {
-  background: var(--color-bg);
-  border: 1px solid var(--color-accent-bar);
-  border-radius: 4px;
-  padding: 0.6rem 0.8rem;
-  margin-bottom: 0.8rem;
-  font-size: 0.9rem;
-}
-
-.mj-prompt {
-  background: var(--color-bg);
-  border: 1px dashed var(--color-link);
-  border-radius: 4px;
-  padding: 0.6rem 0.8rem;
-  margin-bottom: 0.8rem;
-}
-
-.mj-prompt-text {
-  margin: 0 0 0.5rem;
-  font-size: 0.9rem;
-}
-
-.mj-prompt-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.mj-seat h3 {
-  margin: 0 0 0.3rem;
-  font-size: 0.9rem;
-  color: var(--color-text-muted);
-}
-
-.mj-seat--left h3,
-.mj-seat--right h3 {
-  text-align: center;
-}
-
-.mj-hand-count {
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-  margin-bottom: 0.3rem;
-}
-
-.mj-hand,
-.mj-melds {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  min-height: 1.8rem;
-}
-
-/* 河（捨て牌）は実際の卓と同じく6枚ごとに改行する固定グリッドで並べる。
-   幅に応じて何枚並ぶか変わるflex-wrapだと、実物の河の形にならないため。 */
-.mj-pond {
-  display: grid;
-  grid-template-columns: repeat(6, auto);
-  gap: 0.2rem;
-  min-height: 1.8rem;
-  margin-bottom: 0.3rem;
-  justify-content: center;
-}
-
-.mj-tile {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.05rem;
-  min-width: 2.3rem;
-  padding: 0.15rem 0.2rem;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: var(--font-sans);
-  cursor: default;
-}
-
-.mj-tile-art {
-  display: block;
-  width: 2.1rem;
-  height: auto;
-}
-
-.mj-tile-label {
-  font-size: 0.6rem;
-  color: var(--color-text-muted);
-  line-height: 1;
-}
-
-button.mj-tile:not(:disabled) {
-  cursor: pointer;
-  border-color: var(--color-link);
-}
-
-button.mj-tile:not(:disabled):hover {
-  border-color: var(--color-link);
-  box-shadow: 0 0 0 2px var(--color-link);
-}
-
-.mj-tile--m { border-left: 3px solid #2f7d3c; }
-.mj-tile--p { border-left: 3px solid #1a5fb4; }
-.mj-tile--s { border-left: 3px solid #b4381a; }
-.mj-tile--z { border-left: 3px solid #6b6b6b; }
-
-.mj-tile--red {
-  border-color: #c8281f;
-}
-
-.mj-tile--called {
-  outline: 2px solid var(--color-accent-bar);
-}
-
-.mj-meld {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.4rem;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-}
-
-.mj-meld-kind {
-  font-size: 0.72rem;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-
-.mj-meld-tiles {
-  display: inline-flex;
-  gap: 0.15rem;
-}
-
-.mj-tile--mini {
-  min-width: 1.6rem;
-  padding: 0.1rem;
-}
-
-.mj-tile--mini .mj-tile-art {
-  width: 1.5rem;
-}
-
-.mj-tile--mini .mj-tile-label {
-  font-size: 0.5rem;
+.mj-panel h2:first-child {
+  margin-top: 0;
 }
 
 .mj-config-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.25rem;
   margin-bottom: 0.8rem;
   font-size: 0.9rem;
 }
