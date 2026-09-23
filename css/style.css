@@ -189,13 +189,56 @@ a:visited {
   margin: 0 0 2.5rem;
 }
 
+/* 本文の文字の大きさは .essay-body でまとめて決め、段落・箇条書き・引用などはそれを受け継ぐ。
+   見た目を変えたいときはページごとではなくここを直す（scripts/essays.mjs が本文の書き方を点検する） */
+.essay-body {
+  font-size: 1.02rem;
+}
+
 .essay-body h2 {
   font-size: 1.15rem;
 }
 
-.essay-body p {
+.essay-body h3 {
   font-size: 1.02rem;
+  margin: 2rem 0 0.8rem;
 }
+
+.essay-body ul,
+.essay-body ol {
+  margin: 0 0 1.4em;
+  padding-left: 1.5em;
+}
+
+.essay-body blockquote {
+  margin: 1em 0 1em 2em;
+}
+
+.essay-body hr {
+  margin: 2.5rem 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.essay-body figure {
+  margin: 2rem 0;
+}
+
+.essay-body img {
+  display: block;
+  height: auto;
+}
+
+.essay-body figcaption {
+  margin-top: 0.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.essay-body code {
+  font-size: 0.9em;
+}
+
 
 /* 対談形式のエッセイ */
 .turn {
