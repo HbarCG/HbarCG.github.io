@@ -293,6 +293,8 @@ function onHandTileClick(tileId) {
   }
 }
 
+// promptText: 文字列、または文字列と { tile: 牌ID } を並べた配列（牌は絵で表示する）
+// choices: { label, value, meld? }。meld があるときは鳴いた後の副露の形をボタンに絵で添える
 function askHuman(promptText, choices) {
   return new Promise((resolve) => {
     promptResolver = resolve;
@@ -410,7 +412,13 @@ async function maybeDeclareKan(seat) {
 
   const isHuman = seat === 0 && !CONFIG.autoHuman;
   if (isHuman) {
-    const choices = options.map((o, i) => ({ label: `${o.kind === 'ankan' ? '暗槓' : '加槓'}: ${tileTypeLabel(o.type)}`, value: i }));
+    const choices = options.map((o, i) => ({
+      label: o.kind === 'ankan' ? '暗槓' : '加槓',
+      value: i,
+      meld: o.kind === 'ankan'
+        ? { kind: 'ankan', tiles: o.tiles, calledTile: null, calledFrom: null }
+        : Object.assign({}, player.melds[o.meldIndex], { kind: 'kakan', tiles: [...player.melds[o.meldIndex].tiles, ...o.tiles] }),
+    }));
     choices.push({ label: '槓しない', value: -1 });
     const choice = await askHuman('槓できます', choices);
     return choice === -1 ? null : options[choice];
@@ -469,7 +477,7 @@ async function performKan(seat, kanOption) {
 
 async function askRon(seat, tileId, fromSeat) {
   if (seat === 0 && !CONFIG.autoHuman) {
-    return await askHuman(`${seatLabel(fromSeat)}の${tileLabel(tileId)}にロンできます`, [{ label: 'ロン', value: true }, { label: '見送る', value: false }]);
+    return await askHuman([`${seatLabel(fromSeat)}の`, { tile: tileId }, 'にロンできます'], [{ label: 'ロン', value: true }, { label: '見送る', value: false }]);
   }
   await sleep(thinkDelay());
   return true; // CPUは有効なロンを常に取る
@@ -479,10 +487,10 @@ async function askPonKan(seat, ponOpt, kanOpt, tileId, fromSeat) {
   const isHuman = seat === 0 && !CONFIG.autoHuman;
   if (isHuman) {
     const choices = [];
-    if (ponOpt) choices.push({ label: 'ポン', value: 'pon' });
-    if (kanOpt) choices.push({ label: 'カン', value: 'kan' });
+    if (ponOpt) choices.push({ label: 'ポン', value: 'pon', meld: callPreviewMeld(ponOpt, tileId, fromSeat) });
+    if (kanOpt) choices.push({ label: 'カン', value: 'kan', meld: callPreviewMeld(kanOpt, tileId, fromSeat) });
     choices.push({ label: 'しない', value: null });
-    const choice = await askHuman(`${seatLabel(fromSeat)}の${tileLabel(tileId)}にポン/カンできます`, choices);
+    const choice = await askHuman([`${seatLabel(fromSeat)}の`, { tile: tileId }, 'にポン/カンできます'], choices);
     if (choice === 'pon') return ponOpt;
     if (choice === 'kan') return kanOpt;
     return null;
@@ -495,13 +503,18 @@ async function askPonKan(seat, ponOpt, kanOpt, tileId, fromSeat) {
 async function askChi(seat, options, tileId, fromSeat) {
   const isHuman = seat === 0 && !CONFIG.autoHuman;
   if (isHuman) {
-    const choices = options.map((o, i) => ({ label: `チー(${o.resultingMeldTiles.map(tileLabel).join('')})`, value: i }));
+    const choices = options.map((o, i) => ({ label: 'チー', value: i, meld: callPreviewMeld(o, tileId, fromSeat) }));
     choices.push({ label: 'しない', value: -1 });
-    const choice = await askHuman(`${seatLabel(fromSeat)}の${tileLabel(tileId)}にチーできます`, choices);
+    const choice = await askHuman([`${seatLabel(fromSeat)}の`, { tile: tileId }, 'にチーできます'], choices);
     return choice === -1 ? null : options[choice];
   }
   await sleep(thinkDelay());
   return decideCall(options, state.players[seat].hand, state.players[seat].melds, CONFIG.cpuLevel, buildAiContext(seat));
+}
+
+// 鳴きの選択肢に添える「鳴いた後の副露」。performCall で作る副露と同じ形にする
+function callPreviewMeld(call, tileId, fromSeat) {
+  return { kind: call.kind, tiles: call.resultingMeldTiles, calledTile: tileId, calledFrom: fromSeat };
 }
 
 async function offerReactions(discarderSeat, tileId) {
@@ -812,7 +825,11 @@ function renderPrompt(promptText, choices) {
   box.innerHTML = '';
   const p = document.createElement('p');
   p.className = 'mj-prompt-text';
-  p.textContent = promptText;
+  const parts = Array.isArray(promptText) ? promptText : [promptText];
+  for (const part of parts) {
+    if (typeof part === 'string') p.appendChild(document.createTextNode(part));
+    else p.appendChild(makeTile(part.tile, { classes: ['mj-prompt-target'] }));
+  }
   box.appendChild(p);
   const row = document.createElement('div');
   row.className = 'mj-prompt-buttons';
@@ -820,6 +837,10 @@ function renderPrompt(promptText, choices) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.textContent = c.label;
+    if (c.meld) {
+      btn.classList.add('mj-prompt-call');
+      btn.appendChild(buildMeldElement(c.meld, 0));
+    }
     btn.addEventListener('click', () => onPromptChoice(c.value));
     row.appendChild(btn);
   }

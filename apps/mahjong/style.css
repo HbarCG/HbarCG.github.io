@@ -554,8 +554,29 @@ button.mj-tile:not(:disabled):focus-visible {
 }
 
 .mj-prompt-text {
+  --tw: 1.6rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
   margin: 0;
   font-size: 0.85rem;
+}
+
+/* 鳴き・ロンの対象になっている牌（問いかけ文の中に絵で出す） */
+.mj-prompt-target {
+  outline: 2px solid var(--mj-highlight);
+  outline-offset: 1px;
+}
+
+/* 鳴きの選択肢には、鳴いた後の副露の形を牌の絵で添える（鳴いた牌は横向き） */
+.mj-prompt-buttons button.mj-prompt-call {
+  --tw: 1.35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 8px;
+  padding-top: 0.3rem;
+  padding-bottom: 0.4rem;
 }
 
 .mj-prompt-buttons {
