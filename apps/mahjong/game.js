@@ -973,6 +973,7 @@ function el(id) { return document.getElementById(id); }
 function renderPrompt(promptText, choices) {
   const box = el('mj-prompt');
   box.innerHTML = '';
+  box.classList.remove('mj-prompt--replay');
   const p = document.createElement('p');
   p.className = 'mj-prompt-text';
   const parts = Array.isArray(promptText) ? promptText : [promptText];
@@ -1002,6 +1003,7 @@ function renderPrompt(promptText, choices) {
 function clearPrompt() {
   const box = el('mj-prompt');
   box.innerHTML = '';
+  box.classList.remove('mj-prompt--replay');
   box.hidden = true;
 }
 
@@ -1785,6 +1787,7 @@ function stepText(step) {
 function renderReplayControls() {
   const box = el('mj-prompt');
   box.innerHTML = '';
+  box.classList.add('mj-prompt--replay'); // 狭い画面では卓に重ねず手牌の上に置く（style.css）
   const step = state.steps[replay.index];
   const last = state.steps.length - 1;
 

@@ -841,6 +841,25 @@ button.mj-tile.mj-tile--selected.mj-tile--drawn::after {
   cursor: default;
 }
 
+/* スマホ縦: 卓に重ねると自分の河が隠れて押せないので、卓の外（手牌の上）に置く */
+@media (max-width: 40em) {
+  .mj-prompt.mj-prompt--replay {
+    position: static;
+    max-width: none;
+    margin-bottom: 0.4rem;
+    box-shadow: none;
+  }
+
+  .mj-replay-nav button {
+    min-width: 2.3rem;
+    padding: 0.4rem 0.4rem;
+  }
+
+  .mj-prompt--replay .mj-prompt-buttons button {
+    min-width: 0;
+  }
+}
+
 /* 見ている手より後に捨てられる牌（押すとその牌を切る直前へ進める） */
 .mj-tile--later {
   opacity: 0.4;
@@ -855,7 +874,9 @@ button.mj-tile.mj-tile--selected.mj-tile--drawn::after {
     0 0 0 2px var(--mj-highlight);
 }
 
+/* 河ではまだ捨てられていない牌だが、薄くすると枠まで見えにくくなるので濃く表示する */
 .mj-pond .mj-tile--next {
+  opacity: 1;
   outline: max(2px, 0.35cqw) dashed var(--mj-highlight);
   outline-offset: 1px;
 }
