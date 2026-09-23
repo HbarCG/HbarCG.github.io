@@ -246,7 +246,8 @@
    中央の枠と河を相対的に大きくし、そのぶん卓の端の手牌・副露を小さくする。 */
 @container (max-width: 520px) {
   .mj-seat,
-  .mj-center {
+  .mj-center,
+  .mj-call {
     --c0: 34%;
     --cs: 32%;
     --pd: 6%;
@@ -358,6 +359,68 @@
 .mj-tile--last {
   outline: max(2px, 0.35cqw) solid var(--mj-highlight);
   outline-offset: 1px;
+}
+
+/* 今鳴いたばかりの副露（宣言の表示が出ているあいだだけ枠で囲む） */
+.mj-meld--new {
+  outline: max(2px, 0.35cqw) solid var(--mj-highlight);
+  outline-offset: max(2px, 0.3cqw);
+  border-radius: 0.3cqw;
+}
+
+/* ---------------------------------------------------------------------------
+   鳴き・リーチの宣言（「CPU1　ポン」など）
+   宣言した人の河の上に出す。文字を読みやすくするため席レイヤーと一緒には回転させず、
+   席ごとに位置だけを変える。
+   --------------------------------------------------------------------------- */
+
+.mj-call {
+  --gap: 2%;          /* 中央の枠との間隔 */
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.2em 0.7em 0.25em;
+  border-radius: 0.4em;
+  background: var(--mj-highlight);
+  color: #1f1f1f;
+  box-shadow: 0 0.5cqw 2cqw rgba(0, 0, 0, 0.45);
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 4;
+  animation: mj-call-pop 0.18s ease-out;
+}
+
+.mj-call[hidden] {
+  display: none;
+}
+
+.mj-call-who {
+  font-size: max(10px, 1.7cqw);
+}
+
+.mj-call-what {
+  font-size: max(17px, 3.8cqw);
+  letter-spacing: 0.05em;
+}
+
+/* 中央の枠のすぐ外側（その人の河の上）に置く */
+.mj-call--seat-0 { left: 50%; top: calc(var(--c0) + var(--cs) + var(--gap)); translate: -50% 0; }
+.mj-call--seat-1 { left: calc(var(--c0) + var(--cs) + var(--gap)); top: 50%; translate: 0 -50%; }
+.mj-call--seat-2 { left: 50%; bottom: calc(100% - var(--c0) + var(--gap)); translate: -50% 0; }
+.mj-call--seat-3 { right: calc(100% - var(--c0) + var(--gap)); top: 50%; translate: 0 -50%; }
+
+@keyframes mj-call-pop {
+  from { transform: scale(0.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mj-call {
+    animation: none;
+  }
 }
 
 /* ---------------------------------------------------------------------------

@@ -26,6 +26,8 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 // CPU手番の最小待ち時間（演出ではなく、進行が速すぎて読めなくなるのを防ぐため）。
 // 自動対局デバッグモード(?auto=1)では動作確認を速くするため短縮する。
 function thinkDelay() { return CONFIG.autoHuman ? 1 : 350; }
+// CPUが鳴いた・リーチしたときに、宣言を見せてから打牌するまでの待ち時間
+function announceDelay() { return CONFIG.autoHuman ? 1 : 900; }
 
 function seatWindType(seat) { return 27 + ((seat - state.oya + 4) % 4); }
 
@@ -66,6 +68,7 @@ function initMatch() {
     kifuLines: [],
     gameOver: false,
     eventLog: [],
+    callAnnounce: null, // 卓上に出している宣言 { seat, text, meldIndex }
   };
   const names = ['あなた', 'CPU1', 'CPU2', 'CPU3'];
   state.kifuLines.push(kifuHeader(names));
@@ -93,6 +96,7 @@ function setupHand() {
   state.uraDoraIndicators = dealt.uraDoraIndicators;
   state.lastDrawnTile = null;
   state.lastDiscardSeat = null;
+  state.callAnnounce = null;
 
   state.kifuLines.push(kifuInit({
     kyoku: state.kyoku, honba: state.honba, kyotaku: state.kyotaku,
@@ -379,6 +383,17 @@ async function declareRiichi(seat) {
   player.score -= 1000;
   state.kyotaku += 1;
   pushLog(`${seatLabel(seat)}がリーチ`);
+  await announceCall(seat, 'リーチ', null);
+}
+
+// 鳴き・槓・リーチの宣言を、宣言した人の河の上に表示する（次の人がツモるまで残す）。
+// CPUの場合は、見落とさないよう少し待ってから次の動作に進む。
+// meldIndex: その宣言でできた副露の位置（副露を枠で囲む）。リーチは null。
+async function announceCall(seat, text, meldIndex) {
+  state.callAnnounce = { seat, text, meldIndex };
+  if (seat === 0 && !CONFIG.autoHuman) return; // 自分の宣言は待たずに進める（次の描画で表示される）
+  render();
+  await sleep(announceDelay());
 }
 
 // ---------------------------------------------------------------------------
@@ -414,6 +429,8 @@ async function performKan(seat, kanOption) {
     state.kifuLines.push(kifuCall(seat, 'ankan', kanOption.tiles, seat));
     breakAllIppatsu();
     revealNewDora();
+    pushLog(`${seatLabel(seat)}が暗槓`);
+    await announceCall(seat, 'カン', player.melds.length - 1);
     return false;
   }
   // kakan
@@ -441,6 +458,8 @@ async function performKan(seat, kanOption) {
   state.kifuLines.push(kifuCall(seat, 'kakan', meld.tiles, seat));
   breakAllIppatsu();
   revealNewDora();
+  pushLog(`${seatLabel(seat)}が加槓`);
+  await announceCall(seat, 'カン', kanOption.meldIndex);
   return false;
 }
 
@@ -531,7 +550,9 @@ async function performCall(seat, call, fromSeat, tileId) {
   state.kifuLines.push(kifuCall(seat, call.kind, meld.tiles, fromSeat));
   breakAllIppatsu();
   if (call.kind === 'minkan') revealNewDora();
-  pushLog(`${seatLabel(seat)}が${call.kind === 'pon' ? 'ポン' : call.kind === 'chi' ? 'チー' : 'カン'}`);
+  const callText = call.kind === 'pon' ? 'ポン' : call.kind === 'chi' ? 'チー' : 'カン';
+  pushLog(`${seatLabel(seat)}が${callText}（${seatLabel(fromSeat)}の${tileLabel(tileId)}）`);
+  await announceCall(seat, callText, state.players[seat].melds.length - 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -580,6 +601,7 @@ async function discardPhase(seat) {
 }
 
 async function takeTurn(seat) {
+  state.callAnnounce = null; // 次の人がツモったら宣言の表示は消す
   const tile = drawFromWall();
   if (tile === null) return { result: 'ryuukyoku' };
   state.lastDrawnTile = { seat, tile };
@@ -933,7 +955,29 @@ function meldKindLabel(kind) {
 function renderMelds(containerId, melds, seat) {
   const box = el(containerId);
   box.innerHTML = '';
-  for (const m of melds) box.appendChild(buildMeldElement(m, seat));
+  const a = state.callAnnounce;
+  melds.forEach((m, i) => {
+    const meldEl = buildMeldElement(m, seat);
+    // 今鳴いたばかりの副露は枠で囲み、どこに増えたかわかるようにする
+    if (a && a.seat === seat && a.meldIndex === i) meldEl.classList.add('mj-meld--new');
+    box.appendChild(meldEl);
+  });
+}
+
+function renderCallAnnounce() {
+  const box = el('mj-call');
+  const a = state.callAnnounce;
+  box.hidden = !a;
+  box.className = a ? `mj-call mj-call--seat-${a.seat}` : 'mj-call';
+  box.innerHTML = '';
+  if (!a) return;
+  const who = document.createElement('span');
+  who.className = 'mj-call-who';
+  who.textContent = seatLabel(a.seat);
+  const what = document.createElement('span');
+  what.className = 'mj-call-what';
+  what.textContent = a.text;
+  box.append(who, what);
 }
 
 // CPUの手牌は裏向きで枚数分並べる。ツモ直後はツモ牌を少し離す。
@@ -1000,6 +1044,7 @@ function render(opts) {
   renderMelds('mj-human-melds', state.players[0].melds, 0);
   for (let s = 1; s < 4; s++) renderCpu(s);
   renderActiveSeat();
+  renderCallAnnounce();
   renderAssist();
 }
 
