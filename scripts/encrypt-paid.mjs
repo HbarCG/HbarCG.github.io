@@ -1,3 +1,4 @@
+// Copyright (c) 2026 HbarCG — MIT License（全文は /LICENSE-paid-articles.txt。自由に使い、書き換えてかまいません）
 // 有料記事の「続き」を暗号化して、記事ページに埋め込む。
 //
 // 使い方:
@@ -24,7 +25,8 @@ import { execFileSync } from "node:child_process";
 
 const SRC_DIR = "paid-src";
 const MASTER_KEY_PATH = join(SRC_DIR, "master.key");
-// 支払い後にStripeが読者を戻す先（workers/paid-unlock.js を置いたCloudflare WorkerのURL）
+// 支払い後にStripeが読者を戻す先（workers/paid-unlock.js を置いたCloudflare WorkerのURL）。
+// ほかのサイトで使うときは、ここと、下の essays/ のチェック（記事を置くフォルダ）を書き換える
 const UNLOCK_URL = "https://hbarcg-paid-unlock.hbarcg.workers.dev/";
 
 function fail(message) {

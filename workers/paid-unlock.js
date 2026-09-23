@@ -1,3 +1,4 @@
+// Copyright (c) 2026 HbarCG — MIT License（全文は /LICENSE-paid-articles.txt。自由に使い、書き換えてかまいません）
 // 有料記事の「鍵渡し」を中継する Cloudflare Worker。
 // Cloudflareの管理画面でWorkerを作り、このファイルの中身をそのまま貼り付けて使う（ビルド不要）。
 //
@@ -18,6 +19,7 @@
 //   PAID_MASTER_KEY  paid-src/master.key の中身
 // 手順の全体は docs/paid-articles.md を参照。
 
+// ほかのサイトで使うときは、この2つと、下の Location の `/essays/`（記事を置くフォルダ）を書き換える
 const SITE_URL = "https://hbarcg.github.io";
 const CONTACT = "hbarcg.contact@gmail.com";
 

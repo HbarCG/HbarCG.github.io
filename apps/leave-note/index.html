@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>noteから自分のサイトへ引っ越す | HbarCG</title>
+  <meta name="description" content="noteで書いた記事を、自分のサイトに移すための案内。仲介の手数料はかからず、有料記事も決済会社の手数料だけで売れます。">
+  <link rel="canonical" href="https://hbarcg.github.io/apps/leave-note/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="HbarCG">
+  <meta property="og:title" content="noteから自分のサイトへ引っ越す">
+  <meta property="og:description" content="noteで書いた記事を、自分のサイトに移すための案内。仲介の手数料はかからず、有料記事も決済会社の手数料だけで売れます。">
+  <meta property="og:url" content="https://hbarcg.github.io/apps/leave-note/">
+  <meta property="og:image" content="https://hbarcg.github.io/brand/og-image.png">
+  <meta property="og:locale" content="ja_JP">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="page">
+    <header class="site-header">
+      <p class="site-title"><a href="/"><span class="mark-hb">Hbar</span>CG</a></p>
+      <nav class="site-nav">
+        <a href="/essays/">Essays</a>
+        <a href="/apps/" aria-current="true">Apps</a>
+        <a href="/about/">About</a>
+      </nav>
+    </header>
+
+    <main class="guide">
+      <p class="back-link"><a href="/apps/">← Apps</a></p>
+
+      <h1>noteから自分のサイトへ引っ越す</h1>
+      <p class="lede">noteで書いた記事を、自分のサイトに移すための案内です。仲介の手数料はかかりません。有料記事も、決済会社の手数料（Stripeで約3.6%）だけで売れます。</p>
+
+      <h2>なぜ引っ越すのか</h2>
+      <p>noteは、書く場所と、読者との出会いをまとめて用意してくれる便利な場所です。その代わり、ページの作りも手数料も、プラットフォームの都合で決まります。</p>
+      <p>自分のサイトを持てば、どちらも自分で決められます。AIの手を借りれば、専門の知識がなくても作れるようになってきました。</p>
+      <p>ただし、noteで生まれる読者との出会いは、引っ越し先にはついてきません。noteのアカウントは残しておき、新しいサイトへの入口として使い続けるのがおすすめです。この考え方は、エッセイ「<a href="/essays/005-ai-and-labor/">AI革命は人類を労働から解放するのか</a>」でも触れています。</p>
+
+      <h2>用意するもの</h2>
+      <ul>
+        <li>メールアドレス</li>
+        <li>Cloudflareのアカウント（無料。サイトの置き場所になります）</li>
+        <li>AIアシスタント（Claude、ChatGPTなど。記事をサイトの形に変換してもらいます）</li>
+        <li>有料記事も売る場合：Stripeのアカウント（無料）、本人確認書類、入金用の銀行口座</li>
+      </ul>
+
+      <h2>1. noteから記事を書き出す</h2>
+      <ol>
+        <li>noteの右上のアイコンから「自分の記事」を開き、「エクスポート」→「エクスポートを開始」を押します。</li>
+        <li>準備ができると、ダウンロード用のリンクがメールで届きます。数日かかることがあります。</li>
+        <li>届いたZIPファイルには、記事の本文（WordPress形式のXMLファイル）と、記事に使った画像が入っています。</li>
+      </ol>
+      <p>マガジンのまとまりは引き継がれません。YouTubeなどの埋め込みは、URLの文字として書き出されます。</p>
+
+      <h2>2. AIにサイトの形にしてもらう</h2>
+      <p>書き出したファイルは、そのままではWebサイトとして表示できません。AIアシスタントにZIPファイルを渡して、次のように頼んでください。</p>
+      <div class="copy-box">
+        <pre id="prompt">添付したのは、noteからエクスポートしたZIPファイルです（WordPress形式のXMLファイルと画像）。
+これを、次の条件で静的なWebサイトに変換し、フォルダごとZIPファイルで渡してください。
+
+- 記事ごとに1ページ（記事ごとのフォルダの index.html）と、記事の一覧ページ（いちばん上の index.html）を作る
+- 記事のタイトルと公開日を残す
+- 画像はZIPの中のものを使い、サイトのフォルダに入れる
+- HTMLとCSSだけで作り、外部のサービスやライブラリは使わない
+- スマートフォンで読みやすい、シンプルな見た目にする</pre>
+        <button type="button" class="copy-button" data-copy-target="prompt">コピー</button>
+      </div>
+      <p>受け取ったZIPファイルを展開し、中の <code>index.html</code> をブラウザで開いて、記事が読めることを確かめます。見た目の好みも、AIに伝えれば直してもらえます。</p>
+
+      <h2>3. Cloudflareで公開する</h2>
+      <ol>
+        <li><a href="https://dash.cloudflare.com/sign-up" rel="noopener">Cloudflare</a>で無料のアカウントを作ります。2段階認証も設定しておきましょう。</li>
+        <li>左のメニューの「Compute」→「Workers &amp; Pages」を開き、「Create application」を押します。</li>
+        <li>Pagesの「Drag and drop your files」を選びます。</li>
+        <li>プロジェクト名（URLになる英語の名前）を決め、2でできたZIPファイルを画面に落とします。</li>
+        <li>「Deploy site」を押すと、<code>https://プロジェクト名.pages.dev</code> でサイトが公開されます。</li>
+      </ol>
+      <p>記事を直したり増やしたりしたときは、同じプロジェクトの画面から、新しいZIPファイルを落とし直します。無料のまま使えて、1つのサイトにファイルを1,000個まで置けます。</p>
+
+      <h2>4. 有料記事も売る（必要な場合）</h2>
+      <p>HbarCGでは、途中から有料になる記事を、自分のサイトとStripeの決済リンク、Cloudflareの小さな中継処理だけで売っています。お金は読者とStripeの間で直接動き、仲介する人はいません。</p>
+      <p>この仕組みのコードは、誰でも自由に使えるよう公開しています（MITライセンス）。</p>
+      <ul>
+        <li><a href="https://github.com/HbarCG/HbarCG.github.io/blob/main/docs/paid-articles.md" rel="noopener">仕組みと手順の説明</a></li>
+        <li><a href="https://github.com/HbarCG/HbarCG.github.io/blob/main/js/paid.js" rel="noopener">js/paid.js</a>（読者のブラウザで続きを表示する）</li>
+        <li><a href="https://github.com/HbarCG/HbarCG.github.io/blob/main/scripts/encrypt-paid.mjs" rel="noopener">scripts/encrypt-paid.mjs</a>（有料部分を暗号化する）</li>
+        <li><a href="https://github.com/HbarCG/HbarCG.github.io/blob/main/workers/paid-unlock.js" rel="noopener">workers/paid-unlock.js</a>（支払いを確かめて、続きの鍵を渡す）</li>
+      </ul>
+      <p>この部分には、コマンドを実行するなど少し技術的な作業があります。上の説明とコードをAIアシスタントに渡して、「自分のサイトで使えるように書き換えて、手順を教えて」と頼むと進めやすいです。</p>
+      <p>Stripeの登録では、次のことを知っておくと迷いにくくなります。</p>
+      <ul>
+        <li>事業形態は「個人事業主」で登録できます。</li>
+        <li>決済の受け付け方は「共有可能な決済用リンク（Payment Links）」を選びます。</li>
+        <li>不正利用対策は、無料の「Radar Lite」で十分です。有料のプランは、決済1件ごとに数円かかります。</li>
+        <li>1回の決済の最低額は50円です。</li>
+        <li>「<a href="/legal/">特定商取引法に基づく表記</a>」のページが必要です。氏名・住所・電話番号は「請求があれば開示します」と書く方法もあります。</li>
+        <li>問い合わせ用には、普段使いとは別のメールアドレスを作っておくと安心です。</li>
+      </ul>
+
+      <h2>5. 読者に知らせる</h2>
+      <p>noteのプロフィールや最後の記事に、新しいサイトのURLを載せておきましょう。noteに残した記事を入口に、読者が少しずつ新しいサイトへ来てくれます。</p>
+
+      <h2>このページについて</h2>
+      <p>HbarCGは、この引っ越しのための登録も、手数料の受け取りもしていません。HbarCG自身はnoteを使っていないため、noteからの書き出しはまだ実際に試せていません。有料記事の有料部分が書き出しに含まれるかどうかも、分かったら追記します。</p>
+      <p>案内の誤りや分かりにくいところがあれば、<a href="mailto:hbarcg.contact@gmail.com">hbarcg.contact@gmail.com</a> までお知らせください。</p>
+    </main>
+
+    <footer class="site-footer">
+      <p>&copy; 2026 HbarCG</p>
+    </footer>
+  </div>
+
+  <script>
+    // 「コピー」ボタン：頼み方の文章をクリップボードにコピーする
+    document.querySelectorAll(".copy-button").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var text = document.getElementById(button.dataset.copyTarget).textContent;
+        if (!navigator.clipboard) {
+          button.textContent = "コピーできませんでした";
+          return;
+        }
+        navigator.clipboard.writeText(text).then(function () {
+          button.textContent = "コピーしました";
+          setTimeout(function () { button.textContent = "コピー"; }, 2000);
+        }, function () {
+          button.textContent = "コピーできませんでした";
+        });
+      });
+    });
+  </script>
+</body>
+</html>

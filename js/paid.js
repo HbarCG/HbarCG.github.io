@@ -1,3 +1,4 @@
+// Copyright (c) 2026 HbarCG — MIT License（全文は /LICENSE-paid-articles.txt。自由に使い、書き換えてかまいません）
 // 有料記事の「続き」を表示する。
 // 続きは scripts/encrypt-paid.mjs で暗号化され、.paid の data 属性に入っている。
 // 鍵はStripeで支払ったあとの戻り先URL（…/#key=xxxx）で渡され、この端末のブラウザに保存される。

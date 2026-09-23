@@ -1,0 +1,35 @@
+HbarCGの有料記事の仕組みを構成する次の3つのファイルは、MITライセンスで公開しています。
+自分のサイトで有料記事を売りたい人は、自由に使い、書き換えてかまいません。
+
+- js/paid.js               … 読者のブラウザで有料部分を復号して表示する
+- scripts/encrypt-paid.mjs … 有料部分を暗号化して記事に埋め込む
+- workers/paid-unlock.js   … 支払いを確認して鍵を渡す Cloudflare Worker
+
+仕組みと手順は docs/paid-articles.md、noteなどから引っ越す人向けの案内は
+https://hbarcg.github.io/apps/leave-note/ にあります。
+
+このリポジトリのほかのファイル（エッセイなどの文章・画像・ほかのコード）は対象外です。
+
+----------------------------------------------------------------------
+
+MIT License
+
+Copyright (c) 2026 HbarCG
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
