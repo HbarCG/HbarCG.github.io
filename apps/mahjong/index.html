@@ -10,9 +10,14 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 </head>
 <body>
-  <div class="page page--wide">
-    <header class="site-header">
+  <!-- 対局画面。開いたときにスクロールせずに卓と手牌が1画面に収まるよう、
+       画面の高さから卓の大きさを決める（詳しくは style.css の「アプリ画面の配置」）。
+       横長の画面では 左に卓と手牌、右にヘッダー・補助情報・設定 を並べ、
+       縦長の画面では ヘッダー → 卓 → 手牌 → 補助情報・設定 の順に縦に積む。 -->
+  <main class="mj-app" id="mj-game">
+    <header class="site-header mj-topbar">
       <p class="site-title"><a href="/"><span class="mark-hb">Hbar</span>CG</a></p>
+      <h1 class="mj-title">麻雀（試作版）</h1>
       <nav class="site-nav">
         <a href="/essays/">Essays</a>
         <a href="/apps/">Apps</a>
@@ -20,118 +25,118 @@
       </nav>
     </header>
 
-    <main>
-      <p class="back-link"><a href="/apps/">← Apps</a></p>
+    <section class="mj-board" aria-label="卓">
+      <!-- 正方形の卓。4人分の席レイヤー(河・名札・手牌/副露)を同じ配置で作り、
+           CSSで卓の中心を軸に 0/90/180/270度 回転させて四方に並べる。 -->
+      <div class="mj-table" id="mj-table">
+        <!-- 中央の枠は名札より下に描くため、席レイヤーより先に置く -->
+        <div class="mj-center">
+          <div id="mj-round" class="mj-round"></div>
+          <div id="mj-round-sub" class="mj-round-sub"></div>
+          <div id="mj-dora" class="mj-dora" aria-label="ドラ表示牌"></div>
+          <div id="mj-wall-count" class="mj-wall-count"></div>
+        </div>
 
-      <h1>麻雀（試作版）</h1>
-      <p class="lede">
-        CPU3人と対局する4人打ちリーチ麻雀。演出は最小限、東風戦・基本役のみの試作版です。
-        CPUの強さは総合レベル(1〜5)と読みの深さ(0〜3)の2軸で調整できます。
-        対局後は棋譜を天鳳風のテキスト形式でコピーできます（完全互換ではありません）。
-      </p>
-
-      <div class="mj-game" id="mj-game">
-        <section class="mj-board" aria-label="卓">
-          <!-- 正方形の卓。4人分の席レイヤー(河・名札・手牌/副露)を同じ配置で作り、
-               CSSで卓の中心を軸に 0/90/180/270度 回転させて四方に並べる。 -->
-          <div class="mj-table" id="mj-table">
-            <!-- 中央の枠は名札より下に描くため、席レイヤーより先に置く -->
-            <div class="mj-center">
-              <div id="mj-round" class="mj-round"></div>
-              <div id="mj-round-sub" class="mj-round-sub"></div>
-              <div id="mj-dora" class="mj-dora" aria-label="ドラ表示牌"></div>
-              <div id="mj-wall-count" class="mj-wall-count"></div>
-            </div>
-
-            <div class="mj-seat mj-seat--bottom" data-seat="0">
-              <div class="mj-plate"><span id="mj-wind-0" class="mj-plate-wind"></span><span class="mj-plate-name">あなた</span><span id="mj-score-0" class="mj-plate-score"></span><span class="mj-riichi-stick" aria-hidden="true"></span></div>
-              <div id="mj-human-pond" class="mj-pond"></div>
-              <div class="mj-edge">
-                <div class="mj-backs"></div>
-                <div id="mj-human-melds" class="mj-melds"></div>
-              </div>
-            </div>
-
-            <div class="mj-seat mj-seat--right" data-seat="1">
-              <div class="mj-plate"><span id="mj-wind-1" class="mj-plate-wind"></span><span class="mj-plate-name">CPU1</span><span id="mj-score-1" class="mj-plate-score"></span><span class="mj-riichi-stick" aria-hidden="true"></span></div>
-              <div id="mj-cpu-1-pond" class="mj-pond"></div>
-              <div class="mj-edge">
-                <div id="mj-cpu-1-hand" class="mj-backs"></div>
-                <div id="mj-cpu-1-melds" class="mj-melds"></div>
-              </div>
-            </div>
-
-            <div class="mj-seat mj-seat--top" data-seat="2">
-              <div class="mj-plate"><span id="mj-wind-2" class="mj-plate-wind"></span><span class="mj-plate-name">CPU2</span><span id="mj-score-2" class="mj-plate-score"></span><span class="mj-riichi-stick" aria-hidden="true"></span></div>
-              <div id="mj-cpu-2-pond" class="mj-pond"></div>
-              <div class="mj-edge">
-                <div id="mj-cpu-2-hand" class="mj-backs"></div>
-                <div id="mj-cpu-2-melds" class="mj-melds"></div>
-              </div>
-            </div>
-
-            <div class="mj-seat mj-seat--left" data-seat="3">
-              <div class="mj-plate"><span id="mj-wind-3" class="mj-plate-wind"></span><span class="mj-plate-name">CPU3</span><span id="mj-score-3" class="mj-plate-score"></span><span class="mj-riichi-stick" aria-hidden="true"></span></div>
-              <div id="mj-cpu-3-pond" class="mj-pond"></div>
-              <div class="mj-edge">
-                <div id="mj-cpu-3-hand" class="mj-backs"></div>
-                <div id="mj-cpu-3-melds" class="mj-melds"></div>
-              </div>
-            </div>
-
-            <!-- 鳴き・リーチの宣言（「ポン」など）。宣言した人の河の上に、次のツモまで表示する。
-                 文字が横倒しにならないよう、回転する席レイヤーの外に置く -->
-            <div id="mj-call" class="mj-call" role="status" aria-live="polite" hidden></div>
-
-            <div id="mj-banner" class="mj-banner" hidden></div>
+        <div class="mj-seat mj-seat--bottom" data-seat="0">
+          <div class="mj-plate"><span id="mj-wind-0" class="mj-plate-wind"></span><span class="mj-plate-name">あなた</span><span id="mj-score-0" class="mj-plate-score"></span><span class="mj-riichi-stick" aria-hidden="true"></span></div>
+          <div id="mj-human-pond" class="mj-pond"></div>
+          <div class="mj-edge">
+            <div class="mj-backs"></div>
+            <div id="mj-human-melds" class="mj-melds"></div>
           </div>
+        </div>
 
-          <!-- 自分の手牌は卓の外に大きく表示する（タップしやすさ優先）。 -->
-          <div class="mj-hand-area">
-            <div id="mj-prompt" class="mj-prompt" hidden></div>
-            <div id="mj-human-hand" class="mj-hand" aria-label="あなたの手牌"></div>
-            <!-- 向聴数・待ち牌の残り枚数・和了時の役と翻。チェックで表示/非表示を切り替える -->
-            <div class="mj-assist-bar">
-              <label class="mj-assist-toggle"><input type="checkbox" id="mj-assist-toggle" checked> 向聴・待ち・役を表示</label>
-            </div>
-            <div id="mj-assist" class="mj-assist" aria-live="polite"></div>
+        <div class="mj-seat mj-seat--right" data-seat="1">
+          <div class="mj-plate"><span id="mj-wind-1" class="mj-plate-wind"></span><span class="mj-plate-name">CPU1</span><span id="mj-score-1" class="mj-plate-score"></span><span class="mj-riichi-stick" aria-hidden="true"></span></div>
+          <div id="mj-cpu-1-pond" class="mj-pond"></div>
+          <div class="mj-edge">
+            <div id="mj-cpu-1-hand" class="mj-backs"></div>
+            <div id="mj-cpu-1-melds" class="mj-melds"></div>
           </div>
-        </section>
+        </div>
 
-        <section class="mj-panel mj-panel--controls">
-          <h2>CPU設定</h2>
-          <label class="mj-config-row">
-            総合レベル
-            <select id="mj-level">
-              <option value="1">1（最弱・最短手順のみ）</option>
-              <option value="2">2</option>
-              <option value="3" selected>3（標準）</option>
-              <option value="4">4（危険牌を読んで降りる）</option>
-              <option value="5">5（最強・押し引き判断）</option>
-            </select>
-          </label>
-          <label class="mj-config-row">
-            読みの深さ
-            <select id="mj-depth">
-              <option value="0">0（フラット）</option>
-              <option value="1" selected>1（現物のみ）</option>
-              <option value="2">2（＋スジ・ワンチャンス）</option>
-              <option value="3">3（＋壁読み）</option>
-            </select>
-          </label>
-          <p class="mj-hint">読みの深さはレベル4以上でのみ効果があります。</p>
-          <button type="button" id="mj-new-game" class="mj-new-game">新しい対局を始める</button>
+        <div class="mj-seat mj-seat--top" data-seat="2">
+          <div class="mj-plate"><span id="mj-wind-2" class="mj-plate-wind"></span><span class="mj-plate-name">CPU2</span><span id="mj-score-2" class="mj-plate-score"></span><span class="mj-riichi-stick" aria-hidden="true"></span></div>
+          <div id="mj-cpu-2-pond" class="mj-pond"></div>
+          <div class="mj-edge">
+            <div id="mj-cpu-2-hand" class="mj-backs"></div>
+            <div id="mj-cpu-2-melds" class="mj-melds"></div>
+          </div>
+        </div>
 
-          <h2>ログ</h2>
-          <ul id="mj-log" class="mj-log"></ul>
+        <div class="mj-seat mj-seat--left" data-seat="3">
+          <div class="mj-plate"><span id="mj-wind-3" class="mj-plate-wind"></span><span class="mj-plate-name">CPU3</span><span id="mj-score-3" class="mj-plate-score"></span><span class="mj-riichi-stick" aria-hidden="true"></span></div>
+          <div id="mj-cpu-3-pond" class="mj-pond"></div>
+          <div class="mj-edge">
+            <div id="mj-cpu-3-hand" class="mj-backs"></div>
+            <div id="mj-cpu-3-melds" class="mj-melds"></div>
+          </div>
+        </div>
 
-          <h2>棋譜（天鳳風テキスト）</h2>
-          <textarea id="mj-kifu-text" class="mj-kifu-text" readonly rows="8" placeholder="対局終了後にここへ棋譜が表示されます"></textarea>
-          <button type="button" id="mj-copy-kifu">コピー</button>
-          <span id="mj-copy-status" class="mj-hint"></span>
-        </section>
+        <!-- 鳴き・リーチの宣言（「ポン」など）。宣言した人の河の上に、次のツモまで表示する。
+             文字が横倒しにならないよう、回転する席レイヤーの外に置く -->
+        <div id="mj-call" class="mj-call" role="status" aria-live="polite" hidden></div>
+
+        <div id="mj-banner" class="mj-banner" hidden></div>
       </div>
-    </main>
+    </section>
+
+    <!-- 自分の手牌は卓の外に大きく表示する（タップしやすさ優先）。 -->
+    <div class="mj-hand-area">
+      <div id="mj-prompt" class="mj-prompt" hidden></div>
+      <div id="mj-human-hand" class="mj-hand" aria-label="あなたの手牌"></div>
+    </div>
+
+    <aside class="mj-side">
+      <!-- 向聴数・待ち牌の残り枚数・和了時の役と翻。チェックで表示/非表示を切り替える -->
+      <div class="mj-assist-bar">
+        <label class="mj-assist-toggle"><input type="checkbox" id="mj-assist-toggle" checked> 向聴・待ち・役を表示</label>
+      </div>
+      <div id="mj-assist" class="mj-assist" aria-live="polite"></div>
+
+      <section class="mj-panel mj-panel--controls">
+        <h2>CPU設定</h2>
+        <label class="mj-config-row">
+          総合レベル
+          <select id="mj-level">
+            <option value="1">1（最弱・最短手順のみ）</option>
+            <option value="2">2</option>
+            <option value="3" selected>3（標準）</option>
+            <option value="4">4（危険牌を読んで降りる）</option>
+            <option value="5">5（最強・押し引き判断）</option>
+          </select>
+        </label>
+        <label class="mj-config-row">
+          読みの深さ
+          <select id="mj-depth">
+            <option value="0">0（フラット）</option>
+            <option value="1" selected>1（現物のみ）</option>
+            <option value="2">2（＋スジ・ワンチャンス）</option>
+            <option value="3">3（＋壁読み）</option>
+          </select>
+        </label>
+        <p class="mj-hint">読みの深さはレベル4以上でのみ効果があります。</p>
+        <button type="button" id="mj-new-game" class="mj-new-game">新しい対局を始める</button>
+
+        <h2>ログ</h2>
+        <ul id="mj-log" class="mj-log"></ul>
+
+        <h2>棋譜（天鳳風テキスト）</h2>
+        <textarea id="mj-kifu-text" class="mj-kifu-text" readonly rows="8" placeholder="対局終了後にここへ棋譜が表示されます"></textarea>
+        <button type="button" id="mj-copy-kifu">コピー</button>
+        <span id="mj-copy-status" class="mj-hint"></span>
+      </section>
+    </aside>
+  </main>
+
+  <div class="page mj-about">
+    <h2>この試作版について</h2>
+    <p class="lede">
+      CPU3人と対局する4人打ちリーチ麻雀。演出は最小限、東風戦・基本役のみの試作版です。
+      CPUの強さは総合レベル(1〜5)と読みの深さ(0〜3)の2軸で調整できます。
+      対局後は棋譜を天鳳風のテキスト形式でコピーできます（完全互換ではありません）。
+    </p>
+    <p class="back-link"><a href="/apps/">← Apps</a></p>
 
     <footer class="site-footer">
       <p>&copy; 2026 HbarCG</p>
