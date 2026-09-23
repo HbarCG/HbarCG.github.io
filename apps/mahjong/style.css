@@ -527,6 +527,98 @@ button.mj-tile:not(:disabled):focus-visible {
 }
 
 /* ---------------------------------------------------------------------------
+   補助情報（向聴数・待ち牌の残り枚数・和了時の役と翻）
+   手牌エリアと同じ緑の下地の上に出すので、文字色は背景の明暗モードに関係なく白系で固定する
+   --------------------------------------------------------------------------- */
+
+.mj-assist-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+
+.mj-assist-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.mj-assist {
+  --tw: 1.25rem;
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  color: #f2f2f2;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.mj-assist[hidden] {
+  display: none;
+}
+
+.mj-assist p {
+  margin: 0;
+}
+
+.mj-assist-summary {
+  font-weight: 700;
+}
+
+.mj-assist-option {
+  margin-top: 0.5rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.mj-assist-option-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 700;
+}
+
+.mj-assist-waits {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0;
+}
+
+/* 左に「待ち牌＋残り枚数」、右にロン/ツモ時の役と翻を2行で並べる */
+.mj-assist-wait {
+  display: grid;
+  grid-template-columns: 5.2rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.25rem 0;
+}
+
+.mj-assist-wait-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.mj-assist-left {
+  font-variant-numeric: tabular-nums;
+}
+
+.mj-assist-wait-detail {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+@media (max-width: 40em) {
+  .mj-assist {
+    font-size: 0.75rem;
+  }
+}
+
+/* ---------------------------------------------------------------------------
    右側の設定パネル
    --------------------------------------------------------------------------- */
 

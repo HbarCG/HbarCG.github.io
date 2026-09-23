@@ -1000,6 +1000,146 @@ function render(opts) {
   renderMelds('mj-human-melds', state.players[0].melds, 0);
   for (let s = 1; s < 4; s++) renderCpu(s);
   renderActiveSeat();
+  renderAssist();
+}
+
+// ---------------------------------------------------------------------------
+// 補助情報（向聴数・待ち牌の残り枚数・和了時の役と翻）
+// 計算は assist.js。ここでは今の局面を渡して結果を手牌の下に並べる。
+// ---------------------------------------------------------------------------
+
+const ASSIST_STORAGE_KEY = 'mj-assist-visible';
+
+function loadAssistVisible() {
+  try {
+    return localStorage.getItem(ASSIST_STORAGE_KEY) !== '0';
+  } catch (e) {
+    return true;
+  }
+}
+
+function saveAssistVisible(visible) {
+  try {
+    localStorage.setItem(ASSIST_STORAGE_KEY, visible ? '1' : '0');
+  } catch (e) {
+    // 保存できない環境（プライベートブラウズ等）では毎回既定の「表示」に戻るだけ
+  }
+}
+
+// 和了したときの評価を「3翻40符 満貫（リーチ・タンヤオ・ドラ1）」の形の文字列にする
+function assistWinText(r) {
+  if (!r) return '役なし';
+  const names = r.yaku.map((y) => y[0]);
+  if (r.isYakuman) return `${r.limitName}（${names.join('・')}）`;
+  if (r.doraHan > 0) names.push(`ドラ${r.doraHan}`);
+  if (r.akaHan > 0) names.push(`赤${r.akaHan}`);
+  const limit = r.limitName ? ` ${r.limitName}` : '';
+  return `${r.han}翻${r.fu}符${limit}（${names.join('・')}）`;
+}
+
+function assistLine(parent, className, text) {
+  const node = document.createElement('p');
+  node.className = className;
+  node.textContent = text;
+  parent.appendChild(node);
+  return node;
+}
+
+// 待ち牌の一覧。1行 = 待ち牌1種（牌・残り枚数・ロン/ツモ時の役と翻）
+function buildAssistWaitList(waits, visibleCounts) {
+  const list = document.createElement('ul');
+  list.className = 'mj-assist-waits';
+  for (const w of waits) {
+    const li = document.createElement('li');
+    li.className = 'mj-assist-wait';
+    const head = document.createElement('span');
+    head.className = 'mj-assist-wait-head';
+    head.appendChild(makeTile(w.type * 4 + 1));
+    const left = document.createElement('span');
+    left.className = 'mj-assist-left';
+    left.textContent = `残り${Math.max(0, 4 - visibleCounts[w.type])}枚`;
+    head.appendChild(left);
+    li.appendChild(head);
+    const detail = document.createElement('span');
+    detail.className = 'mj-assist-wait-detail';
+    assistLine(detail, '', `ロン: ${assistWinText(w.ron)}`);
+    assistLine(detail, '', `ツモ: ${assistWinText(w.tsumo)}`);
+    li.appendChild(detail);
+    list.appendChild(li);
+  }
+  return list;
+}
+
+function assistRemaining(waits, visibleCounts) {
+  return waits.reduce((sum, w) => sum + Math.max(0, 4 - visibleCounts[w.type]), 0);
+}
+
+function assistShantenText(shanten) {
+  return shanten === 0 ? '聴牌' : `${shanten}向聴`;
+}
+
+function renderAssist() {
+  const box = el('mj-assist');
+  const visible = el('mj-assist-toggle').checked;
+  box.hidden = !visible;
+  box.innerHTML = '';
+  if (!visible) return;
+
+  const player = state.players[0];
+  const doraIndicators = state.doraIndicators.slice(0, state.doraRevealed);
+  const info = analyzeHandAssist(player.hand, {
+    melds: player.melds,
+    seatWindType: seatWindType(0),
+    roundWindType: state.roundWindType,
+    isDealer: state.oya === 0,
+    riichi: player.riichi,
+    doraIndicators,
+  });
+  const visibleCounts = countVisibleTypes(
+    player.hand,
+    state.players.map((p) => p.discards),
+    state.players.map((p) => p.melds),
+    doraIndicators
+  );
+  const ownDiscardTypes = player.discards.map((d) => tileType(d.tile));
+  const isFuriten = (waits, extraType) => waits.some((w) => w.type === extraType || ownDiscardTypes.includes(w.type));
+
+  if (info.phase === 'wait') {
+    if (info.shanten > 0) {
+      assistLine(box, 'mj-assist-summary', assistShantenText(info.shanten));
+      return;
+    }
+    let summary = `聴牌　待ち${info.waits.length}種・残り${assistRemaining(info.waits, visibleCounts)}枚`;
+    if (player.furitenTemp || isFuriten(info.waits, null)) summary += '　フリテン（ロン不可）';
+    assistLine(box, 'mj-assist-summary', summary);
+    box.appendChild(buildAssistWaitList(info.waits, visibleCounts));
+    return;
+  }
+
+  // 打牌前（14枚）: 一番良い打牌をしたあとの向聴数と、聴牌になる打牌ごとの待ち
+  if (info.complete) assistLine(box, 'mj-assist-summary', '和了形です');
+  if (info.options.length === 0) {
+    assistLine(box, 'mj-assist-summary', `打牌後 ${assistShantenText(info.shanten)}`);
+    return;
+  }
+  assistLine(box, 'mj-assist-summary', `聴牌になる打牌 ${info.options.length}通り（残り枚数の多い順）`);
+  const options = info.options
+    .map((o) => Object.assign({ remaining: assistRemaining(o.waits, visibleCounts) }, o))
+    .sort((a, b) => b.remaining - a.remaining);
+  for (const o of options) {
+    const section = document.createElement('div');
+    section.className = 'mj-assist-option';
+    const head = document.createElement('p');
+    head.className = 'mj-assist-option-head';
+    head.appendChild(document.createTextNode('打'));
+    head.appendChild(makeTile(o.discard));
+    let text = `待ち${o.waits.length}種・残り${o.remaining}枚`;
+    if (isFuriten(o.waits, tileType(o.discard))) text += '　フリテン';
+    head.appendChild(document.createTextNode(text));
+    section.appendChild(head);
+    section.appendChild(buildAssistWaitList(o.waits, visibleCounts));
+    box.appendChild(section);
+  }
 }
 
 function renderLog() {
@@ -1093,6 +1233,11 @@ function bootstrap() {
   el('mj-depth').value = String(CONFIG.readingDepth);
   el('mj-level').addEventListener('change', (e) => { CONFIG.cpuLevel = Number(e.target.value); });
   el('mj-depth').addEventListener('change', (e) => { CONFIG.readingDepth = Number(e.target.value); });
+  el('mj-assist-toggle').checked = loadAssistVisible();
+  el('mj-assist-toggle').addEventListener('change', (e) => {
+    saveAssistVisible(e.target.checked);
+    renderAssist();
+  });
   el('mj-new-game').addEventListener('click', () => {
     el('mj-banner').hidden = true;
     el('mj-kifu-text').value = '';
