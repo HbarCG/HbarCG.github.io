@@ -82,8 +82,6 @@
   padding: 0.5rem 0;
 }
 
-/* 左右の対局者は幅が限られるので、捨て牌・副露は縮小牌(mj-tile--mini)で
-   複数列に折り返して表示する（実寸のままだと1行1枚になり縦に伸びきってしまうため）。 */
 .mj-seat--left,
 .mj-seat--right {
   display: flex;
@@ -94,6 +92,56 @@
 .mj-seat--left .mj-melds,
 .mj-seat--right .mj-melds {
   justify-content: center;
+}
+
+/* 河・副露を卓の中心を向くように回転させ、実卓を上から見たような配置にする。
+   対面(180°)は幅と高さが変わらないのでそのまま回転すればよいが、
+   上家・下家(±90°)は見た目の幅と高さが入れ替わるため、固定サイズの正方形の
+   枠(mj-rotate-wrap)の中に中身(mj-rotate-inner)を中央配置してから回転させる。
+   これをしないと回転後の見た目のサイズがレイアウトの確保領域とずれて、
+   他の要素と重なったり隙間ができたりする。 */
+.mj-rotate-wrap {
+  margin: 0.4rem auto 0;
+}
+
+.mj-rotate-wrap--180 {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.mj-rotate-wrap--180 .mj-rotate-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: rotate(180deg);
+}
+
+.mj-rotate-wrap--90,
+.mj-rotate-wrap--neg90 {
+  position: relative;
+  width: 14rem;
+  height: 14rem;
+}
+
+.mj-rotate-wrap--90 .mj-rotate-inner,
+.mj-rotate-wrap--neg90 .mj-rotate-inner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 13.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.mj-rotate-wrap--90 .mj-rotate-inner {
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.mj-rotate-wrap--neg90 .mj-rotate-inner {
+  transform: translate(-50%, -50%) rotate(-90deg);
 }
 
 /* 今まさに手番のプレイヤーの卓を、枠色を変えて目立たせる */
@@ -114,10 +162,20 @@
       "bottom";
   }
 
-  /* この幅では左右の席も全幅になるので、河は上下と同じ6列に戻す */
-  .mj-seat--left .mj-pond,
-  .mj-seat--right .mj-pond {
-    grid-template-columns: repeat(6, auto);
+  /* この幅では左右の席も全幅の1カラム表示になるので、回転させると逆に
+     見づらくなる。回転をやめて上下の席と同じ向き・並びに揃える。 */
+  .mj-rotate-wrap--90,
+  .mj-rotate-wrap--neg90 {
+    width: auto;
+    height: auto;
+  }
+
+  .mj-rotate-wrap--180 .mj-rotate-inner,
+  .mj-rotate-wrap--90 .mj-rotate-inner,
+  .mj-rotate-wrap--neg90 .mj-rotate-inner {
+    position: static;
+    width: auto;
+    transform: none;
   }
 }
 
@@ -213,11 +271,6 @@
   min-height: 1.8rem;
   margin-bottom: 0.3rem;
   justify-content: center;
-}
-
-.mj-seat--left .mj-pond,
-.mj-seat--right .mj-pond {
-  grid-template-columns: repeat(3, auto);
 }
 
 .mj-tile {
