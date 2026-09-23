@@ -22,6 +22,7 @@ let state = null;
 let discardResolver = null;
 let selectedTile = null; // 打牌前に1回タップして選んでいる手牌
 let promptResolver = null;
+let replay = null; // 局の振り返りができる間 { text: 「次へ」の案内文, index: 見ている手の番号（null は結果表示中） }
 
 // 待ち時間。待っている間に「新しい対局」で state が作り直されたら、古い対局の進行はここで止める
 // （Promise を解決せずに放っておく）。止めないと、古い対局のCPUが新しい卓で打ち続けてしまう。
@@ -86,6 +87,7 @@ function initMatch() {
     myHaipai: [], // この局のあなたの配牌（局面コピーで振り返り用に書き出す）
     myTurns: [], // この局のあなたの行動。1巡 = ツモか鳴きから打牌まで { actions, review }
     myPasses: [], // 鳴かずに見送った記録（お手本AIなら鳴いた場合だけ）。次の巡の頭に入れる
+    steps: [], // この局の一手ごとの盤面（局の終わりに振り返る用。recordStep を参照）
   };
   const names = ['あなた', 'CPU1', 'CPU2', 'CPU3'];
   state.kifuLines.push(kifuHeader(names));
@@ -124,6 +126,7 @@ function setupHand() {
   state.myHaipai = state.players[0].hand.slice();
   state.myTurns = [];
   state.myPasses = [];
+  state.steps = [];
 
   state.kifuLines.push(kifuInit({
     kyoku: state.kyoku, honba: state.honba, kyotaku: state.kyotaku,
@@ -131,6 +134,42 @@ function setupHand() {
     oya: state.oya, hands: state.players.map((p) => p.hand),
   }));
   pushLog(`--- 東${state.kyoku}局 ${state.honba}本場 ---`);
+  recordStep(null, '配牌', null);
+}
+
+// 局の振り返り用に、今の盤面を1手分として state.steps に積む。
+// 描画に使う項目だけを、描画関数がそのまま読める形（state と同じ名前）で写す。
+// 捨て牌の calledBy のように後から書き換わるものがあるので、配列やオブジェクトはコピーしておく
+// （山とドラ表示牌は局の途中で中身が変わらないので、同じ配列をそのまま指す）。
+// seat: 動いた人（配牌は null） / action: 「ツモ」「打」「ポン」など / tile: 関係する牌（なければ null）
+// discardOrder: 打牌の手なら、局の中で何枚目の打牌か（河の牌からその手を探すのに使う）
+function recordStep(seat, action, tile, discardOrder) {
+  state.steps.push({
+    seat,
+    action,
+    tile,
+    discardOrder: discardOrder === undefined ? null : discardOrder,
+    players: state.players.map((p) => ({
+      hand: p.hand.slice(),
+      melds: p.melds.map((m) => Object.assign({}, m, { tiles: m.tiles.slice() })),
+      discards: p.discards.map((d) => Object.assign({}, d)),
+      riichi: p.riichi,
+      furitenTemp: p.furitenTemp,
+      score: p.score,
+    })),
+    oya: state.oya,
+    kyoku: state.kyoku,
+    honba: state.honba,
+    kyotaku: state.kyotaku,
+    roundWindType: state.roundWindType,
+    wall: state.wall,
+    wallIndex: state.wallIndex,
+    doraIndicators: state.doraIndicators,
+    doraRevealed: state.doraRevealed,
+    lastDrawnTile: state.lastDrawnTile && Object.assign({}, state.lastDrawnTile),
+    lastDiscardSeat: state.lastDiscardSeat,
+    callAnnounce: state.callAnnounce && Object.assign({}, state.callAnnounce),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -385,9 +424,15 @@ function onPromptChoice(value) {
   }
 }
 
+// 局の終わりに「次へ」を押すまで待つ。待っている間は、この局を一手ずつ振り返れる（renderContinuePrompt）
 async function waitForContinue(message) {
   if (CONFIG.autoHuman) { await sleep(50); return; }
-  await askHuman(message + '（続けるにはボタンを押してください）', [{ label: '次へ', value: true }]);
+  const text = message + '（続けるにはボタンを押してください）';
+  const next = askHuman(text, [{ label: '次へ', value: true }]);
+  replay = { text, index: null };
+  renderContinuePrompt();
+  await next;
+  replay = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -665,6 +710,7 @@ async function discardPhase(seat) {
     const chankan = await performKan(seat, kan);
     render();
     if (chankan) return { result: 'ron', seats: chankan.seats, fromSeat: seat, tile: chankan.tile };
+    recordStep(seat, meldKindLabel(kan.kind), kan.tiles[0]);
     const rtile = drawFromRinshan();
     if (rtile === null) return { result: 'ryuukyoku' };
     state.lastDrawnTile = { seat, tile: rtile };
@@ -672,6 +718,7 @@ async function discardPhase(seat) {
     addToHand(seat, rtile);
     state.kifuLines.push(kifuDraw(seat, rtile));
     render();
+    recordStep(seat, '嶺上ツモ', rtile);
     if (canTsumo(seat)) {
       const take = (seat === 0 && !CONFIG.autoHuman)
         ? await askHuman('嶺上ツモできます', [{ label: 'ツモ', value: true }, { label: '見送る', value: false }])
@@ -690,13 +737,17 @@ async function discardPhase(seat) {
   const sideways = (!wasRiichi && player.riichi) || player.riichiSidewaysPending;
   player.riichiSidewaysPending = false;
   // order: 局の中で何枚目の打牌か（リーチ後に通った牌をCPUが読むため）
-  player.discards.push({ tile: discardTile, tsumogiri, calledBy: null, sideways, order: state.discardCount++ });
+  const order = state.discardCount++;
+  player.discards.push({ tile: discardTile, tsumogiri, calledBy: null, sideways, order });
   state.lastDiscardSeat = seat;
   state.kifuLines.push(kifuDiscard(seat, discardTile, tsumogiri));
   if (seat === 0) recordMyDiscard(discardTile, tsumogiri);
   updateFuriten(seat);
   recordTenpaiTurn(seat);
   render();
+  // リーチ宣言は打牌と同じ1手にまとめる（河の宣言牌を選んだとき、リーチ前の盤面に戻れるように）
+  const action = (!wasRiichi && player.riichi) ? 'リーチ 打' : (tsumogiri ? 'ツモ切り' : '打');
+  recordStep(seat, action, discardTile, order);
 
   const reaction = await offerReactions(seat, discardTile);
   if (reaction.type === 'ron') return { result: 'ron', seats: reaction.seats, fromSeat: seat, tile: discardTile };
@@ -713,6 +764,7 @@ async function takeTurn(seat) {
   addToHand(seat, tile);
   state.kifuLines.push(kifuDraw(seat, tile));
   render();
+  recordStep(seat, 'ツモ', tile);
 
   if (canTsumo(seat)) {
     const take = (seat === 0 && !CONFIG.autoHuman)
@@ -742,6 +794,7 @@ async function takeTurnAfterKanCall(seat) {
   addToHand(seat, rtile);
   state.kifuLines.push(kifuDraw(seat, rtile));
   render();
+  recordStep(seat, '嶺上ツモ', rtile);
   if (canTsumo(seat)) {
     const take = (seat === 0 && !CONFIG.autoHuman)
       ? await askHuman('嶺上ツモできます', [{ label: 'ツモ', value: true }, { label: '見送る', value: false }])
@@ -891,6 +944,7 @@ async function playHand() {
     if (outcome.result === 'call') {
       await performCall(outcome.seat, outcome.call, outcome.fromSeat, outcome.tile);
       render();
+      recordStep(outcome.seat, meldKindLabel(outcome.call.kind), outcome.tile);
       seat = outcome.seat;
       outcome = (outcome.call.kind === 'minkan') ? await takeTurnAfterKanCall(seat) : await takeTurnAfterCall(seat);
       continue;
@@ -937,7 +991,8 @@ function renderPrompt(promptText, choices) {
       btn.classList.add('mj-prompt-call');
       btn.appendChild(buildMeldElement(c.meld, 0));
     }
-    btn.addEventListener('click', () => onPromptChoice(c.value));
+    // onClick のある選択肢（「振り返る」など）は、判断の答えにせず、その処理だけをする
+    btn.addEventListener('click', () => (c.onClick ? c.onClick() : onPromptChoice(c.value)));
     row.appendChild(btn);
   }
   box.appendChild(row);
@@ -972,21 +1027,28 @@ function makeBackTile() {
   return node;
 }
 
-// 自分の手牌。ツモ直後(14枚目がある状態)は、ツモった牌を右端に少し離して置く。
-function renderHandRow(containerId, tiles, opts) {
-  const box = el(containerId);
-  box.innerHTML = '';
-  const drawn = state.lastDrawnTile;
-  let ordered = tiles;
-  let drawnId = null;
-  if (drawn && drawn.seat === 0 && tiles.length % 3 === 2 && tiles.includes(drawn.tile)) {
-    drawnId = drawn.tile;
-    ordered = tiles.filter((id) => id !== drawnId).concat([drawnId]);
+// 手牌の並び。ツモ直後(14枚目がある状態)は、ツモった牌を右端に置く（drawnId はその牌。なければ null）
+function orderHand(b, seat) {
+  const tiles = b.players[seat].hand;
+  const drawn = b.lastDrawnTile;
+  if (drawn && drawn.seat === seat && tiles.length % 3 === 2 && tiles.includes(drawn.tile)) {
+    return { ordered: tiles.filter((id) => id !== drawn.tile).concat([drawn.tile]), drawnId: drawn.tile };
   }
+  return { ordered: tiles, drawnId: null };
+}
+
+// 自分の手牌。ツモった牌は右端に少し離して置く。
+// b: 描く盤面（ふだんは state、振り返り中はその手の記録。viewedBoard を参照）
+function renderHandRow(b, opts) {
+  const box = el('mj-human-hand');
+  box.innerHTML = '';
+  const { ordered, drawnId } = orderHand(b, 0);
+  const next = replayNextDiscard();
   const discardable = opts && opts.discardable;
   for (const id of ordered) {
     const classes = [];
     if (id === drawnId) classes.push('mj-tile--drawn');
+    if (next && next.seat === 0 && next.tile === id) classes.push('mj-tile--next');
     const enabled = Boolean(discardable && discardable.includes(id));
     if (discardable && !enabled) classes.push('mj-tile--locked');
     if (enabled && id === selectedTile) classes.push('mj-tile--selected');
@@ -1000,21 +1062,38 @@ function renderHandRow(containerId, tiles, opts) {
 }
 
 // 河は実卓と同じく 6枚・6枚・残り全部 の3段で並べる。
-function renderPond(containerId, discards, isLastDiscarder) {
-  const box = el(containerId);
+// 振り返り中は、見ている手より後に捨てられる牌も薄く並べる。どの牌も押すと、その牌を切る直前の手に移る。
+function renderPond(b, seat) {
+  const box = el(seat === 0 ? 'mj-human-pond' : `mj-cpu-${seat}-pond`);
   box.innerHTML = '';
-  const rows = [discards.slice(0, 6), discards.slice(6, 12), discards.slice(12)];
+  const discards = b.players[seat].discards;
+  const reviewing = replayActive();
+  const later = reviewing ? state.players[seat].discards.slice(discards.length) : [];
+  const all = discards.concat(later);
+  const next = replayNextDiscard();
+  const rows = [all.slice(0, 6), all.slice(6, 12), all.slice(12)];
   rows.forEach((rowDiscards, r) => {
     if (rowDiscards.length === 0) return;
     const row = document.createElement('div');
     row.className = 'mj-pond-row';
     rowDiscards.forEach((d, i) => {
-      const isLast = isLastDiscarder && r * 6 + i === discards.length - 1 && d.calledBy === null;
+      const n = r * 6 + i;
+      const isLater = n >= discards.length;
+      const isLast = b.lastDiscardSeat === seat && n === discards.length - 1 && d.calledBy === null;
       const classes = [];
       if (d.tsumogiri) classes.push('mj-tile--tsumogiri');
-      if (d.calledBy !== null) classes.push('mj-tile--called');
+      if (!isLater && d.calledBy !== null) classes.push('mj-tile--called');
       if (isLast) classes.push('mj-tile--last');
-      row.appendChild(makeTile(d.tile, { side: d.sideways, classes }));
+      if (isLater) classes.push('mj-tile--later');
+      if (next && next.order === d.order) classes.push('mj-tile--next');
+      if (!reviewing) {
+        row.appendChild(makeTile(d.tile, { side: d.sideways, classes }));
+        return;
+      }
+      const btn = makeTile(d.tile, { tag: 'button', side: d.sideways, classes });
+      btn.title = 'この牌を切る直前に戻る';
+      btn.addEventListener('click', () => showReplayStep(replayStepBeforeDiscard(d.order)));
+      row.appendChild(btn);
     });
     box.appendChild(row);
   });
@@ -1071,11 +1150,11 @@ function meldKindLabel(kind) {
   }
 }
 
-function renderMelds(containerId, melds, seat) {
-  const box = el(containerId);
+function renderMelds(b, seat) {
+  const box = el(seat === 0 ? 'mj-human-melds' : `mj-cpu-${seat}-melds`);
   box.innerHTML = '';
-  const a = state.callAnnounce;
-  melds.forEach((m, i) => {
+  const a = b.callAnnounce;
+  b.players[seat].melds.forEach((m, i) => {
     const meldEl = buildMeldElement(m, seat);
     // 今鳴いたばかりの副露は枠で囲み、どこに増えたかわかるようにする
     if (a && a.seat === seat && a.meldIndex === i) meldEl.classList.add('mj-meld--new');
@@ -1083,9 +1162,9 @@ function renderMelds(containerId, melds, seat) {
   });
 }
 
-function renderCallAnnounce() {
+function renderCallAnnounce(b) {
   const box = el('mj-call');
-  const a = state.callAnnounce;
+  const a = b.callAnnounce;
   box.hidden = !a;
   box.className = a ? `mj-call mj-call--seat-${a.seat}` : 'mj-call';
   box.innerHTML = '';
@@ -1110,25 +1189,39 @@ function renderBacks(containerId, count, justDrew) {
   }
 }
 
-function renderInfo() {
+// 振り返り中のCPUの手牌は表向きにする（局が終わって全員の手牌を公開したあとなので）
+function renderOpenHand(b, seat) {
+  const box = el(`mj-cpu-${seat}-hand`);
+  box.innerHTML = '';
+  const { ordered, drawnId } = orderHand(b, seat);
+  const next = replayNextDiscard();
+  for (const id of ordered) {
+    const classes = [];
+    if (id === drawnId) classes.push('mj-tile--drawn');
+    if (next && next.seat === seat && next.tile === id) classes.push('mj-tile--next');
+    box.appendChild(makeTile(id, { classes }));
+  }
+}
+
+function renderInfo(b) {
   // 対局終了時は kyoku が5になるので、表示は東4局で止める
-  el('mj-round').textContent = `東${Math.min(state.kyoku, 4)}局`;
-  el('mj-round-sub').textContent = `${state.honba}本場・供託${state.kyotaku}`;
-  el('mj-wall-count').textContent = `残り ${Math.max(0, state.wall.length - state.wallIndex)}枚`;
+  el('mj-round').textContent = `東${Math.min(b.kyoku, 4)}局`;
+  el('mj-round-sub').textContent = `${b.honba}本場・供託${b.kyotaku}`;
+  el('mj-wall-count').textContent = `残り ${Math.max(0, b.wall.length - b.wallIndex)}枚`;
 
   // ドラ表示牌は5枚分の枠を置き、まだめくられていない分は裏向きにする
   const dora = el('mj-dora');
   dora.innerHTML = '';
-  state.doraIndicators.forEach((id, i) => {
-    dora.appendChild(i < state.doraRevealed ? makeTile(id) : makeBackTile());
+  b.doraIndicators.forEach((id, i) => {
+    dora.appendChild(i < b.doraRevealed ? makeTile(id) : makeBackTile());
   });
 
   for (let s = 0; s < 4; s++) {
-    const p = state.players[s];
+    const p = b.players[s];
     const wind = el(`mj-wind-${s}`);
     wind.textContent = tileTypeLabel(seatWindType(s));
-    wind.classList.toggle('mj-plate-wind--oya', s === state.oya);
-    wind.title = s === state.oya ? '親' : '';
+    wind.classList.toggle('mj-plate-wind--oya', s === b.oya);
+    wind.title = s === b.oya ? '親' : '';
     el(`mj-score-${s}`).textContent = String(p.score);
     seatElement(s).classList.toggle('mj-seat--riichi', p.riichi);
   }
@@ -1138,32 +1231,38 @@ function seatElement(seat) {
   return document.querySelector(`.mj-seat[data-seat="${seat}"]`);
 }
 
-function renderCpu(seat) {
-  const p = state.players[seat];
-  const justDrew = Boolean(state.lastDrawnTile && state.lastDrawnTile.seat === seat && p.hand.length % 3 === 2);
-  renderBacks(`mj-cpu-${seat}-hand`, p.hand.length, justDrew);
-  renderPond(`mj-cpu-${seat}-pond`, p.discards, state.lastDiscardSeat === seat);
-  renderMelds(`mj-cpu-${seat}-melds`, p.melds, seat);
+function renderCpu(b, seat) {
+  const p = b.players[seat];
+  if (replayActive()) {
+    renderOpenHand(b, seat);
+  } else {
+    const justDrew = Boolean(b.lastDrawnTile && b.lastDrawnTile.seat === seat && p.hand.length % 3 === 2);
+    renderBacks(`mj-cpu-${seat}-hand`, p.hand.length, justDrew);
+  }
+  renderPond(b, seat);
+  renderMelds(b, seat);
 }
 
 // 今の手番（直前に牌を引いた席）を卓上で目立たせ、初めて見る人でも
 // 「今どこが動いているか」がひと目でわかるようにする。
-function renderActiveSeat() {
-  const activeSeat = state.lastDrawnTile ? state.lastDrawnTile.seat : null;
+function renderActiveSeat(b) {
+  const activeSeat = b.lastDrawnTile ? b.lastDrawnTile.seat : null;
   for (let s = 0; s < 4; s++) {
     seatElement(s).classList.toggle('mj-seat--active', s === activeSeat);
   }
 }
 
+// 卓と手牌を描く。振り返り中は、今の盤面の代わりに見ている手の盤面を描く（viewedBoard）
 function render(opts) {
   if (!state) return;
-  renderInfo();
-  renderHandRow('mj-human-hand', state.players[0].hand, opts);
-  renderPond('mj-human-pond', state.players[0].discards, state.lastDiscardSeat === 0);
-  renderMelds('mj-human-melds', state.players[0].melds, 0);
-  for (let s = 1; s < 4; s++) renderCpu(s);
-  renderActiveSeat();
-  renderCallAnnounce();
+  const b = viewedBoard();
+  renderInfo(b);
+  renderHandRow(b, opts);
+  renderPond(b, 0);
+  renderMelds(b, 0);
+  for (let s = 1; s < 4; s++) renderCpu(b, s);
+  renderActiveSeat(b);
+  renderCallAnnounce(b);
   renderAssist();
   renderReview();
 }
@@ -1260,20 +1359,22 @@ function renderAssist() {
   box.innerHTML = '';
   if (!visible) return;
 
-  const player = state.players[0];
-  const doraIndicators = state.doraIndicators.slice(0, state.doraRevealed);
+  // 振り返り中は、見ている手の時点の手牌で計算する
+  const b = viewedBoard();
+  const player = b.players[0];
+  const doraIndicators = b.doraIndicators.slice(0, b.doraRevealed);
   const info = analyzeHandAssist(player.hand, {
     melds: player.melds,
     seatWindType: seatWindType(0),
-    roundWindType: state.roundWindType,
-    isDealer: state.oya === 0,
+    roundWindType: b.roundWindType,
+    isDealer: b.oya === 0,
     riichi: player.riichi,
     doraIndicators,
   });
   const visibleCounts = countVisibleTypes(
     player.hand,
-    state.players.map((p) => p.discards),
-    state.players.map((p) => p.melds),
+    b.players.map((p) => p.discards),
+    b.players.map((p) => p.melds),
     doraIndicators
   );
   const ownDiscardTypes = player.discards.map((d) => tileType(d.tile));
@@ -1626,6 +1727,119 @@ function renderFinalResult(kifuText) {
 }
 
 // ---------------------------------------------------------------------------
+// 局の振り返り（局が終わって「次へ」を待っている間に、この局を一手ずつ巻き戻して見る）
+// 盤面は recordStep が一手ごとに残した state.steps から描く。対局の進行（state）には触らない。
+// 答え合わせ・局面コピーは、振り返り中も局が終わった時点の内容のまま。
+// ---------------------------------------------------------------------------
+
+function replayActive() {
+  return Boolean(replay && replay.index !== null);
+}
+
+// 描く盤面。振り返り中は見ている手の記録、それ以外は今の state
+function viewedBoard() {
+  return replayActive() ? state.steps[replay.index] : state;
+}
+
+// 見ている手の次が打牌なら、その打牌 { seat, tile, order }（手牌と河に印を付ける）
+function replayNextDiscard() {
+  if (!replayActive()) return null;
+  const next = state.steps[replay.index + 1];
+  if (!next || next.discardOrder === null) return null;
+  return { seat: next.seat, tile: next.tile, order: next.discardOrder };
+}
+
+// 河の牌（局の中で order 枚目の打牌）を切る直前の手の番号
+function replayStepBeforeDiscard(order) {
+  return state.steps.findIndex((s) => s.discardOrder === order) - 1;
+}
+
+// 「局が終わりました」の案内に「振り返る」を添えて出す（結果表示に戻ったときも同じ）
+function renderContinuePrompt() {
+  renderPrompt(replay.text, [
+    { label: '次へ', value: true },
+    { label: '振り返る', onClick: () => showReplayStep(state.steps.length - 1) },
+  ]);
+}
+
+function showReplayStep(index) {
+  if (!replay) return;
+  replay.index = Math.max(0, Math.min(state.steps.length - 1, index));
+  el('mj-banner').hidden = true; // 結果表示は卓に重なるので、振り返り中は隠す（中身は残しておく）
+  render();
+  renderReplayControls();
+}
+
+function closeReplay() {
+  replay.index = null;
+  render();
+  el('mj-banner').hidden = false;
+  renderContinuePrompt();
+}
+
+function stepText(step) {
+  return step.seat === null ? step.action : `${seatLabel(step.seat)} ${step.action}`;
+}
+
+// 振り返りの操作。「何手目・誰が何をしたか」と、最初へ・1手戻る・1手進む・最後へ、結果表示に戻る・次へ
+function renderReplayControls() {
+  const box = el('mj-prompt');
+  box.innerHTML = '';
+  const step = state.steps[replay.index];
+  const last = state.steps.length - 1;
+
+  const status = document.createElement('p');
+  status.className = 'mj-prompt-text mj-replay-status';
+  status.appendChild(document.createTextNode(`${replay.index} / ${last}手　${stepText(step)}`));
+  if (step.tile !== null) status.appendChild(makeTile(step.tile));
+  box.appendChild(status);
+
+  // 記号が絵文字で表示されないよう、文字として表示する指定(U+FE0E)を付ける
+  const nav = document.createElement('div');
+  nav.className = 'mj-replay-nav';
+  const moves = [
+    ['⏮︎', '最初へ', 0],
+    ['◀︎', '1手戻る', replay.index - 1],
+    ['▶︎', '1手進む', replay.index + 1],
+    ['⏭︎', '最後へ', last],
+  ];
+  for (const [mark, label, to] of moves) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = mark;
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    btn.disabled = to < 0 || to > last || to === replay.index;
+    btn.addEventListener('click', () => showReplayStep(to));
+    nav.appendChild(btn);
+  }
+  box.appendChild(nav);
+
+  const row = document.createElement('div');
+  row.className = 'mj-prompt-buttons';
+  const buttons = [['次へ', () => onPromptChoice(true)], ['結果を見る', closeReplay]];
+  for (const [label, onClick] of buttons) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = label;
+    btn.addEventListener('click', onClick);
+    row.appendChild(btn);
+  }
+  box.appendChild(row);
+  box.hidden = false;
+}
+
+// PCでは ← → で1手ずつ、Home / End で最初と最後へ
+function onReplayKey(e) {
+  if (!replayActive() || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.target instanceof Element && e.target.closest('input, textarea, select')) return;
+  const to = { ArrowLeft: replay.index - 1, ArrowRight: replay.index + 1, Home: 0, End: state.steps.length - 1 }[e.key];
+  if (to === undefined) return;
+  e.preventDefault();
+  showReplayStep(to);
+}
+
+// ---------------------------------------------------------------------------
 // 局面のコピー（途中経過をAIに相談する用）。文字にする処理は position.js。
 // 他家の手牌は、局が終わって公開したあと（state.reveal があるとき）だけ含める。
 // 向聴数・受け入れ枚数などはAIチャットが数え間違えやすいので、アプリで計算した値を添えて渡す。
@@ -1822,6 +2036,7 @@ function bootstrap() {
     discardResolver = null;
     promptResolver = null;
     selectedTile = null;
+    replay = null;
     clearPrompt();
     el('mj-banner').hidden = true;
     el('mj-kifu-text').value = '';
@@ -1838,6 +2053,7 @@ function bootstrap() {
     const ok = await copyTextToClipboard(el('mj-kifu-text').value);
     el('mj-copy-status').textContent = ok ? 'コピーしました' : 'コピーに失敗しました。テキストエリアから手動で選択してください';
   });
+  document.addEventListener('keydown', onReplayKey);
   runMatch();
 }
 

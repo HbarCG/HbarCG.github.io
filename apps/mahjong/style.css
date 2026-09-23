@@ -806,6 +806,61 @@ button.mj-tile.mj-tile--selected.mj-tile--drawn::after {
 }
 
 /* ---------------------------------------------------------------------------
+   局の振り返り（局が終わったあと、一手ずつ巻き戻して見る）
+   操作は「次へ」の案内と同じ場所(.mj-prompt)に出す
+   --------------------------------------------------------------------------- */
+
+.mj-replay-status {
+  font-variant-numeric: tabular-nums;
+}
+
+.mj-replay-nav {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.mj-replay-nav button {
+  min-width: 2.6rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mj-replay-nav button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mj-replay-nav button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* 見ている手より後に捨てられる牌（押すとその牌を切る直前へ進める） */
+.mj-tile--later {
+  opacity: 0.4;
+}
+
+/* 次の一手で切る牌。手牌では浮かせて枠を付け、河では点線で囲む */
+.mj-hand .mj-tile--next,
+.mj-backs .mj-tile--next {
+  transform: translateY(calc(var(--tw) * -0.18));
+  box-shadow:
+    0 calc(var(--tw) * 0.07) 0 var(--mj-tile-edge),
+    0 0 0 2px var(--mj-highlight);
+}
+
+.mj-pond .mj-tile--next {
+  outline: max(2px, 0.35cqw) dashed var(--mj-highlight);
+  outline-offset: 1px;
+}
+
+/* ---------------------------------------------------------------------------
    補助情報（向聴数・待ち牌の残り枚数・和了時の役と翻）
    手牌エリアと同じ濃い緑の下地の上に出すので、文字色は背景の明暗モードに関係なく白系で固定する
    --------------------------------------------------------------------------- */
