@@ -8,7 +8,8 @@
 //   平文を essays/ 以下に置いたり、コミットしたりしないこと（一度でも公開すると取り消せない）。
 // - 記事ごとの鍵は、マスター鍵 paid-src/master.key から HMAC-SHA256 で作る（なければマスター鍵を新しく作る）。
 //   同じ計算を workers/paid-unlock.js（Cloudflare Worker）も行い、支払いを確認できた読者にだけ鍵を渡す。
-//   マスター鍵をなくすと、購入済みの読者も続きを読めなくなる。paid-src/ はリポジトリ以外の場所にも控えておくこと。
+//   マスター鍵をなくすと、購入済みの読者も続きを読めなくなる。
+//   paid-src/ は非公開リポジトリ HbarCG/hbarcg-paid-src として管理し、バックアップしている。
 // - 記事ページには、先に次の枠を書いておく。data-price と data-buy-url 以外はこのスクリプトが書き換える。
 //     <!-- paid:start -->
 //     <div class="paid" data-price="300" data-buy-url="https://buy.stripe.com/xxxx"></div>
