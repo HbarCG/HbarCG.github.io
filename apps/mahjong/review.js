@@ -171,3 +171,108 @@ function adviceCandidates(hand, melds, ctx) {
   const threats = danger ? threatsFor(ctx, REVIEW_LEVEL).map((t) => reviewThreatText(t, ctx)) : [];
   return { aiTile, candidates, threats };
 }
+
+// ---------------------------------------------------------------------------
+// 鳴きの答え合わせ。ポン・チー・カンができたときに、自分の選択（鳴く／鳴かない）と
+// お手本のAI（ai.js の decideCall をレベル5で呼ぶ）の選択を比べる。
+// ---------------------------------------------------------------------------
+
+// 鳴きの呼び名（ポン・チー・カン）
+function reviewCallLabel(opt) {
+  if (!opt) return '鳴かない';
+  return opt.kind === 'pon' ? 'ポン' : opt.kind === 'chi' ? 'チー' : 'カン';
+}
+
+// 評価値の数字の書き方（10以上は整数、それ未満は小数1桁）
+function reviewValueFormat(v) {
+  return v >= 10 ? String(Math.round(v)) : v.toFixed(1);
+}
+
+// 1つの選択（opt が null なら鳴かない）について、比べる数字をまとめる。
+// 鳴いた場合の向聴数・評価値は「鳴いて、一番よい牌を1枚切ったあと」の値
+function reviewDescribeCall(opt, evaluator, hand, melds) {
+  const after = opt ? evalHandAfterCall(hand, melds, opt) : evalHandFromTiles(hand, melds);
+  return {
+    option: opt,
+    shanten: evaluator.shantenOf(after),
+    value: evaluator.evaluate(after),
+    yakuShanten: evaluator.yakuShanten(after), // 役に向かう向聴数（役の見込みがなければ Infinity）
+  };
+}
+
+// お手本のAIがなぜその選択をしたか。ai.js の decideCallByEval の判断の順番に合わせて文を選ぶ。
+// none: 鳴かない場合、ai: AIの選択、alt: AIが見送った鳴きのうち説明に使うもの（AIが鳴くときは null）。
+// 評価値は、三向聴以上では別の数え方（役に向かう有効牌の数）になるので、二向聴以内のときだけ文に出す
+function reviewCallReason(none, ai, alt, info) {
+  const s = (x) => (x === 0 ? '聴牌' : `${x}向聴`);
+  const v = reviewValueFormat;
+  if (info.formal) {
+    return '流局間際なので、役がなくても聴牌になる鳴きをします（形式聴牌で、流局時のノーテン罰符を避けます）。';
+  }
+  if (none.shanten >= 3) {
+    if (ai.option) {
+      return '手はまだ遠い（3向聴以上）ですが、この鳴きで役（役牌・タンヤオ・対々和・染め手）に近づくので鳴きます。';
+    }
+    if (info.facingThreat) return '手がまだ遠く、リーチ（か、それに近い相手）を受けているので鳴きません。';
+    return '手がまだ遠い（3向聴以上）うちは、役のある形に近づく鳴き（役牌のポンなど）だけをします。'
+      + 'この鳴きでは、役のある形（門前のままの手や七対子も含む）への向聴数が進まないので見送ります。';
+  }
+  if (ai.option) {
+    const progress = ai.shanten < none.shanten ? `向聴数が${s(none.shanten)}→${s(ai.shanten)}に進み、` : '';
+    return `鳴くと${progress}評価値が${v(none.value)}→${v(ai.value)}に上がるので鳴きます。`;
+  }
+  if (alt.shanten >= 3) return '鳴いても手が遠い（3向聴以上）ままなので鳴きません。';
+  if (info.facingThreat && alt.value > none.value) {
+    const min = alt.shanten === 0 ? AI_PARAMS.callUnderThreat.tenpai : AI_PARAMS.callUnderThreat.notTenpai;
+    return 'リーチ（か、それに近い相手）を受けているので、安い仕掛けはしません'
+      + `（鳴いた後の評価値${v(alt.value)}。この状況では${min}以上の手でないと鳴きません）。`;
+  }
+  if (alt.shanten >= none.shanten) {
+    return `鳴いても向聴数が進まない（${s(none.shanten)}のまま）うえに、評価値が${v(none.value)}→${v(alt.value)}に下がるので鳴きません。`;
+  }
+  if (alt.yakuShanten > alt.shanten) {
+    return `鳴くと向聴数は${s(none.shanten)}→${s(alt.shanten)}に進みますが、役のない形になります`
+      + `（評価値${v(none.value)}→${v(alt.value)}）。役がないと和了できないので鳴きません。`;
+  }
+  return `鳴くと向聴数は${s(none.shanten)}→${s(alt.shanten)}に進みますが、評価値は${v(none.value)}→${v(alt.value)}に下がります。`
+    + '打点（門前ならリーチ・ツモ）や手の広さを失う分のほうが大きい、という判断です。';
+}
+
+// 鳴きの答え合わせ。hand・melds は鳴く前の手牌、options はその場で選べた鳴き
+// （game.js が合法性を確かめたもの）、chosen は自分が選んだ鳴き（鳴かなかったときは null）。
+// ctx は ai.js と同じ盤面情報（game.js の buildAiContext）。
+// 戻り値: { same, mine, ai, none, all, reason, threats }
+//   mine / ai / none（鳴かない場合）/ all（options の順）は reviewDescribeCall の結果
+function reviewCall(hand, melds, options, chosen, ctx) {
+  const aiOpt = decideCall(options, hand, melds, REVIEW_LEVEL, ctx);
+  const evaluator = evaluatorFor(ctx, REVIEW_LEVEL);
+  const describe = (opt) => reviewDescribeCall(opt, evaluator, hand, melds);
+  const none = describe(null);
+  const all = options.map(describe);
+  const pick = (opt) => (opt ? all[options.indexOf(opt)] : none);
+  const mine = pick(chosen);
+  const ai = pick(aiOpt);
+
+  // AIが鳴かないときに理由の説明に使う鳴き: 自分が鳴いたならその鳴き、そうでなければ評価値が一番高い鳴き
+  let alt = null;
+  if (!aiOpt) alt = chosen ? mine : all.reduce((a, b) => (b.value > a.value ? b : a));
+
+  const facingThreat = facingStrongThreat(ctx, REVIEW_LEVEL);
+  // 形式聴牌の鳴き（ai.js の decideCallByEval の最初の判断）を選んだか
+  const formal = Boolean(aiOpt) && aiOpt.kind !== 'minkan' && !facingThreat && none.shanten >= 1
+    && ctx.wallRemaining <= AI_PARAMS.formalTenpaiWall && ai.shanten === 0 && ai.value <= none.value;
+  const threats = facingThreat
+    ? threatsFor(ctx, REVIEW_LEVEL)
+      .filter((t) => t.weight >= AI_PARAMS.threat.strongWeight)
+      .map((t) => reviewThreatText(t, ctx))
+    : [];
+  return {
+    same: aiOpt === chosen,
+    mine,
+    ai,
+    none,
+    all,
+    reason: reviewCallReason(none, ai, alt, { facingThreat, formal }),
+    threats,
+  };
+}

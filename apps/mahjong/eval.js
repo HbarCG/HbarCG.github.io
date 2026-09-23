@@ -129,8 +129,13 @@ function evalCall(hand, kind, types, calledType) {
   return { counts, aka, melds: hand.melds.concat([{ kind, tiles }]), zimo: null };
 }
 
+// 副露を計算結果の覚え書きの鍵にする。順子は一番小さい牌で表す（tiles[0] は鳴いた牌の位置によって
+// 変わるので、456と567のように別の順子が同じ鍵にならないようにする）。赤5を含むかどうかも区別する
 function evalMeldKey(melds) {
-  return melds.map((m) => m.kind[0] + tileType(m.tiles[0])).join(',');
+  return melds.map((m) => {
+    const low = Math.min(...m.tiles.map(tileType));
+    return m.kind[0] + low + (m.tiles.some(isRedFive) ? 'r' : '');
+  }).join(',');
 }
 
 // options:

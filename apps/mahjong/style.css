@@ -954,6 +954,19 @@ button.mj-tile.mj-tile--selected.mj-tile--drawn::after {
   font-size: 0.75rem;
 }
 
+/* 鳴きの答え合わせ。打牌の答え合わせの上に、区切り線を挟んで出す */
+.mj-review-section {
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.mj-review-call {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 @media (max-width: 40em) {
   .mj-assist {
     font-size: 0.75rem;

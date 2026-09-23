@@ -4,12 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>麻雀（試作版） | HbarCG</title>
-  <meta name="description" content="CPU3人と対局しながら練習できるリーチ麻雀の試作版。途中の局面を文字でコピーしてAIチャットに相談したり、自分の打牌をお手本のAIと答え合わせしたりできる。">
+  <meta name="description" content="CPU3人と対局しながら練習できるリーチ麻雀の試作版。途中の局面を文字でコピーしてAIチャットに相談したり、自分の打牌や鳴きの判断をお手本のAIと答え合わせしたりできる。">
   <link rel="canonical" href="https://hbarcg.github.io/apps/mahjong/">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="HbarCG">
   <meta property="og:title" content="麻雀（試作版）">
-  <meta property="og:description" content="CPU3人と対局しながら練習できるリーチ麻雀の試作版。途中の局面を文字でコピーしてAIチャットに相談したり、自分の打牌をお手本のAIと答え合わせしたりできる。">
+  <meta property="og:description" content="CPU3人と対局しながら練習できるリーチ麻雀の試作版。途中の局面を文字でコピーしてAIチャットに相談したり、自分の打牌や鳴きの判断をお手本のAIと答え合わせしたりできる。">
   <meta property="og:url" content="https://hbarcg.github.io/apps/mahjong/">
   <meta property="og:image" content="https://hbarcg.github.io/brand/icon-light.png">
   <meta property="og:locale" content="ja_JP">
@@ -97,7 +97,7 @@
     </div>
 
     <aside class="mj-side">
-      <!-- 向聴数・待ち牌の残り枚数・和了時の役と翻、打牌の答え合わせ。チェックで表示/非表示を切り替える。
+      <!-- 向聴数・待ち牌の残り枚数・和了時の役と翻、打牌・鳴きの答え合わせ。チェックで表示/非表示を切り替える。
            「AIに相談用にコピー」は今見えている盤面・アプリの計算・質問を文字にしてコピーする -->
       <div class="mj-assist-bar">
         <!-- 前提の説明（ルール・表記・各欄の読み方）は、AIチャットの同じ会話で2回目以降は省いて短くできる。
@@ -107,11 +107,11 @@
           <label class="mj-assist-toggle"><input type="checkbox" id="mj-copy-premise" checked> 前提の説明を付ける</label>
         </span>
         <label class="mj-assist-toggle"><input type="checkbox" id="mj-assist-toggle" checked> 向聴・待ち・役を表示</label>
-        <label class="mj-assist-toggle"><input type="checkbox" id="mj-review-toggle" checked> 打牌の答え合わせ</label>
+        <label class="mj-assist-toggle"><input type="checkbox" id="mj-review-toggle" checked> 打牌・鳴きの答え合わせ</label>
       </div>
       <p class="mj-hint mj-copy-hint">コピーした文字をAIチャット（ChatGPT・Claudeなど）に貼ると、今の局面について先生役として相談できます。同じ会話で2回目以降は「前提の説明を付ける」を外すと短くなります。</p>
       <div id="mj-assist" class="mj-assist" aria-live="polite"></div>
-      <!-- 自分が切った牌と、お手本のAI（CPUレベル5・読みの深さ3）が切る牌を比べる -->
+      <!-- 自分が切った牌・鳴きの判断と、お手本のAI（CPUレベル5・読みの深さ3）の選択を比べる -->
       <div id="mj-review" class="mj-assist mj-review" aria-live="polite"></div>
 
       <section class="mj-panel mj-panel--controls">
@@ -162,8 +162,9 @@
       アプリで計算した向聴数・受け入れ枚数・待ち、この局の自分のツモと打牌の記録、状況に合わせた質問も添えるので、
       ChatGPTやClaudeなどのAIチャットにそのまま貼れば、先生役として解説してもらえます。
       同じ会話で2回目以降は、ルールや表記などの前提の説明を省いた短い文にもできます。
-      「打牌の答え合わせ」をオンにすると、自分が切った牌を一番強い設定のCPUの判断と比べ、
-      受け入れ枚数・評価値・危険度の違いを表示します。
+      「打牌・鳴きの答え合わせ」をオンにすると、自分が切った牌を一番強い設定のCPUの判断と比べ、
+      受け入れ枚数・評価値・危険度の違いを表示します。ポン・チー・カンできたときも、鳴く・鳴かないの判断を比べて、
+      AIがそう選んだ理由を表示します。
     </p>
     <p class="back-link"><a href="/apps/">← Apps</a></p>
 

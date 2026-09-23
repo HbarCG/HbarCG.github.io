@@ -80,9 +80,12 @@ function initMatch() {
     reveal: null, // 局が終わって全員の手牌を公開している間 { winners, winTile }
     review: null, // 直前の自分の打牌の答え合わせ（review.js の reviewDiscard の結果）
     reviewStats: { match: 0, total: 0 }, // この対局で答え合わせした打牌のうち、AIと同じだった数
+    callReview: null, // 直前の鳴きの判断の答え合わせ（review.js の reviewCall の結果に tile・fromSeat を足したもの）
+    callReviewStats: { match: 0, total: 0 }, // この対局で答え合わせした鳴きの判断のうち、AIと同じだった数
     pending: null, // あなたが今判断していること（局面コピーに書き出す）{ text, choices, discard, riichi, thenDiscard }
     myHaipai: [], // この局のあなたの配牌（局面コピーで振り返り用に書き出す）
     myTurns: [], // この局のあなたの行動。1巡 = ツモか鳴きから打牌まで { actions, review }
+    myPasses: [], // 鳴かずに見送った記録（お手本AIなら鳴いた場合だけ）。次の巡の頭に入れる
   };
   const names = ['あなた', 'CPU1', 'CPU2', 'CPU3'];
   state.kifuLines.push(kifuHeader(names));
@@ -117,8 +120,10 @@ function setupHand() {
   state.callAnnounce = null;
   state.reveal = null;
   state.review = null;
+  state.callReview = null;
   state.myHaipai = state.players[0].hand.slice();
   state.myTurns = [];
+  state.myPasses = [];
 
   state.kifuLines.push(kifuInit({
     kyoku: state.kyoku, honba: state.honba, kyotaku: state.kyotaku,
@@ -355,12 +360,14 @@ function onHandTileClick(tileId) {
 
 // promptText: 文字列、または文字列と { tile: 牌ID } を並べた配列（牌は絵で表示する）
 // choices: { label, value, meld? }。meld があるときは鳴いた後の副露の形をボタンに絵で添える
-function askHuman(promptText, choices) {
+// call: 鳴きの判断のときだけ { options, tileId, fromSeat }（局面コピーで鳴きの候補を計算するため）
+function askHuman(promptText, choices, call) {
   const parts = Array.isArray(promptText) ? promptText : [promptText];
   state.pending = {
     text: parts.map((part) => (typeof part === 'string' ? part : tileText(part.tile))).join(''),
     choices: choices.map((c) => c.label),
     thenDiscard: state.players[0].hand.length % 3 === 2, // リーチ・槓・ツモの確認のあとは打牌も選ぶ
+    call: call || null,
   };
   return new Promise((resolve) => {
     promptResolver = resolve;
@@ -562,10 +569,11 @@ async function askPonKan(seat, ponOpt, kanOpt, tileId, fromSeat) {
     if (ponOpt) choices.push({ label: 'ポン', value: 'pon', meld: callPreviewMeld(ponOpt, tileId, fromSeat) });
     if (kanOpt) choices.push({ label: 'カン', value: 'kan', meld: callPreviewMeld(kanOpt, tileId, fromSeat) });
     choices.push({ label: 'しない', value: null });
-    const choice = await askHuman([`${seatLabel(fromSeat)}の`, { tile: tileId }, 'にポン/カンできます'], choices);
-    if (choice === 'pon') return ponOpt;
-    if (choice === 'kan') return kanOpt;
-    return null;
+    const options = [ponOpt, kanOpt].filter(Boolean);
+    const choice = await askHuman([`${seatLabel(fromSeat)}の`, { tile: tileId }, 'にポン/カンできます'], choices, { options, tileId, fromSeat });
+    const chosen = choice === 'pon' ? ponOpt : choice === 'kan' ? kanOpt : null;
+    recordCallReview(options, chosen, tileId, fromSeat);
+    return chosen;
   }
   await sleep(thinkDelay());
   const options = [ponOpt, kanOpt].filter(Boolean);
@@ -577,8 +585,10 @@ async function askChi(seat, options, tileId, fromSeat) {
   if (isHuman) {
     const choices = options.map((o, i) => ({ label: 'チー', value: i, meld: callPreviewMeld(o, tileId, fromSeat) }));
     choices.push({ label: 'しない', value: -1 });
-    const choice = await askHuman([`${seatLabel(fromSeat)}の`, { tile: tileId }, 'にチーできます'], choices);
-    return choice === -1 ? null : options[choice];
+    const choice = await askHuman([`${seatLabel(fromSeat)}の`, { tile: tileId }, 'にチーできます'], choices, { options, tileId, fromSeat });
+    const chosen = choice === -1 ? null : options[choice];
+    recordCallReview(options, chosen, tileId, fromSeat);
+    return chosen;
   }
   await sleep(thinkDelay());
   return decideCall(options, state.players[seat].hand, state.players[seat].melds, CONFIG.cpuLevel, buildAiContext(seat));
@@ -636,7 +646,11 @@ async function performCall(seat, call, fromSeat, tileId) {
   breakAllIppatsu();
   if (call.kind === 'minkan') revealNewDora();
   const callText = call.kind === 'pon' ? 'ポン' : call.kind === 'chi' ? 'チー' : 'カン';
-  if (seat === 0) startMyTurn({ kind: 'call', label: meldKindLabel(call.kind), tiles: meld.tiles, fromName: seatLabel(fromSeat) });
+  if (seat === 0) {
+    startMyTurn({
+      kind: 'call', label: meldKindLabel(call.kind), tiles: meld.tiles, fromName: seatLabel(fromSeat), review: callReviewNote(call),
+    });
+  }
   pushLog(`${seatLabel(seat)}が${callText}（${seatLabel(fromSeat)}の${tileLabel(tileId)}）`);
   await announceCall(seat, callText, state.players[seat].melds.length - 1);
 }
@@ -1304,17 +1318,42 @@ function renderAssist() {
 }
 
 // ---------------------------------------------------------------------------
-// 打牌の答え合わせ（自分の打牌とお手本のAIの打牌を比べる）
-// 計算は review.js。ここでは自分が打牌したときに計算を呼び、結果を補助情報の下に並べる。
+// 打牌・鳴きの答え合わせ（自分の選択とお手本のAIの選択を比べる）
+// 計算は review.js。ここでは自分が打牌・鳴きの判断をしたときに計算を呼び、結果を補助情報の下に並べる。
 // ---------------------------------------------------------------------------
 
-// 自分の打牌の直後（手牌から取り除く前）に呼ぶ。チェックが外れているときは計算しない
+// 自分の打牌の直後（手牌から取り除く前）に呼ぶ。チェックが外れているときは計算しない。
+// 鳴きの答え合わせは、次の打牌を選ぶまで（その間に読めるよう）残し、ここで消す
 function recordReview(tile) {
   if (!el('mj-review-toggle').checked) return;
   const player = state.players[0];
   state.review = reviewDiscard(player.hand, player.melds, tile, buildAiContext(0));
   state.reviewStats.total++;
   if (state.review.same) state.reviewStats.match++;
+  state.callReview = null;
+}
+
+// ポン・チー・カンを選んだ（か見送った）直後、鳴く前の手牌のまま呼ぶ。chosen は鳴かなかったとき null。
+// お手本のAIなら鳴いたのに見送ったときは、局面コピーの記録にも残す
+function recordCallReview(options, chosen, tileId, fromSeat) {
+  if (!el('mj-review-toggle').checked) return;
+  const player = state.players[0];
+  const r = reviewCall(player.hand, player.melds, options, chosen, buildAiContext(0));
+  state.callReview = Object.assign(r, { tile: tileId, fromSeat });
+  state.callReviewStats.total++;
+  if (r.same) state.callReviewStats.match++;
+  if (!chosen && !r.same) {
+    state.myPasses.push({ kind: 'pass', tile: tileId, fromName: seatLabel(fromSeat), review: callReviewNote(null) });
+  }
+  render();
+}
+
+// 局面コピーの記録に添える、お手本のAIの鳴きの判断（答え合わせをしていないときは null）
+function callReviewNote(call) {
+  const r = state.callReview;
+  if (!r || r.mine.option !== call) return null;
+  const ai = r.ai.option;
+  return { same: r.same, aiLabel: reviewCallLabel(ai), aiTiles: ai ? ai.resultingMeldTiles : null };
 }
 
 function reviewUkeireText(d) {
@@ -1325,7 +1364,7 @@ function reviewUkeireText(d) {
 // どちらかが遠い手で向聴数が違うときは比べない
 function reviewValueText(d, other) {
   if (d.shanten !== other.shanten && Math.max(d.shanten, other.shanten) >= 3) return '—';
-  return d.value >= 10 ? String(Math.round(d.value)) : d.value.toFixed(1);
+  return reviewValueFormat(d.value);
 }
 
 function reviewDangerText(d) {
@@ -1349,6 +1388,80 @@ function reviewRow(table, label, mineContent, aiContent) {
   table.appendChild(tr);
 }
 
+// 答え合わせの見出し。これまでにAIと同じだった数を添える
+function reviewHeading(box, text, stats) {
+  const head = assistLine(box, 'mj-assist-summary', text);
+  if (stats.total > 0) {
+    const s = document.createElement('span');
+    s.className = 'mj-review-stats';
+    s.textContent = `AIと一致 ${stats.match}/${stats.total}`;
+    head.appendChild(s);
+  }
+  return head;
+}
+
+// 自分とAIの表の枠（見出し行だけ）
+function reviewTable() {
+  const table = document.createElement('table');
+  table.className = 'mj-review-table';
+  const headRow = document.createElement('tr');
+  for (const text of ['', 'あなた', 'AI']) {
+    const th = document.createElement('th');
+    th.scope = 'col';
+    th.textContent = text;
+    headRow.appendChild(th);
+  }
+  table.appendChild(headRow);
+  return table;
+}
+
+// 鳴きの選択を「ポン＋鳴いた後の副露の絵」か「鳴かない」で表す
+function callChoiceContent(d, r) {
+  if (!d.option) return '鳴かない';
+  const span = document.createElement('span');
+  span.className = 'mj-review-call';
+  span.appendChild(document.createTextNode(reviewCallLabel(d.option)));
+  span.appendChild(buildMeldElement(callPreviewMeld(d.option, r.tile, r.fromSeat), 0));
+  return span;
+}
+
+// 役の見込み。役に向かう向聴数が今の向聴数と同じなら「あり」
+function callYakuText(d) {
+  if (d.yakuShanten <= d.shanten) return 'あり';
+  if (d.yakuShanten === Infinity) return 'なし';
+  return `遠い（役まで${assistShantenText(d.yakuShanten)}）`;
+}
+
+function renderCallReview(box) {
+  const r = state.callReview;
+  reviewHeading(box, '鳴きの答え合わせ', state.callReviewStats);
+  const prompt = assistLine(box, 'mj-review-note', `${seatLabel(r.fromSeat)}の`);
+  prompt.appendChild(makeTile(r.tile));
+  prompt.appendChild(document.createTextNode('を鳴けたとき'));
+
+  const valueComparable = reviewValueText(r.mine, r.ai) !== '—';
+  if (r.same) {
+    const p = assistLine(box, 'mj-assist-option-head', '');
+    const choice = callChoiceContent(r.mine, r);
+    p.appendChild(typeof choice === 'string' ? document.createTextNode(choice) : choice);
+    p.appendChild(document.createTextNode('　AIと同じ'));
+  } else {
+    const table = reviewTable();
+    reviewRow(table, '選択', callChoiceContent(r.mine, r), callChoiceContent(r.ai, r));
+    reviewRow(table, '向聴数', assistShantenText(r.mine.shanten), assistShantenText(r.ai.shanten));
+    if (valueComparable) reviewRow(table, '評価値', reviewValueText(r.mine, r.ai), reviewValueText(r.ai, r.mine));
+    reviewRow(table, '役', callYakuText(r.mine), callYakuText(r.ai));
+    box.appendChild(table);
+  }
+  assistLine(box, 'mj-review-reason', `AIの考え: ${r.reason}`);
+  if (r.threats.length > 0) assistLine(box, 'mj-review-note', `警戒している相手: ${r.threats.join('・')}`);
+  if (!r.same) {
+    assistLine(box, 'mj-review-note', valueComparable
+      ? '鳴いた場合の向聴数・評価値・役は、鳴いて一番よい牌を1枚切ったあとの値。評価値＝打点と和了しやすさをまとめた目安（大きいほど良い）'
+      : '鳴いた場合の向聴数・役は、鳴いて一番よい牌を1枚切ったあとの値');
+  }
+}
+
 function renderReview() {
   const box = el('mj-review');
   const visible = el('mj-review-toggle').checked;
@@ -1356,19 +1469,20 @@ function renderReview() {
   box.innerHTML = '';
   if (!visible) return;
 
-  const stats = state.reviewStats;
-  const head = assistLine(box, 'mj-assist-summary', '打牌の答え合わせ');
-  if (stats.total > 0) {
-    const s = document.createElement('span');
-    s.className = 'mj-review-stats';
-    s.textContent = `AIと一致 ${stats.match}/${stats.total}`;
-    head.appendChild(s);
+  // 鳴きの答え合わせは、判断した直後なので打牌の答え合わせより上に出す
+  if (state.callReview) {
+    const section = document.createElement('div');
+    section.className = 'mj-review-section';
+    renderCallReview(section);
+    box.appendChild(section);
   }
+
+  reviewHeading(box, '打牌の答え合わせ', state.reviewStats);
 
   const r = state.review;
   const valueComparable = Boolean(r) && reviewValueText(r.mine, r.ai) !== '—';
   if (!r) {
-    assistLine(box, 'mj-review-note', '牌を切ると、お手本のAI（CPUレベル5・読みの深さ3）の打牌と比べます。');
+    assistLine(box, 'mj-review-note', '牌を切ったり鳴きを判断したりすると、お手本のAI（CPUレベル5・読みの深さ3）の選択と比べます。');
     return;
   }
 
@@ -1378,16 +1492,7 @@ function renderReview() {
     p.appendChild(makeTile(r.mine.tile));
     p.appendChild(document.createTextNode(`AIと同じ（受け入れ${reviewUkeireText(r.mine)}）`));
   } else {
-    const table = document.createElement('table');
-    table.className = 'mj-review-table';
-    const headRow = document.createElement('tr');
-    for (const text of ['', 'あなた', 'AI']) {
-      const th = document.createElement('th');
-      th.scope = 'col';
-      th.textContent = text;
-      headRow.appendChild(th);
-    }
-    table.appendChild(headRow);
+    const table = reviewTable();
     reviewRow(table, '打牌', makeTile(r.mine.tile), makeTile(r.ai.tile));
     reviewRow(table, '打牌後', assistShantenText(r.mine.shanten), assistShantenText(r.ai.shanten));
     reviewRow(table, '受け入れ', reviewUkeireText(r.mine), reviewUkeireText(r.ai));
@@ -1532,7 +1637,8 @@ const SEAT_RELATIONS = ['自分', '下家', '対面', '上家'];
 // ツモか鳴きで新しい巡を始め、槓・リーチ・打牌はその巡に足していく。
 // action: { kind: 'draw' | 'rinshan' | 'call' | 'kan' | 'riichi' | 'discard', ... }（書き方は position.js の actionText）
 function startMyTurn(action) {
-  state.myTurns.push({ actions: [action], review: null });
+  state.myTurns.push({ actions: state.myPasses.concat([action]), review: null });
+  state.myPasses = [];
 }
 
 function addMyAction(action) {
@@ -1582,6 +1688,7 @@ function buildAdviceAnalysis() {
   const info = analyzeHandAssist(hand, assistCtx);
   if (info.phase === 'wait') {
     const waits = waitsOf(info.waits);
+    const call = state.pending && state.pending.call;
     return {
       phase: 'wait',
       shanten: info.shanten,
@@ -1589,6 +1696,7 @@ function buildAdviceAnalysis() {
       waits,
       furiten: info.shanten === 0 && (player.furitenTemp || player.furitenPermanent
         || waits.some((w) => ownDiscardTypes.includes(w.type))),
+      call: call ? callAdviceView(call, ctx) : null,
     };
   }
 
@@ -1610,6 +1718,22 @@ function buildAdviceAnalysis() {
   // リーチを宣言したあとは、聴牌が崩れない牌しか切れない
   if (state.pending && state.pending.riichi) candidates = candidates.filter((c) => c.shanten === 0);
   return { phase: 'discard', complete: info.complete, candidates, threats: advice.threats };
+}
+
+// 鳴きを判断しているときの、選択肢ごとの 向聴数・役の見込み と、お手本のAIの選択とその理由
+function callAdviceView(call, ctx) {
+  const player = state.players[0];
+  const r = reviewCall(player.hand, player.melds, call.options, null, ctx);
+  const choices = call.options.map((o, i) => ({
+    label: reviewCallLabel(o),
+    tiles: o.resultingMeldTiles,
+    isAi: r.ai.option === o,
+    shanten: r.all[i].shanten,
+    yaku: callYakuText(r.all[i]),
+  }));
+  choices.push({ label: '鳴かない', tiles: null, isAi: !r.ai.option, shanten: r.none.shanten, yaku: callYakuText(r.none) });
+  choices.sort((a, b) => b.isAi - a.isAi);
+  return { choices, reason: r.reason, threats: r.threats };
 }
 
 // 直前のあなたの打牌が、お手本のAIと違ったときの比較（同じだったとき・まだ打牌していないときは null）
@@ -1666,7 +1790,7 @@ function buildPositionView() {
       };
     }),
     log: currentHandLog(),
-    record: { haipai: state.myHaipai, turns: state.myTurns },
+    record: { haipai: state.myHaipai, turns: state.myTurns, passes: state.myPasses },
     // 局が終わったら（「次へ」を待っている間は）判断することも計算も出さず、振り返りの質問にする
     pending: revealed ? null : state.pending,
     analysis: revealed ? null : buildAdviceAnalysis(),

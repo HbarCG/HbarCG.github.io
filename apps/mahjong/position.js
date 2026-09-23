@@ -11,7 +11,7 @@
  * 書き出す内容（上から順に）:
  *   前提（ルール・表記・各欄の読み方。2回目以降は省いて1行にできる） /
  *   盤面（全員の点数・河・副露、自分の手牌） / この局の経過 / あなたのこの局の記録（配牌とツモ・打牌の流れ） /
- *   アプリの計算（向聴数・受け入れ・待ち・危険度。AIチャットは数え間違えやすいので、計算した値を渡す） /
+ *   アプリの計算（向聴数・受け入れ・待ち・危険度・鳴きの候補。AIチャットは数え間違えやすいので、計算した値を渡す） /
  *   直前の打牌とお手本AIの比較 / いま判断すること / 質問（状況に合わせて1つ選ぶ）
  */
 
@@ -75,9 +75,10 @@ function premiseLines() {
     '- 牌の表記: m=萬子 p=筒子 s=索子、0=赤5。同じ色の数牌は数字を続けて書く（例: 123m）。字牌は漢字（東南西北白發中）',
     "- 河: ' はツモ切り、[リーチ] はリーチ宣言牌、[〇〇が鳴き] は鳴かれた牌",
     '- 巡目: その人の手番が何回来たか。他家の手牌は局が終わるまで伏せています',
-    '- 「あなたのこの局の記録」: 1巡＝ツモか鳴きから打牌まで。（）はお手本AIの打牌',
+    '- 「あなたのこの局の記録」: 1巡＝ツモか鳴きから打牌まで。（）はお手本AIの選択（打牌・鳴き）',
     '- 「アプリの計算」: 見えている情報だけから機械的に計算した値です。向聴数・受け入れ枚数・残り枚数はこの値を正としてください',
     '- 打牌の候補: 先頭がお手本AIの選択、残りは打牌後の向聴数が小さい順→受け入れ枚数が多い順',
+    '- 鳴きの候補: 先頭がお手本AIの選択。鳴いた場合の向聴数は、鳴いて1枚切ったあとの値',
     '- 残り枚数: あなたから見えていない枚数（他家の手の中にある分も含む）',
     '- お手本AI: このアプリの一番強い設定のCPU。正解とは限らないので、違うと思えば遠慮なく指摘してください',
   ];
@@ -144,12 +145,20 @@ function actionText(a) {
   switch (a.kind) {
     case 'draw': return `ツモ${tileText(a.tile)}`;
     case 'rinshan': return `嶺上ツモ${tileText(a.tile)}`;
-    case 'call': return `${a.label}${tilesText(a.tiles)}（${a.fromName}から）`;
+    case 'call': return `${a.label}${tilesText(a.tiles)}（${a.fromName}から）${callNoteText(a.review)}`;
+    case 'pass': return `${a.fromName}の${tileText(a.tile)}を鳴かず${callNoteText(a.review)}`;
     case 'kan': return `${a.label}${tilesText(a.tiles)}`;
     case 'riichi': return 'リーチ宣言';
     case 'discard': return `打${tileText(a.tile)}${a.tsumogiri ? "'" : ''}`;
     default: return '';
   }
+}
+
+// 鳴きの判断に添える、お手本AIの選択
+function callNoteText(note) {
+  if (!note) return '';
+  if (note.same) return '（お手本AIも同じ）';
+  return `（お手本AIは${note.aiLabel}${note.aiTiles ? tilesText(note.aiTiles) : ''}）`;
 }
 
 function recordLines(record) {
@@ -160,6 +169,7 @@ function recordLines(record) {
     if (turn.review) text += turn.review.same ? '（お手本AIと同じ）' : `（お手本AIは打${tileText(turn.review.aiTile)}）`;
     lines.push(text);
   });
+  if (record.passes.length > 0) lines.push(`このあと: ${record.passes.map(actionText).join(' → ')}`);
   return lines;
 }
 
@@ -190,6 +200,18 @@ function waitLines(waits, furiten, indent) {
   return { head, details };
 }
 
+// 鳴きの候補: 「- ポン555m【お手本AIの選択】: 1向聴・役あり」
+function callChoiceLines(call) {
+  const lines = ['鳴きの候補（鳴いた場合は1枚切ったあとの向聴数）:'];
+  for (const c of call.choices) {
+    const name = c.tiles ? `${c.label}${tilesText(c.tiles)}` : c.label;
+    lines.push(`- ${name}${c.isAi ? '【お手本AIの選択】' : ''}: ${shantenText(c.shanten)}・役${c.yaku}`);
+  }
+  lines.push(`お手本AIの考え: ${call.reason}`);
+  if (call.threats.length > 0) lines.push(`お手本AIが警戒している相手: ${call.threats.join('・')}`);
+  return lines;
+}
+
 function analysisLines(a) {
   const lines = ['■ アプリの計算'];
   if (a.phase === 'wait') {
@@ -199,6 +221,7 @@ function analysisLines(a) {
       const w = waitLines(a.waits, a.furiten, '  ');
       lines.push(`あなたの手: 聴牌・${w.head}`, ...w.details);
     }
+    if (a.call) lines.push(...callChoiceLines(a.call));
     return lines;
   }
 
