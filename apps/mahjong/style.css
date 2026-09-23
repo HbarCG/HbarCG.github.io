@@ -1050,6 +1050,96 @@ button.mj-tile.mj-tile--selected.mj-tile--drawn::after {
 }
 
 /* ---------------------------------------------------------------------------
+   AI操作パネル（?ai=1 で開いたときだけ表示する。agent.js）
+   AIがスクリーンショットで読むこともあるので、文字は小さくしすぎない
+   --------------------------------------------------------------------------- */
+
+.mj-agent {
+  margin-bottom: 0.8rem;
+  padding: 0.7rem 0.8rem;
+  border: 2px solid var(--color-accent-bar);
+  border-radius: 6px;
+}
+
+.mj-agent-title {
+  margin: 0 0 0.3rem;
+  font-size: 1rem;
+}
+
+.mj-agent-status {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.mj-agent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.mj-agent-actions button {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mj-agent-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.mj-agent-jump input {
+  width: 4.5em;
+  font: inherit;
+}
+
+.mj-agent-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.mj-hint.mj-agent-hint {
+  margin: 0.5rem 0 0;
+}
+
+/* 使い方ページ（/apps/mahjong/ai/）の、AIに渡す指示文とコマンド */
+.mj-guide-text {
+  margin: 0 0 0.5rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+
+.mj-guide-copy {
+  margin-bottom: 2rem;
+}
+
+.mj-guide-copy-status {
+  margin-left: 0.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+/* ---------------------------------------------------------------------------
    右側の設定パネル
    --------------------------------------------------------------------------- */
 

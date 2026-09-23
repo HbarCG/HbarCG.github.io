@@ -97,6 +97,17 @@
     </div>
 
     <aside class="mj-side">
+      <!-- AI操作パネル。?ai=1 で開いたときだけ表示し、ブラウザを操作するAIが読む盤面の文字と、
+           押せる操作のボタンを出す（agent.js）。使い方は /apps/mahjong/ai/ -->
+      <section id="mj-agent" class="mj-agent" aria-labelledby="mj-agent-title" hidden>
+        <h2 id="mj-agent-title" class="mj-agent-title">AI操作パネル</h2>
+        <p class="mj-agent-status">状態: <strong id="mj-agent-status-name"></strong><br>
+          <span id="mj-agent-status-text"></span></p>
+        <div id="mj-agent-actions" class="mj-agent-actions"></div>
+        <pre id="mj-agent-text" class="mj-agent-text"></pre>
+        <p class="mj-hint mj-agent-hint">ブラウザを操作できるAIに打たせながら解説してもらうための表示です（<a href="/apps/mahjong/ai/">使い方</a>）。</p>
+      </section>
+
       <!-- 向聴数・待ち牌の残り枚数・和了時の役と翻、打牌・鳴きの答え合わせ。チェックで表示/非表示を切り替える。
            「AIに相談用にコピー」は今見えている盤面・アプリの計算・質問を文字にしてコピーする -->
       <div class="mj-assist-bar">
@@ -163,6 +174,7 @@
       アプリで計算した向聴数・受け入れ枚数・待ち、この局の自分のツモと打牌の記録、状況に合わせた質問も添えるので、
       ChatGPTやClaudeなどのAIチャットにそのまま貼れば、先生役として解説してもらえます。
       同じ会話で2回目以降は、ルールや表記などの前提の説明を省いた短い文にもできます。
+      ブラウザを操作できるAI（Claude in Chrome など）に、実際に打たせながら解説してもらうこともできます（<a href="/apps/mahjong/ai/">やり方</a>）。
       「打牌・鳴きの答え合わせ」をオンにすると、自分が切った牌を一番強い設定のCPUの判断と比べ、
       受け入れ枚数・評価値・危険度の違いを表示します。ポン・チー・カンできたときも、鳴く・鳴かないの判断を比べて、
       AIがそう選んだ理由を表示します。
@@ -185,5 +197,6 @@
   <script src="/apps/mahjong/kifu.js"></script>
   <script src="/apps/mahjong/position.js"></script>
   <script src="/apps/mahjong/game.js"></script>
+  <script src="/apps/mahjong/agent.js"></script>
 </body>
 </html>

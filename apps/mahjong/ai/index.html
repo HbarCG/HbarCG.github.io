@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AIに打たせながら解説してもらう | 麻雀（試作版） | HbarCG</title>
+  <meta name="description" content="ブラウザを操作できるAI（Claude in Chrome・ChatGPT・Claude Code）に、麻雀の練習アプリを実際に打たせながら解説してもらう方法と、AIに渡す指示文。">
+  <link rel="canonical" href="https://hbarcg.github.io/apps/mahjong/ai/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="HbarCG">
+  <meta property="og:title" content="AIに打たせながら解説してもらう">
+  <meta property="og:description" content="ブラウザを操作できるAI（Claude in Chrome・ChatGPT・Claude Code）に、麻雀の練習アプリを実際に打たせながら解説してもらう方法と、AIに渡す指示文。">
+  <meta property="og:url" content="https://hbarcg.github.io/apps/mahjong/ai/">
+  <meta property="og:image" content="https://hbarcg.github.io/brand/icon-light.png">
+  <meta property="og:locale" content="ja_JP">
+  <meta name="twitter:card" content="summary">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/apps/mahjong/style.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="page">
+    <header class="site-header">
+      <p class="site-title"><a href="/"><span class="mark-hb">Hbar</span>CG</a></p>
+      <nav class="site-nav">
+        <a href="/essays/">Essays</a>
+        <a href="/apps/">Apps</a>
+        <a href="/about/">About</a>
+      </nav>
+    </header>
+
+    <main>
+      <h1>AIに打たせながら解説してもらう</h1>
+      <p class="lede">
+        ブラウザを操作できるAIに、<a href="/apps/mahjong/">麻雀の練習アプリ</a>を実際に打たせながら解説してもらう方法です。
+        AIは画面の「AI操作パネル」に書かれた、自分の席から見えている情報だけを読んで打ち、なぜその牌を切るのかを話してくれます。
+      </p>
+
+      <h2>しくみ</h2>
+      <p>
+        アプリを <a href="/apps/mahjong/?ai=1">/apps/mahjong/?ai=1</a> で開くと、画面の右側（狭い画面では下のほう）に「AI操作パネル」が出ます。
+        パネルには、今の状態（あなたの判断待ち・CPUの手番・局の結果・振り返り中・対局終了）、今押せる操作のボタン、
+        盤面を文字にしたもの（向聴数や受け入れ枚数などアプリで計算した値つき）が並びます。
+        AIはこのパネルを読んで、ボタンを押して打ちます。局が終わったあとは、パネルから局を巻き戻して、大事だった場面を振り返ることもできます。
+      </p>
+
+      <h2>必要なもの</h2>
+      <p>次のどれか1つを用意してください。利用料はそれぞれのサービスのプランの範囲で、このサイトへの登録や支払いはいりません。</p>
+
+      <h3>Claude in Chrome</h3>
+      <ul>
+        <li>Claudeの有料プラン（Pro・Max・Team・Enterprise）</li>
+        <li>パソコンのGoogle Chrome（Edge・Braveなどほかのブラウザや、スマートフォンでは使えません）</li>
+        <li>Chrome用の拡張機能「<a href="https://claude.com/claude-in-chrome">Claude in Chrome</a>」</li>
+      </ul>
+      <p>
+        拡張機能のパネルに下の指示文を貼って送ります。ページを操作する許可を聞かれたら、このサイト（hbarcg.github.io）にだけ許可してください。
+        自分の見ているタブでAIが打つので、画面の動きと解説を並べて見られます。
+      </p>
+
+      <h3>ChatGPT</h3>
+      <ul>
+        <li>ChatGPTの有料プラン（Free・Goを除く）</li>
+        <li>「ChatGPT Work」の<a href="https://help.openai.com/en/articles/20001280-using-cloud-browser-in-chatgpt">クラウドブラウザ</a></li>
+      </ul>
+      <p>
+        ChatGPT Workに下の指示文を送ると、ChatGPTが別のコンピューター上のブラウザでページを開いて打ちます。
+        （以前の「エージェントモード」は2026年8月に終了し、この形に変わりました。）
+        ブラウザがChatGPT側で動くため、下の「自分が打ち、AIが横で解説」の使い方には向きません。
+      </p>
+
+      <h3>Claude Code＋Playwright（開発者向け）</h3>
+      <ul>
+        <li>Claude Code（Claudeの有料プランかAPI）とNode.js</li>
+        <li>ブラウザを操作するためのPlaywright MCP。次のコマンドで追加できます</li>
+      </ul>
+      <pre class="mj-guide-text">claude mcp add playwright npx @playwright/mcp@latest</pre>
+      <p>
+        Claude Codeに下の指示文を送ると、Playwrightが開いたブラウザで打ち、解説はターミナルに出ます。
+        そのブラウザは自分でも操作できるので、「自分が打ち、AIが横で解説」の使い方もできます。
+      </p>
+
+      <h2>AIに渡す指示文</h2>
+      <p>使い方に合わせてどちらかをコピーし、AIに送ってください。そのまま使っても、好きなように書き換えても構いません。</p>
+
+      <h3>AIが打って解説する</h3>
+      <pre id="mj-guide-play" class="mj-guide-text">麻雀の練習アプリを実際に操作しながら、麻雀を解説してください。
+
+1. https://hbarcg.github.io/apps/mahjong/?ai=1 を開いてください。
+2. 画面右側（狭い画面では下のほう）の「AI操作パネル」を読んでください。パネルの「あなた」は、あなたが担当する席です。判断は、パネルに書かれた見えている情報だけでしてください。ページのプログラムの中身（JavaScriptの変数など）は読まないでください。他家の手牌や山まで見えてしまい、解説になりません。
+3. パネルの「状態」に合わせて、次のように進めてください。
+・あなたの判断待ち: 局面の見方（手の進み具合・警戒する相手・点数状況）を短く説明し、選ぶ操作とその理由を話してから、パネルの「操作」のボタンを押す。
+・CPUの手番: 数秒待ってから、パネルを読み直す。
+・局の結果: この局で大事だった場面を1〜2か所選び、「振り返る」や「手番号へ移動」でその場面に戻って解説してから、「次へ」を押して次の局に進む。
+・対局終了: 対局全体をふり返り、良かった点と改善できる点をまとめる。
+4. 向聴数・受け入れ枚数・残り枚数は、パネルの「アプリの計算」の値を正しいものとして使ってください。「お手本AI」の選択は参考です。違う手を選ぶときは、その理由も説明してください。
+5. 迷う場面は詳しく、簡単な場面は一言で済ませてください。
+6. 対局が終わるか、私が止めるまで続けてください。途中で私が質問したら、打つのを止めて答えてください。</pre>
+      <p class="mj-guide-copy"><button type="button" data-copy="mj-guide-play">指示文をコピー</button><span class="mj-guide-copy-status" aria-live="polite"></span></p>
+
+      <h3>自分が打ち、AIが横で解説する</h3>
+      <pre id="mj-guide-coach" class="mj-guide-text">私が麻雀の練習アプリで打つので、横で解説してください。
+
+1. https://hbarcg.github.io/apps/mahjong/?ai=1 を開いてください（もう開いているタブがあれば、それを使ってください）。
+2. 牌を切ったり鳴いたりするのは私です。あなたはパネルのボタンを押さないでください。局が終わったあとの振り返り（「振り返る」「手番号へ移動」など）は、私が頼んだときだけ使って構いません。
+3. 私が「見て」と言ったら、画面右側（狭い画面では下のほう）の「AI操作パネル」を読んで、今の局面の見方と、あなたならどうするか、その理由を説明してください。パネルの「あなた」は私の席です。
+4. 判断は、パネルに書かれた見えている情報だけでしてください。ページのプログラムの中身（JavaScriptの変数など）は読まないでください。他家の手牌や山まで見えてしまい、練習になりません。
+5. 向聴数・受け入れ枚数・残り枚数は、パネルの「アプリの計算」の値を正しいものとして使ってください。「お手本AI」の選択は参考です。</pre>
+      <p class="mj-guide-copy"><button type="button" data-copy="mj-guide-coach">指示文をコピー</button><span class="mj-guide-copy-status" aria-live="polite"></span></p>
+
+      <h2>気をつけること</h2>
+      <ul>
+        <li>AIの操作は人より遅く、1手に数秒から十数秒かかります。押し間違えたり、盤面を読み間違えたりすることもあります。おかしいと思ったら止めて聞いてみてください。</li>
+        <li>AIの解説が正しいとは限りません。パネルの「お手本AI」も、このアプリで一番強い設定のCPUというだけで、正解ではありません。</li>
+        <li>AI操作パネルに出るのは、自分の席から見えている情報だけです。ただ、しくみの上ではページのプログラムの中身を読めば伏せている牌も見えてしまうため、指示文で「読まないで」と頼んでいます。</li>
+        <li>CPUの強さは、アプリの設定のほか、URLでも変えられます（例: <a href="/apps/mahjong/?ai=1&amp;level=5">?ai=1&amp;level=5</a>）。</li>
+        <li>サービスの名前や使えるプランは変わることがあります（2026年9月時点の情報です）。</li>
+      </ul>
+    </main>
+
+    <p class="back-link"><a href="/apps/mahjong/">← 麻雀（試作版）</a></p>
+
+    <footer class="site-footer">
+      <p>&copy; 2026 HbarCG</p>
+    </footer>
+  </div>
+
+  <script>
+    'use strict';
+    // 指示文のコピー。コピーできないときは文を選んだ状態にして、手でコピーしてもらう
+    for (const btn of document.querySelectorAll('[data-copy]')) {
+      btn.addEventListener('click', async () => {
+        const target = document.getElementById(btn.dataset.copy);
+        const status = btn.nextElementSibling;
+        try {
+          await navigator.clipboard.writeText(target.textContent);
+          status.textContent = 'コピーしました';
+        } catch (e) {
+          const range = document.createRange();
+          range.selectNodeContents(target);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          status.textContent = 'コピーできませんでした。選んだ文を手動でコピーしてください';
+        }
+      });
+    }
+  </script>
+</body>
+</html>

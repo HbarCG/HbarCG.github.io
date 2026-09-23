@@ -16,12 +16,14 @@ const CONFIG = {
   cpuLevel: Number(urlParams.get('level')) || 3,
   readingDepth: urlParams.has('depth') ? Number(urlParams.get('depth')) : 1,
   autoHuman: urlParams.get('auto') === '1', // デバッグ用: 人間もAIが操作する自動対局モード
+  agentMode: urlParams.get('ai') === '1', // ブラウザを操作するAIに打たせるときの「AI操作パネル」を出す（agent.js）
 };
 
 let state = null;
 let discardResolver = null;
 let selectedTile = null; // 打牌前に1回タップして選んでいる手牌
 let promptResolver = null;
+let promptChoices = null; // いま出している選択肢（renderPrompt の choices。AI操作パネルにも同じボタンを出す）
 let replay = null; // 局の振り返りができる間 { text: 「次へ」の案内文, index: 見ている手の番号（null は結果表示中） }
 
 // 待ち時間。待っている間に「新しい対局」で state が作り直されたら、古い対局の進行はここで止める
@@ -370,13 +372,17 @@ function getKakanOptions(hand, melds) {
 
 function waitForHumanDiscard(riichiTiles) {
   selectedTile = null;
+  const discardable = riichiTiles || state.players[0].hand.slice();
   state.pending = {
     text: riichiTiles ? 'リーチを宣言し、切る牌を選んでいます' : 'あなたの手番です。切る牌を選んでいます',
     discard: true,
     riichi: Boolean(riichiTiles),
+    discardable, // 切れる牌（AI操作パネルの打牌ボタンに使う）
   };
-  render({ discardable: riichiTiles || state.players[0].hand.slice() });
-  return new Promise((resolve) => { discardResolver = resolve; });
+  // 待ちを先に用意してから描く（描画の中でAI操作パネルが「あなたの判断待ち」かどうかを見るため）
+  const discarded = new Promise((resolve) => { discardResolver = resolve; });
+  render({ discardable });
+  return discarded;
 }
 
 // 誤タップ防止のため、1回目のタップでは牌を選んで浮かせるだけにし、
@@ -390,6 +396,12 @@ function onHandTileClick(tileId) {
     }
     return;
   }
+  commitDiscard(tileId);
+}
+
+// 牌を切る。手牌の2回目のタップと、AI操作パネルの打牌ボタン（1回で切る）から呼ぶ
+function commitDiscard(tileId) {
+  if (!discardResolver || !state.pending.discardable.includes(tileId)) return;
   selectedTile = null;
   state.pending = null;
   const r = discardResolver;
@@ -998,6 +1010,8 @@ function renderPrompt(promptText, choices) {
   }
   box.appendChild(row);
   box.hidden = false;
+  promptChoices = choices;
+  renderAgentPanel();
 }
 
 function clearPrompt() {
@@ -1005,6 +1019,8 @@ function clearPrompt() {
   box.innerHTML = '';
   box.classList.remove('mj-prompt--replay');
   box.hidden = true;
+  promptChoices = null;
+  renderAgentPanel();
 }
 
 // 牌1枚分の要素を作る。牌の大きさは親要素のCSS変数 --tw で決まる。
@@ -1267,6 +1283,7 @@ function render(opts) {
   renderCallAnnounce(b);
   renderAssist();
   renderReview();
+  renderAgentPanel();
 }
 
 // ---------------------------------------------------------------------------
@@ -1726,6 +1743,7 @@ function renderFinalResult(kifuText) {
     .sort((a, b) => b.score - a.score)
     .forEach((r, i) => bannerLine(box, `${i + 1}位　${seatLabel(r.s)}　${r.score}点`, 'mj-banner-detail'));
   el('mj-kifu-text').value = kifuText;
+  renderAgentPanel();
 }
 
 // ---------------------------------------------------------------------------
@@ -1830,6 +1848,7 @@ function renderReplayControls() {
   }
   box.appendChild(row);
   box.hidden = false;
+  renderAgentPanel();
 }
 
 // PCでは ← → で1手ずつ、Home / End で最初と最後へ
@@ -1968,23 +1987,24 @@ function currentHandLog() {
   return state.eventLog.slice(start);
 }
 
-function buildPositionView() {
-  const revealed = Boolean(state.reveal);
-  const drawn = state.lastDrawnTile;
+// 盤面 b（ふだんは state。振り返り中の一手の記録 state.steps[i] も同じ形）の、局・ドラと全員の様子。
+// openAll が false なら他家の手牌は伏せる（局が終わるまで）
+function boardView(b, openAll) {
+  const drawn = b.lastDrawnTile;
   return {
-    roundLabel: `東${Math.min(state.kyoku, 4)}局`,
-    honba: state.honba,
-    kyotaku: state.kyotaku,
-    wallRemaining: Math.max(0, state.wall.length - state.wallIndex),
-    doraIndicators: state.doraIndicators.slice(0, state.doraRevealed),
-    revealed,
-    players: state.players.map((p, s) => {
-      const showHand = s === 0 || revealed;
+    roundLabel: `東${Math.min(b.kyoku, 4)}局`,
+    honba: b.honba,
+    kyotaku: b.kyotaku,
+    wallRemaining: Math.max(0, b.wall.length - b.wallIndex),
+    doraIndicators: b.doraIndicators.slice(0, b.doraRevealed),
+    revealed: openAll,
+    players: b.players.map((p, s) => {
+      const showHand = s === 0 || openAll;
       const justDrew = Boolean(drawn && drawn.seat === s && p.hand.length % 3 === 2 && p.hand.includes(drawn.tile));
       return {
         name: s === 0 ? 'あなた' : `${seatLabel(s)}・${SEAT_RELATIONS[s]}`,
-        wind: tileTypeLabel(seatWindType(s)),
-        isDealer: s === state.oya,
+        wind: tileTypeLabel(27 + ((s - b.oya + 4) % 4)),
+        isDealer: s === b.oya,
         score: p.score,
         // 何巡目か＝自分の手番が何回来たか。捨てた枚数に、ツモや鳴きで打牌前の牌を持っている間は1を足す
         // （配牌直後にツモった親は1巡目。まだ一度も手番が来ていない人は0）
@@ -1992,7 +2012,7 @@ function buildPositionView() {
         riichi: p.riichi,
         hand: showHand ? p.hand : null,
         drawnTile: showHand && justDrew ? drawn.tile : null,
-        status: revealed ? tenpaiStatusText(s) : null,
+        status: null,
         melds: p.melds.map((m) => ({
           label: meldKindLabel(m.kind),
           tiles: m.tiles,
@@ -2006,13 +2026,21 @@ function buildPositionView() {
         })),
       };
     }),
+  };
+}
+
+function buildPositionView() {
+  const revealed = Boolean(state.reveal);
+  const view = boardView(state, revealed);
+  if (revealed) view.players.forEach((p, s) => { p.status = tenpaiStatusText(s); });
+  return Object.assign(view, {
     log: currentHandLog(),
     record: { haipai: state.myHaipai, turns: state.myTurns, passes: state.myPasses },
     // 局が終わったら（「次へ」を待っている間は）判断することも計算も出さず、振り返りの質問にする
     pending: revealed ? null : state.pending,
     analysis: revealed ? null : buildAdviceAnalysis(),
     lastReview: revealed ? null : lastReviewView(),
-  };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -2057,6 +2085,7 @@ function bootstrap() {
     el('mj-copy-status').textContent = ok ? 'コピーしました' : 'コピーに失敗しました。テキストエリアから手動で選択してください';
   });
   document.addEventListener('keydown', onReplayKey);
+  setupAgentPanel();
   runMatch();
 }
 

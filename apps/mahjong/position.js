@@ -91,26 +91,15 @@ function buildPositionText(view, withPremise = true) {
     ? premiseLines()
     : ['続きの局面です（前提は最初に伝えたとおりです）。最後の「質問」に答えてください。'];
   lines.push('');
-  lines.push(`■ 局面: ${view.roundLabel} ${view.honba}本場 供託${view.kyotaku} ／ 山の残り${view.wallRemaining}枚`);
-  const dora = view.doraIndicators.map((id) => tileTypeLabel(doraTypeFromIndicator(id)));
-  lines.push(`ドラ表示牌: ${view.doraIndicators.map(tileText).join(' ')}（ドラ: ${dora.join(' ')}）`);
-  if (view.revealed) lines.push('※この局は終了しています。全員の手牌を公開しています。');
+  lines.push(...positionBodyLines(view));
+  lines.push(`■ 質問: ${adviceQuestion(view)}`);
+  return lines.join('\n');
+}
 
-  for (const p of view.players) {
-    lines.push('');
-    const turn = p.turn === 0 ? 'まだ手番なし' : `${p.turn}巡目`;
-    const tags = [`${p.wind}家${p.isDealer ? '・親' : ''}`, `${p.score}点`, turn];
-    if (p.riichi) tags.push('リーチ中');
-    lines.push(`■ ${p.name}（${tags.join('・')}）`);
-    if (p.hand) {
-      const drawn = p.drawnTile === null ? '' : ` ＋ツモ ${tileText(p.drawnTile)}`;
-      const rest = p.drawnTile === null ? p.hand : removeOne(p.hand, p.drawnTile);
-      lines.push(`手牌: ${tilesText(rest)}${drawn}`);
-    }
-    if (p.status) lines.push(`状況: ${p.status}`);
-    lines.push(`副露: ${p.melds.length === 0 ? 'なし' : p.melds.map(meldText).join(' ／ ')}`);
-    lines.push(`河: ${p.discards.length === 0 ? 'なし' : p.discards.map(discardText).join(' ')}`);
-  }
+// 前提と質問を除いた本文（盤面・経過・記録・アプリの計算・いま判断すること）。
+// AI操作パネル（agent.js）も同じ本文を使う
+function positionBodyLines(view) {
+  const lines = boardLines(view);
 
   if (view.log.length > 0) {
     lines.push('');
@@ -133,8 +122,34 @@ function buildPositionText(view, withPremise = true) {
     const choices = view.pending.choices ? `（選択肢: ${view.pending.choices.join('／')}）` : '';
     lines.push(`■ いま判断すること: ${view.pending.text}${choices}`);
   }
-  lines.push(`■ 質問: ${adviceQuestion(view)}`);
-  return lines.join('\n');
+  return lines;
+}
+
+// 盤面（局・ドラと、全員の点数・手牌・副露・河）。
+// 振り返り中の一手の盤面（agent.js）も、log や record を持たない view でここだけ使う
+function boardLines(view) {
+  const lines = [];
+  lines.push(`■ 局面: ${view.roundLabel} ${view.honba}本場 供託${view.kyotaku} ／ 山の残り${view.wallRemaining}枚`);
+  const dora = view.doraIndicators.map((id) => tileTypeLabel(doraTypeFromIndicator(id)));
+  lines.push(`ドラ表示牌: ${view.doraIndicators.map(tileText).join(' ')}（ドラ: ${dora.join(' ')}）`);
+  if (view.revealed) lines.push('※この局は終了しています。全員の手牌を公開しています。');
+
+  for (const p of view.players) {
+    lines.push('');
+    const turn = p.turn === 0 ? 'まだ手番なし' : `${p.turn}巡目`;
+    const tags = [`${p.wind}家${p.isDealer ? '・親' : ''}`, `${p.score}点`, turn];
+    if (p.riichi) tags.push('リーチ中');
+    lines.push(`■ ${p.name}（${tags.join('・')}）`);
+    if (p.hand) {
+      const drawn = p.drawnTile === null ? '' : ` ＋ツモ ${tileText(p.drawnTile)}`;
+      const rest = p.drawnTile === null ? p.hand : removeOne(p.hand, p.drawnTile);
+      lines.push(`手牌: ${tilesText(rest)}${drawn}`);
+    }
+    if (p.status) lines.push(`状況: ${p.status}`);
+    lines.push(`副露: ${p.melds.length === 0 ? 'なし' : p.melds.map(meldText).join(' ／ ')}`);
+    lines.push(`河: ${p.discards.length === 0 ? 'なし' : p.discards.map(discardText).join(' ')}`);
+  }
+  return lines;
 }
 
 // ---------------------------------------------------------------------------
