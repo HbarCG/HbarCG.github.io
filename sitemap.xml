@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 検索エンジン向けのページ一覧。ページを追加・削除したらここも1行ずつ更新する -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://hbarcg.github.io/</loc></url>
+  <url><loc>https://hbarcg.github.io/about/</loc></url>
+
+  <url><loc>https://hbarcg.github.io/essays/</loc></url>
+  <url><loc>https://hbarcg.github.io/essays/002-first-essay/</loc></url>
+  <url><loc>https://hbarcg.github.io/essays/003-anger/</loc></url>
+  <url><loc>https://hbarcg.github.io/essays/004-marital-harmony/</loc></url>
+  <url><loc>https://hbarcg.github.io/essays/005-ai-and-labor/</loc></url>
+  <url><loc>https://hbarcg.github.io/essays/006-what-makes-him-my-son/</loc></url>
+  <url><loc>https://hbarcg.github.io/essays/007-two-kinds-of-fun/</loc></url>
+
+  <url><loc>https://hbarcg.github.io/apps/</loc></url>
+  <url><loc>https://hbarcg.github.io/apps/ant-colony/</loc></url>
+  <url><loc>https://hbarcg.github.io/apps/handoff/</loc></url>
+  <url><loc>https://hbarcg.github.io/apps/mahjong/</loc></url>
+  <url><loc>https://hbarcg.github.io/apps/rain-radar/</loc></url>
+  <url><loc>https://hbarcg.github.io/apps/siege/</loc></url>
+  <url><loc>https://hbarcg.github.io/apps/talk/</loc></url>
+
+  <url><loc>https://hbarcg.github.io/store/</loc></url>
+</urlset>

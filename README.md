@@ -24,19 +24,24 @@
 ├── index.html            トップページ
 ├── about/                自己紹介
 ├── essays/                エッセイ一覧・各エッセイ
-│   └── 001-example/       エッセイのサンプル（新規作成時の型として使う）
 ├── apps/                  将来のWebアプリ置き場
 ├── css/style.css          全ページ共通スタイル
 ├── js/main.js             全ページ共通スクリプト（現状ほぼ未使用）
 ├── images/                画像置き場
-└── docs/editorial-guidelines.md  編集方針のメモ
+├── docs/editorial-guidelines.md  編集方針のメモ
+├── robots.txt             検索エンジン向けの設定
+└── sitemap.xml            検索エンジン向けのページ一覧
 ```
 
 ## 新しいエッセイを追加する手順
 
-1. `essays/001-example/` フォルダをコピーし、`essays/002-たとえば/` のような名前でリネームする
-2. 中の `index.html` を開き、タイトル・日付・本文を書き換える
+1. 直近のエッセイのフォルダ（例：`essays/007-two-kinds-of-fun/`）をコピーし、`essays/008-たとえば/` のような名前でリネームする
+2. 中の `index.html` を開き、タイトル・日付・本文を書き換える。`<head>` 内の次の項目も新しいエッセイに合わせる
+   - `<title>` と `<meta name="description">`
+   - `canonical` と `og:url` のURL（フォルダ名）
+   - `og:title`（タイトル）と `og:description`（descriptionと同じ文）
 3. `essays/index.html` の一覧に新しいエッセイへのリンクを1行追加する
+4. `sitemap.xml` に新しいエッセイのURLを1行追加する
 
 ## 公開
 
