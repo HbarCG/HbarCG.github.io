@@ -31,6 +31,8 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  /* スクロールバーのある長いページとない短いページで、レイアウトが横にずれないようにする */
+  scrollbar-gutter: stable;
 }
 
 img,
@@ -100,16 +102,28 @@ body {
   font-size: 0.9rem;
 }
 
-.site-nav a {
+/* 押せる範囲は指で押しやすい高さ（約44px）にし、見た目の位置は負のマージンで元のままにする */
+.site-nav a,
+.site-nav a:visited {
   display: inline-block;
-  padding: 0.25rem 0;
+  padding: 0.6rem 0.15rem;
+  margin: -0.35rem -0.15rem;
   color: var(--color-text-muted);
   text-decoration: none;
 }
 
 .site-nav a:hover,
-.site-nav a:focus {
+.site-nav a:focus,
+.site-nav a[aria-current] {
   color: var(--color-text);
+}
+
+/* 今いる場所（ページやその下の階層）を、ロゴと同じ赤い線で示す */
+.site-nav a[aria-current] {
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent-bar);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.4em;
 }
 
 /* 本文 */
@@ -122,6 +136,13 @@ h1 {
 h2 {
   font-size: 1.2rem;
   margin: 2.5rem 0 1rem;
+}
+
+/* 見出しは文節の切れ目で折り返し、最後の行に1〜2文字だけが残らないようにする */
+h1,
+h2 {
+  word-break: auto-phrase;
+  text-wrap: balance;
 }
 
 p {
@@ -139,6 +160,23 @@ a:visited {
 .lede {
   color: var(--color-text-muted);
   margin-bottom: 3rem;
+}
+
+/* 申し込みなど、そのページで一番してほしい操作へのリンク */
+.cta-link,
+.cta-link:visited {
+  display: inline-block;
+  padding: 0.7rem 1.4rem;
+  border-radius: 6px;
+  background: var(--color-text);
+  color: var(--color-bg);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.cta-link:hover,
+.cta-link:focus {
+  opacity: 0.85;
 }
 
 /* エッセイ一覧 */
@@ -187,6 +225,32 @@ a:visited {
   color: var(--color-text-muted);
   font-size: 0.85rem;
   margin: 0 0 2.5rem;
+}
+
+.essay-subtitle {
+  margin: -0.9rem 0 1.2rem;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+/* スマホでは、本文の書き出しが画面の上の方に来るよう、見出しまわりの余白を詰める */
+@media (max-width: 600px) {
+  .page {
+    padding-top: 1.5rem;
+  }
+
+  .site-header {
+    margin-bottom: 2rem;
+  }
+
+  main > .back-link {
+    margin-bottom: 1.25rem;
+  }
+
+  .essay-stats {
+    margin-bottom: 1.8rem;
+  }
 }
 
 /* 本文の文字の大きさは .essay-body でまとめて決め、段落・箇条書き・引用などはそれを受け継ぐ。
@@ -238,7 +302,6 @@ a:visited {
 .essay-body code {
   font-size: 0.9em;
 }
-
 
 /* 対談形式のエッセイ */
 .turn {

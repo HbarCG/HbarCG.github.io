@@ -198,4 +198,18 @@
   .rr-map {
     height: 50vh;
   }
+
+  /* 幅の狭い画面では凡例が2〜3行に折り返し、左上の拡大縮小ボタンや帰属表示と重なるので、
+     地図の中ではなく地図のすぐ上に出す */
+  .rr-map-wrap {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .rr-legend-badge {
+    position: static;
+    order: -1;
+    max-width: none;
+    margin-bottom: 0.4rem;
+  }
 }

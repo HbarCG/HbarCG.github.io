@@ -55,7 +55,7 @@ function renderEssayPage({ slug, title, date, subtitle, description, body }) {
   const url = `${SITE_URL}/${ESSAYS_DIR}/${slug}/`;
   const t = escapeHtml(title);
   const d = escapeHtml(description);
-  const meta = escapeHtml(date) + (subtitle ? " ――" + escapeHtml(subtitle) : "");
+  const subtitleLine = subtitle ? `\n        <p class="essay-subtitle">${escapeHtml(subtitle)}</p>` : "";
   const paidScript = body.includes("<!-- paid:start -->")
     ? `\n  <script src="/js/paid.js" defer></script>`
     : "";
@@ -72,9 +72,9 @@ function renderEssayPage({ slug, title, date, subtitle, description, body }) {
   <meta property="og:title" content="${t}">
   <meta property="og:description" content="${d}">
   <meta property="og:url" content="${url}">
-  <meta property="og:image" content="${SITE_URL}/brand/icon-light.png">
+  <meta property="og:image" content="${SITE_URL}/brand/og-image.png">
   <meta property="og:locale" content="ja_JP">
-  <meta name="twitter:card" content="summary">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="stylesheet" href="/css/style.css">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <script src="/js/main.js" defer></script>${paidScript}
@@ -84,7 +84,7 @@ function renderEssayPage({ slug, title, date, subtitle, description, body }) {
     <header class="site-header">
       <p class="site-title"><a href="/"><span class="mark-hb">Hbar</span>CG</a></p>
       <nav class="site-nav">
-        <a href="/essays/">Essays</a>
+        <a href="/essays/" aria-current="true">Essays</a>
         <a href="/apps/">Apps</a>
         <a href="/about/">About</a>
       </nav>
@@ -94,8 +94,8 @@ function renderEssayPage({ slug, title, date, subtitle, description, body }) {
       <p class="back-link"><a href="/essays/">← Essays</a></p>
 
       <article class="essay-body">
-        <h1>${t}</h1>
-        <p class="essay-meta">${meta}</p>${body}
+        <h1>${t}</h1>${subtitleLine}
+        <p class="essay-meta">${escapeHtml(date)}</p>${body}
       </article>
     </main>
 
@@ -112,17 +112,19 @@ function renderEssayPage({ slug, title, date, subtitle, description, body }) {
 function parseEssayPage(html, slug) {
   const h1 = html.match(/<article class="essay-body">\s*<h1>([\s\S]*?)<\/h1>/);
   const meta = html.match(/<p class="essay-meta">([\s\S]*?)<\/p>/);
+  const sub = html.match(/<p class="essay-subtitle">([\s\S]*?)<\/p>/);
   const desc = html.match(/<meta name="description" content="([^"]*)">/);
   const body = html.match(/<p class="essay-meta">[\s\S]*?<\/p>([\s\S]*?)\n[ \t]*<\/article>/);
   if (!h1 || !meta || !desc || !body) {
     throw new Error(`${slug}: ページの形が崩れていて、見出し・日付・説明・本文を読み取れません`);
   }
+  // 副題は以前「日付 ――副題」と日付の行に書いていたので、その形も読めるようにしておく
   const [date, ...rest] = unescapeHtml(meta[1].trim()).split(" ――");
   return {
     slug,
     title: unescapeHtml(h1[1].trim()),
     date: date.trim(),
-    subtitle: rest.join(" ――").trim(),
+    subtitle: sub ? unescapeHtml(sub[1].trim()) : rest.join(" ――").trim(),
     description: unescapeHtml(desc[1]),
     body: body[1].replace(/\s+$/, ""),
   };
@@ -182,7 +184,7 @@ function renderList(essays) {
 }
 
 function updateList(essays) {
-  const html = readFileSync(LIST_PATH, "utf8");
+  const html = readText(LIST_PATH);
   const pattern = /(<ul class="essay-list">\n)[\s\S]*?(\n?[ \t]*<\/ul>)/;
   if (!pattern.test(html)) throw new Error(`${LIST_PATH} に <ul class="essay-list"> が見つかりません`);
   const next = html.replace(pattern, (m, open, close) => open + renderList(essays) + close.replace(/^\n/, ""));
@@ -191,7 +193,7 @@ function updateList(essays) {
 
 // sitemap は他のページも載っているので、足りないエッセイの行を足すだけにする（消したり並べ替えたりはしない）
 function updateSitemap(essays) {
-  const xml = readFileSync(SITEMAP_PATH, "utf8");
+  const xml = readText(SITEMAP_PATH);
   const lines = xml.split("\n");
   for (const e of [...essays].sort((a, b) => a.slug.localeCompare(b.slug))) {
     const loc = `${SITE_URL}/${ESSAYS_DIR}/${e.slug}/`;
@@ -203,6 +205,11 @@ function updateSitemap(essays) {
     lines.splice(at + 1, 0, `  <url><loc>${loc}</loc></url>`);
   }
   return writeIfChanged(SITEMAP_PATH, xml, lines.join("\n"));
+}
+
+// Windowsで git の改行変換（CRLF）が効いた状態でも同じように読めるよう、改行を LF にそろえて読む
+function readText(path) {
+  return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
 }
 
 function writeIfChanged(path, before, after) {
@@ -219,7 +226,7 @@ function tidyAll() {
 
   for (const slug of listEssaySlugs()) {
     const path = join(ESSAYS_DIR, slug, "index.html");
-    const html = readFileSync(path, "utf8");
+    const html = readText(path);
     let essay;
     try {
       essay = parseEssayPage(html, slug);
@@ -278,7 +285,7 @@ function todayInJapan() {
 }
 
 function createFromDraft(draftPath) {
-  const lines = readFileSync(draftPath, "utf8").replace(/^﻿/, "").split(/\r?\n/);
+  const lines = readFileSync(draftPath, "utf8").replace(/^\uFEFF/, "").split(/\r?\n/);
 
   // 冒頭の「項目: 値」の行を読む（最初の空行まで）
   const fields = {};
