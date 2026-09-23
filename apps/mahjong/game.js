@@ -23,7 +23,12 @@ let discardResolver = null;
 let selectedTile = null; // 打牌前に1回タップして選んでいる手牌
 let promptResolver = null;
 
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+// 待ち時間。待っている間に「新しい対局」で state が作り直されたら、古い対局の進行はここで止める
+// （Promise を解決せずに放っておく）。止めないと、古い対局のCPUが新しい卓で打ち続けてしまう。
+function sleep(ms) {
+  const match = state;
+  return new Promise((r) => setTimeout(() => { if (state === match) r(); }, ms));
+}
 // CPU手番の最小待ち時間（演出ではなく、進行が速すぎて読めなくなるのを防ぐため）。
 // 自動対局デバッグモード(?auto=1)では動作確認を速くするため短縮する。
 function thinkDelay() { return CONFIG.autoHuman ? 1 : 350; }
@@ -1148,13 +1153,21 @@ function saveToggle(key, visible) {
   }
 }
 
+// 役の名前の一覧。ドラ・赤・裏ドラも翻数に入るので「ドラ1」の形で並べる（役満のときはどれも0）。
+// 役牌は ダブ東・白 などをまとめて1つの役として数えているので、2翻以上なら「役牌3」のように翻数を添える
+function yakuNames(r) {
+  const names = r.yaku.map(([name, han]) => (name === '役牌' && han >= 2 ? `役牌${han}` : name));
+  if (r.doraHan > 0) names.push(`ドラ${r.doraHan}`);
+  if (r.akaHan > 0) names.push(`赤${r.akaHan}`);
+  if (r.uraDoraHan > 0) names.push(`裏ドラ${r.uraDoraHan}`);
+  return names;
+}
+
 // 和了したときの評価を「3翻40符 満貫（リーチ・タンヤオ・ドラ1）」の形の文字列にする
 function assistWinText(r) {
   if (!r) return '役なし';
-  const names = r.yaku.map((y) => y[0]);
+  const names = yakuNames(r);
   if (r.isYakuman) return `${r.limitName}（${names.join('・')}）`;
-  if (r.doraHan > 0) names.push(`ドラ${r.doraHan}`);
-  if (r.akaHan > 0) names.push(`赤${r.akaHan}`);
   const limit = r.limitName ? ` ${r.limitName}` : '';
   return `${r.han}翻${r.fu}符${limit}（${names.join('・')}）`;
 }
@@ -1403,7 +1416,7 @@ function bannerHand(box, seat, winTile) {
 }
 
 function yakuText(result) {
-  return result.yaku.map((y) => y[0]).join('・');
+  return yakuNames(result).join('・');
 }
 
 function renderHandResult(info) {
@@ -1510,7 +1523,9 @@ function buildPositionView() {
         wind: tileTypeLabel(seatWindType(s)),
         isDealer: s === state.oya,
         score: p.score,
-        turn: p.discards.length,
+        // 何巡目か＝自分の手番が何回来たか。捨てた枚数に、ツモや鳴きで打牌前の牌を持っている間は1を足す
+        // （配牌直後にツモった親は1巡目。まだ一度も手番が来ていない人は0）
+        turn: p.discards.length + (p.hand.length % 3 === 2 ? 1 : 0),
         riichi: p.riichi,
         hand: showHand ? p.hand : null,
         drawnTile: showHand && justDrew ? drawn.tile : null,
@@ -1552,6 +1567,11 @@ function bootstrap() {
     if (state) renderReview();
   });
   el('mj-new-game').addEventListener('click', () => {
+    // 古い対局があなたの打牌や選択を待っている場合は、その待ちを捨てて止める（sleep のコメントも参照）
+    discardResolver = null;
+    promptResolver = null;
+    selectedTile = null;
+    clearPrompt();
     el('mj-banner').hidden = true;
     el('mj-kifu-text').value = '';
     runMatch();

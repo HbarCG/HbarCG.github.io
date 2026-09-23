@@ -70,7 +70,8 @@ function buildPositionText(view) {
 
   for (const p of view.players) {
     lines.push('');
-    const tags = [`${p.wind}家${p.isDealer ? '・親' : ''}`, `${p.score}点`, `${p.turn}巡目`];
+    const turn = p.turn === 0 ? 'まだ手番なし' : `${p.turn}巡目`;
+    const tags = [`${p.wind}家${p.isDealer ? '・親' : ''}`, `${p.score}点`, turn];
     if (p.riichi) tags.push('リーチ中');
     lines.push(`■ ${p.name}（${tags.join('・')}）`);
     if (p.hand) {

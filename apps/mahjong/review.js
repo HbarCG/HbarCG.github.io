@@ -53,13 +53,18 @@ function reviewUkeire(counts, meldCount, shanten, visibleCounts) {
   return { types, total };
 }
 
-// 警戒している相手の説明（例: 「CPU2（リーチ）」「CPU3（2副露）」）。
-// 副露もリーチもないのに警戒しているのは、終盤で聴牌の見込みがある（ダマの可能性）とき
+// 警戒している相手の説明（例: 「CPU2（リーチ）」「CPU3（2副露）」「CPU1（1副露・暗槓1）」）。
+// 暗槓は門前のままなので副露とは分けて書く（CPUの警戒度の計算＝ai.js の threatOf では暗槓も数に入れている）。
+// 副露も暗槓もリーチもないのに警戒しているのは、終盤で聴牌の見込みがある（ダマの可能性）とき
 function reviewThreatText(threat, ctx) {
   const name = `CPU${threat.seat}`;
   if (ctx.riichiBySeat[threat.seat]) return `${name}（リーチ）`;
-  const melds = ctx.meldsBySeat[threat.seat].length;
-  return melds === 0 ? `${name}（ダマの可能性）` : `${name}（${melds}副露）`;
+  const melds = ctx.meldsBySeat[threat.seat];
+  const ankan = melds.filter((m) => m.kind === 'ankan').length;
+  const parts = [];
+  if (melds.length > ankan) parts.push(`${melds.length - ankan}副露`);
+  if (ankan > 0) parts.push(`暗槓${ankan}`);
+  return parts.length === 0 ? `${name}（ダマの可能性）` : `${name}（${parts.join('・')}）`;
 }
 
 // 1枚の打牌について、比べる数字をまとめる
