@@ -782,9 +782,10 @@ button.mj-tile:not(:disabled):focus-visible {
 
 .mj-assist-bar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.3rem 0.5rem;
 }
 
 .mj-copy-position {
@@ -865,6 +866,49 @@ button.mj-tile:not(:disabled):focus-visible {
 
 .mj-assist-wait-detail {
   color: rgba(255, 255, 255, 0.85);
+}
+
+/* 打牌の答え合わせ。補助情報と同じ下地で、自分とAIの打牌を表で並べる */
+.mj-review-stats {
+  margin-left: 0.6rem;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.mj-review-table {
+  width: 100%;
+  margin-top: 0.35rem;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.mj-review-table th,
+.mj-review-table td {
+  padding: 0.2rem 0.3rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.mj-review-table th[scope="row"] {
+  width: 4.5rem;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.mj-review-table th[scope="col"] {
+  font-weight: 700;
+}
+
+.mj-review .mj-review-reason {
+  margin-top: 0.45rem;
+}
+
+.mj-review .mj-review-note {
+  margin-top: 0.3rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.75rem;
 }
 
 @media (max-width: 40em) {

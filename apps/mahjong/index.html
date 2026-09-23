@@ -97,13 +97,16 @@
     </div>
 
     <aside class="mj-side">
-      <!-- 向聴数・待ち牌の残り枚数・和了時の役と翻。チェックで表示/非表示を切り替える。
+      <!-- 向聴数・待ち牌の残り枚数・和了時の役と翻、打牌の答え合わせ。チェックで表示/非表示を切り替える。
            「局面をコピー」は今見えている盤面を文字にしてコピーする（AIに相談する用） -->
       <div class="mj-assist-bar">
         <button type="button" id="mj-copy-position" class="mj-copy-position">局面をコピー</button>
         <label class="mj-assist-toggle"><input type="checkbox" id="mj-assist-toggle" checked> 向聴・待ち・役を表示</label>
+        <label class="mj-assist-toggle"><input type="checkbox" id="mj-review-toggle" checked> 打牌の答え合わせ</label>
       </div>
       <div id="mj-assist" class="mj-assist" aria-live="polite"></div>
+      <!-- 自分が切った牌と、お手本のAI（CPUレベル5・読みの深さ3）が切る牌を比べる -->
+      <div id="mj-review" class="mj-assist mj-review" aria-live="polite"></div>
 
       <section class="mj-panel mj-panel--controls">
         <h2>CPU設定</h2>
@@ -150,6 +153,8 @@
       対局後は棋譜を天鳳風のテキスト形式でコピーできます（完全互換ではありません）。
       局が終わると全員の手牌と「何巡目から聴牌していたか」を公開します。
       「局面をコピー」で、今の盤面（見えている情報だけ）を文字にしてコピーできます。
+      「打牌の答え合わせ」をオンにすると、自分が切った牌を一番強い設定のCPUの判断と比べ、
+      受け入れ枚数・評価値・危険度の違いを表示します。
     </p>
     <p class="back-link"><a href="/apps/">← Apps</a></p>
 
@@ -165,6 +170,7 @@
   <script src="/apps/mahjong/assist.js"></script>
   <script src="/apps/mahjong/eval.js"></script>
   <script src="/apps/mahjong/ai.js"></script>
+  <script src="/apps/mahjong/review.js"></script>
   <script src="/apps/mahjong/kifu.js"></script>
   <script src="/apps/mahjong/position.js"></script>
   <script src="/apps/mahjong/game.js"></script>

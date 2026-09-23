@@ -73,6 +73,8 @@ function initMatch() {
     eventLog: [],
     callAnnounce: null, // 卓上に出している宣言 { seat, text, meldIndex }
     reveal: null, // 局が終わって全員の手牌を公開している間 { winners, winTile }
+    review: null, // 直前の自分の打牌の答え合わせ（review.js の reviewDiscard の結果）
+    reviewStats: { match: 0, total: 0 }, // この対局で答え合わせした打牌のうち、AIと同じだった数
   };
   const names = ['あなた', 'CPU1', 'CPU2', 'CPU3'];
   state.kifuLines.push(kifuHeader(names));
@@ -106,6 +108,7 @@ function setupHand() {
   state.discardCount = 0;
   state.callAnnounce = null;
   state.reveal = null;
+  state.review = null;
 
   state.kifuLines.push(kifuInit({
     kyoku: state.kyoku, honba: state.honba, kyotaku: state.kyotaku,
@@ -401,6 +404,7 @@ async function getDiscard(seat) {
     }
     const pool = wantsRiichi ? tenpaiPreservingTiles(seat) : null;
     const tile = await waitForHumanDiscard(pool);
+    recordReview(tile); // リーチ宣言で点数などが変わる前の盤面で比べる
     if (wantsRiichi) await declareRiichi(seat);
     return tile;
   }
@@ -1116,6 +1120,7 @@ function render(opts) {
   renderActiveSeat();
   renderCallAnnounce();
   renderAssist();
+  renderReview();
 }
 
 // ---------------------------------------------------------------------------
@@ -1124,18 +1129,20 @@ function render(opts) {
 // ---------------------------------------------------------------------------
 
 const ASSIST_STORAGE_KEY = 'mj-assist-visible';
+const REVIEW_STORAGE_KEY = 'mj-review-visible';
 
-function loadAssistVisible() {
+// 表示/非表示のチェックボックスの状態を覚えておく（既定は「表示」）
+function loadToggle(key) {
   try {
-    return localStorage.getItem(ASSIST_STORAGE_KEY) !== '0';
+    return localStorage.getItem(key) !== '0';
   } catch (e) {
     return true;
   }
 }
 
-function saveAssistVisible(visible) {
+function saveToggle(key, visible) {
   try {
-    localStorage.setItem(ASSIST_STORAGE_KEY, visible ? '1' : '0');
+    localStorage.setItem(key, visible ? '1' : '0');
   } catch (e) {
     // 保存できない環境（プライベートブラウズ等）では毎回既定の「表示」に戻るだけ
   }
@@ -1255,6 +1262,103 @@ function renderAssist() {
     section.appendChild(buildAssistWaitList(o.waits, visibleCounts));
     box.appendChild(section);
   }
+}
+
+// ---------------------------------------------------------------------------
+// 打牌の答え合わせ（自分の打牌とお手本のAIの打牌を比べる）
+// 計算は review.js。ここでは自分が打牌したときに計算を呼び、結果を補助情報の下に並べる。
+// ---------------------------------------------------------------------------
+
+// 自分の打牌の直後（手牌から取り除く前）に呼ぶ。チェックが外れているときは計算しない
+function recordReview(tile) {
+  if (!el('mj-review-toggle').checked) return;
+  const player = state.players[0];
+  state.review = reviewDiscard(player.hand, player.melds, tile, buildAiContext(0));
+  state.reviewStats.total++;
+  if (state.review.same) state.reviewStats.match++;
+}
+
+function reviewUkeireText(d) {
+  return `${d.ukeire.types.length}種${d.ukeire.total}枚`;
+}
+
+// 評価値は向聴数が遠い（三向聴以上）と別の数え方（役に向かう有効牌の数）になるので、
+// どちらかが遠い手で向聴数が違うときは比べない
+function reviewValueText(d, other) {
+  if (d.shanten !== other.shanten && Math.max(d.shanten, other.shanten) >= 3) return '—';
+  return d.value >= 10 ? String(Math.round(d.value)) : d.value.toFixed(1);
+}
+
+function reviewDangerText(d) {
+  let text = reviewDangerLabel(d.danger);
+  if (d.safeFrom.length > 0) text += `（${d.safeFrom.join('・')}の現物）`;
+  return text;
+}
+
+function reviewRow(table, label, mineContent, aiContent) {
+  const tr = document.createElement('tr');
+  const th = document.createElement('th');
+  th.scope = 'row';
+  th.textContent = label;
+  tr.appendChild(th);
+  for (const content of [mineContent, aiContent]) {
+    const td = document.createElement('td');
+    if (typeof content === 'string') td.textContent = content;
+    else td.appendChild(content);
+    tr.appendChild(td);
+  }
+  table.appendChild(tr);
+}
+
+function renderReview() {
+  const box = el('mj-review');
+  const visible = el('mj-review-toggle').checked;
+  box.hidden = !visible;
+  box.innerHTML = '';
+  if (!visible) return;
+
+  const stats = state.reviewStats;
+  const head = assistLine(box, 'mj-assist-summary', '打牌の答え合わせ');
+  if (stats.total > 0) {
+    const s = document.createElement('span');
+    s.className = 'mj-review-stats';
+    s.textContent = `AIと一致 ${stats.match}/${stats.total}`;
+    head.appendChild(s);
+  }
+
+  const r = state.review;
+  if (!r) {
+    assistLine(box, 'mj-review-note', '牌を切ると、お手本のAI（CPUレベル5・読みの深さ3）の打牌と比べます。');
+    return;
+  }
+
+  if (r.same) {
+    const p = assistLine(box, 'mj-assist-option-head', '');
+    p.appendChild(document.createTextNode('打'));
+    p.appendChild(makeTile(r.mine.tile));
+    p.appendChild(document.createTextNode(`AIと同じ（受け入れ${reviewUkeireText(r.mine)}）`));
+  } else {
+    const table = document.createElement('table');
+    table.className = 'mj-review-table';
+    const headRow = document.createElement('tr');
+    for (const text of ['', 'あなた', 'AI']) {
+      const th = document.createElement('th');
+      th.scope = 'col';
+      th.textContent = text;
+      headRow.appendChild(th);
+    }
+    table.appendChild(headRow);
+    reviewRow(table, '打牌', makeTile(r.mine.tile), makeTile(r.ai.tile));
+    reviewRow(table, '打牌後', assistShantenText(r.mine.shanten), assistShantenText(r.ai.shanten));
+    reviewRow(table, '受け入れ', reviewUkeireText(r.mine), reviewUkeireText(r.ai));
+    reviewRow(table, '評価値', reviewValueText(r.mine, r.ai), reviewValueText(r.ai, r.mine));
+    if (r.mine.danger !== null) reviewRow(table, '危険度', reviewDangerText(r.mine), reviewDangerText(r.ai));
+    box.appendChild(table);
+    assistLine(box, 'mj-review-reason', r.reason);
+  }
+
+  if (r.threats.length > 0) assistLine(box, 'mj-review-note', `警戒している相手: ${r.threats.join('・')}`);
+  if (!r.same) assistLine(box, 'mj-review-note', '評価値＝打点と和了しやすさをまとめた目安（大きいほど良い）');
 }
 
 function renderLog() {
@@ -1437,10 +1541,15 @@ function bootstrap() {
   el('mj-depth').value = String(CONFIG.readingDepth);
   el('mj-level').addEventListener('change', (e) => { CONFIG.cpuLevel = Number(e.target.value); });
   el('mj-depth').addEventListener('change', (e) => { CONFIG.readingDepth = Number(e.target.value); });
-  el('mj-assist-toggle').checked = loadAssistVisible();
+  el('mj-assist-toggle').checked = loadToggle(ASSIST_STORAGE_KEY);
   el('mj-assist-toggle').addEventListener('change', (e) => {
-    saveAssistVisible(e.target.checked);
+    saveToggle(ASSIST_STORAGE_KEY, e.target.checked);
     renderAssist();
+  });
+  el('mj-review-toggle').checked = loadToggle(REVIEW_STORAGE_KEY);
+  el('mj-review-toggle').addEventListener('change', (e) => {
+    saveToggle(REVIEW_STORAGE_KEY, e.target.checked);
+    if (state) renderReview();
   });
   el('mj-new-game').addEventListener('click', () => {
     el('mj-banner').hidden = true;
