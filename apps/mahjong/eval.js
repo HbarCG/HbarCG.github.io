@@ -138,6 +138,8 @@ function evalMeldKey(melds) {
 //   visibleRed    : 見えている赤5 [萬, 筒, 索]（0か1）
 //   wallRemaining : 山の残り枚数（全員のツモの残り）
 //   seatWindType, roundWindType, isDealer, doraIndicators
+//   winValue      : （省略可）和了の価値を点数から計算し直す関数 (basePoints) => 価値。
+//                   オーラスで順位を意識するときに使う。省略時はツモ和了の点数そのもの
 function createEvaluator(options) {
   const rest = options.visibleCounts.map((v) => Math.max(0, 4 - v));
   const restRed = [0, 1, 2].map((k) => (options.visibleRed[k] ? 0 : 1));
@@ -345,7 +347,12 @@ function createEvaluator(options) {
       doraIndicators: options.doraIndicators,
       uraDoraIndicators: [],
     });
-    const points = result ? computePayments(result.basePoints, options.isDealer, 'tsumo', 0).total : 0;
+    let points = 0;
+    if (result) {
+      points = options.winValue
+        ? options.winValue(result.basePoints)
+        : computePayments(result.basePoints, options.isDealer, 'tsumo', 0).total;
+    }
     pointCache.set(key, points);
     return points;
   }
@@ -510,21 +517,28 @@ function createEvaluator(options) {
 // 打牌を選ぶ（電脳麻将の select_dapai）。
 //   hand   : 打牌前の手（evalHandFromTiles で作ったもの）
 //   danger : 牌種ごとの危険度を返す関数（押し引きをしないなら null）。電脳麻将の weixian と同じ尺度
-//   allowBacktrack : 向聴戻しも考えるか
+//   options.allowBacktrack : 向聴戻しも考えるか
+//   options.fold : 押し引きのしきい値（ai.js の AI_PARAMS.fold。電脳麻将の値が初期値）
 // 戻り値: { type, red, value }（value は打牌後の評価値）
-function evalChooseDiscard(evaluator, hand, danger, allowBacktrack) {
+function evalChooseDiscard(evaluator, hand, danger, options) {
   const candidates = evalDiscardCandidates(hand);
+  const shanten = evaluator.shantenOf(hand);
+  const fold = options.fold;
 
-  // 一番安全な牌（危険な相手がいるときだけ）
+  // 一番安全な牌（危険な相手がいるときだけ）。同じ安全度なら向聴数が落ちない牌を選ぶ
   let safest = null;
   let minDanger = Infinity;
+  let safestShanten = Infinity;
   if (danger) {
     for (const d of candidates) {
-      if (danger(d.type) < minDanger) { minDanger = danger(d.type); safest = d; }
+      const w = danger(d.type);
+      const s = evaluator.shantenOf(evalDiscard(hand, d.type, d.red));
+      if (w < minDanger || (w === minDanger && s < safestShanten)) {
+        minDanger = w; safest = d; safestShanten = s;
+      }
     }
   }
 
-  const shanten = evaluator.shantenOf(hand);
   const valueOf = evaluator.tileValueFor(hand);
   // 価値の低い牌から順に調べる（評価値が同じなら先に調べた牌を切る）
   const ordered = candidates.slice().reverse()
@@ -546,16 +560,17 @@ function evalChooseDiscard(evaluator, hand, danger, allowBacktrack) {
     const value = evaluator.evaluate(after);
     const useful = evaluator.usefulCount(after);
 
-    // 押し引き: 安全な牌より危ない牌は、手の価値に見合うときだけ切る（数値は電脳麻将と同じ）
+    // 押し引き: 安全な牌より危ない牌は、手の価値に見合うときだけ切る
+    //   危険度 never 以上は切らない。手が遠い・安いときは high 以上を切らず、安全な牌（low 未満）があれば降りる
     if (danger && danger(d.type) > minDanger) {
       const w = danger(d.type);
-      if (w >= 13.0) continue;
-      if (shanten > 2 || (shanten > 0 && value < 80)) {
-        if (w >= 8.0) continue;
-        if (minDanger < 3.2) continue;
-      } else if ((shanten > 0 && value < 750) || (shanten === 0 && value < 50)) {
-        if (w >= 8.0) continue;
-        if (minDanger < 3.2 && w >= 3.2) continue;
+      if (w >= fold.never) continue;
+      if (shanten > 2 || (shanten > 0 && value < fold.weakValue)) {
+        if (w >= fold.high) continue;
+        if (minDanger < fold.low) continue;
+      } else if ((shanten > 0 && value < fold.strongValue) || (shanten === 0 && value < fold.tenpaiWeakValue)) {
+        if (w >= fold.high) continue;
+        if (minDanger < fold.low && w >= fold.low) continue;
       }
     }
 
@@ -567,7 +582,7 @@ function evalChooseDiscard(evaluator, hand, danger, allowBacktrack) {
   }
 
   // 向聴戻し: 有効牌が今の6倍以上あり、戻したほうが高い手になりそうなら戻す
-  if (allowBacktrack) {
+  if (options.allowBacktrack) {
     const bestSoFar = max;
     for (const d of backtrack) {
       const after = evalDiscard(hand, d.type, d.red);

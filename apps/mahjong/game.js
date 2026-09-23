@@ -167,6 +167,10 @@ function buildAiContext(seat) {
     riichiTurnBySeat: state.players.map((p) => p.riichiTurn),
     dealerSeat: state.oya,
     wallRemaining: state.wall.length - state.wallIndex,
+    scores: state.players.map((p) => p.score),
+    kyoku: state.kyoku,
+    honba: state.honba,
+    kyotaku: state.kyotaku,
     doraIndicators: state.doraIndicators.slice(0, state.doraRevealed),
   };
 }
@@ -187,6 +191,12 @@ function buildWinContext(seat, winningTile, winMethod) {
     doraIndicators: state.doraIndicators.slice(0, state.doraRevealed),
     uraDoraIndicators: player.riichi ? state.uraDoraIndicators.slice(0, state.doraRevealed) : [],
   };
+}
+
+// CPUが和了するかどうか（オーラスでラス確定の和了を見逃すことがある。ai.js の decideWin）
+function cpuTakesWin(seat, winningTile, winMethod, fromSeat) {
+  const result = evaluateWin(buildWinContext(seat, winningTile, winMethod));
+  return decideWin(CONFIG.cpuLevel, buildAiContext(seat), result.basePoints, winMethod, fromSeat);
 }
 
 function canTsumo(seat) {
@@ -512,7 +522,7 @@ async function askRon(seat, tileId, fromSeat) {
     return await askHuman([`${seatLabel(fromSeat)}の`, { tile: tileId }, 'にロンできます'], [{ label: 'ロン', value: true }, { label: '見送る', value: false }]);
   }
   await sleep(thinkDelay());
-  return true; // CPUは有効なロンを常に取る
+  return cpuTakesWin(seat, tileId, 'ron', fromSeat);
 }
 
 async function askPonKan(seat, ponOpt, kanOpt, tileId, fromSeat) {
@@ -619,7 +629,7 @@ async function discardPhase(seat) {
     if (canTsumo(seat)) {
       const take = (seat === 0 && !CONFIG.autoHuman)
         ? await askHuman('嶺上ツモできます', [{ label: 'ツモ', value: true }, { label: '見送る', value: false }])
-        : true;
+        : cpuTakesWin(seat, state.lastDrawnTile.tile, 'tsumo', seat);
       if (take) return { result: 'tsumo', seat };
     }
     return await discardPhase(seat);
@@ -659,7 +669,7 @@ async function takeTurn(seat) {
   if (canTsumo(seat)) {
     const take = (seat === 0 && !CONFIG.autoHuman)
       ? await askHuman('ツモできます', [{ label: 'ツモ', value: true }, { label: '見送る', value: false }])
-      : true;
+      : cpuTakesWin(seat, state.lastDrawnTile.tile, 'tsumo', seat);
     if (take) {
       const wasIppatsu = state.players[seat].ippatsuWindow;
       if (state.players[seat].riichi) state.players[seat].ippatsuWindow = false;
@@ -686,7 +696,7 @@ async function takeTurnAfterKanCall(seat) {
   if (canTsumo(seat)) {
     const take = (seat === 0 && !CONFIG.autoHuman)
       ? await askHuman('嶺上ツモできます', [{ label: 'ツモ', value: true }, { label: '見送る', value: false }])
-      : true;
+      : cpuTakesWin(seat, state.lastDrawnTile.tile, 'tsumo', seat);
     if (take) return { result: 'tsumo', seat };
   }
   return await discardPhase(seat);
