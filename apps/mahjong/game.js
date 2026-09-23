@@ -42,6 +42,8 @@ function newPlayer(seat) {
     ippatsuWindow: false,
     furitenPermanent: false,
     furitenTemp: false,
+    tenpaiTurn: null, // 何巡目(自分の打牌の枚数)から聴牌しているか。0は配牌から。局の終わりに公開する
+    riichiTurn: null,
     score: STARTING_SCORE,
   };
 }
@@ -70,6 +72,7 @@ function initMatch() {
     gameOver: false,
     eventLog: [],
     callAnnounce: null, // 卓上に出している宣言 { seat, text, meldIndex }
+    reveal: null, // 局が終わって全員の手牌を公開している間 { winners, winTile }
   };
   const names = ['あなた', 'CPU1', 'CPU2', 'CPU3'];
   state.kifuLines.push(kifuHeader(names));
@@ -87,6 +90,9 @@ function setupHand() {
     state.players[s].ippatsuWindow = false;
     state.players[s].furitenPermanent = false;
     state.players[s].furitenTemp = false;
+    state.players[s].tenpaiTurn = null;
+    state.players[s].riichiTurn = null;
+    recordTenpaiTurn(s);
   }
   state.wall = dealt.liveWall;
   state.wallIndex = 0;
@@ -98,6 +104,7 @@ function setupHand() {
   state.lastDrawnTile = null;
   state.lastDiscardSeat = null;
   state.callAnnounce = null;
+  state.reveal = null;
 
   state.kifuLines.push(kifuInit({
     kyoku: state.kyoku, honba: state.honba, kyotaku: state.kyotaku,
@@ -206,6 +213,14 @@ function updateFuriten(seat) {
     player.furitenTemp = false;
     if (!nowFuriten) player.furitenPermanent = false;
   }
+}
+
+// 打牌のたびに呼び、聴牌に入った巡目を記録する（聴牌を崩したら記録を消し、入り直した巡目を残す）
+function recordTenpaiTurn(seat) {
+  const player = state.players[seat];
+  const tenpai = computeShanten(toCounts(player.hand), player.melds.length) === 0;
+  if (!tenpai) player.tenpaiTurn = null;
+  else if (player.tenpaiTurn === null) player.tenpaiTurn = player.discards.length;
 }
 
 function breakAllIppatsu() {
@@ -394,6 +409,7 @@ async function getDiscard(seat) {
 async function declareRiichi(seat) {
   const player = state.players[seat];
   player.riichi = true;
+  player.riichiTurn = player.discards.length + 1; // 宣言牌はこれから河に出る
   player.ippatsuWindow = true;
   player.score -= 1000;
   state.kyotaku += 1;
@@ -618,6 +634,7 @@ async function discardPhase(seat) {
   state.lastDiscardSeat = seat;
   state.kifuLines.push(kifuDiscard(seat, discardTile, tsumogiri));
   updateFuriten(seat);
+  recordTenpaiTurn(seat);
   render();
 
   const reaction = await offerReactions(seat, discardTile);
@@ -722,6 +739,7 @@ async function settleTsumo(seat) {
   }));
 
   pushLog(`${seatLabel(seat)}がツモ和了（${result.han}翻${result.fu}符 ${totalGain}点）`);
+  state.reveal = { winners: [seat], winTile: state.lastDrawnTile.tile };
   renderHandResult({ seats: [seat], result, total: totalGain, method: 'ツモ', tile: state.lastDrawnTile.tile });
   await waitForContinue('局が終了しました');
   finishKyoku(isDealer, !isDealer);
@@ -760,6 +778,7 @@ async function settleRon(outcome) {
     pushLog(`${seatLabel(seat)}がロン和了（${result.han}翻${result.fu}符 ${payments.total}点、${seatLabel(outcome.fromSeat)}から）`);
   }
   state.kyotaku = 0;
+  state.reveal = { winners: outcome.seats, winTile: outcome.tile };
 
   renderHandResult({ seats: outcome.seats, results, method: 'ロン', fromSeat: outcome.fromSeat, tile: outcome.tile });
   await waitForContinue('局が終了しました');
@@ -785,6 +804,7 @@ async function settleRyuukyoku() {
   }
   state.kifuLines.push(kifuRyuukyoku({ kyoku: state.kyoku, honba: state.honba, scoreDeltas: deltas, tenpaiSeats }));
   pushLog(`流局（聴牌: ${tenpaiSeats.map(seatLabel).join('、') || 'なし'}）`);
+  state.reveal = { winners: [], winTile: null };
   renderHandResult({ ryuukyoku: true, tenpaiSeats });
   await waitForContinue('流局しました');
   const dealerTenpai = tenpaiSeats.includes(state.oya);
@@ -1247,14 +1267,15 @@ function bannerLine(box, text, className) {
   box.appendChild(p);
 }
 
-// 和了した手を「手牌 ＋ 和了牌(少し離す) ＋ 副露」の並びで表示する
+// 和了した手を「手牌 ＋ 和了牌(少し離す) ＋ 副露」の並びで表示する。
+// winTile が null のときは和了牌なしで、手牌と副露だけを並べる（和了していない人の公開用）。
 function bannerHand(box, seat, winTile) {
   const player = state.players[seat];
   const hand = sortTilesByType(player.hand.filter((id) => id !== winTile));
   const row = document.createElement('div');
   row.className = 'mj-banner-hand';
   for (const id of hand) row.appendChild(makeTile(id));
-  row.appendChild(makeTile(winTile, { classes: ['mj-tile--drawn', 'mj-tile--last'] }));
+  if (winTile !== null) row.appendChild(makeTile(winTile, { classes: ['mj-tile--drawn', 'mj-tile--last'] }));
   for (const m of player.melds) {
     const meldEl = buildMeldElement(m, seat);
     meldEl.classList.add('mj-banner-meld');
@@ -1274,23 +1295,58 @@ function renderHandResult(info) {
   if (info.ryuukyoku) {
     bannerLine(box, '流局', 'mj-banner-title');
     bannerLine(box, `聴牌: ${info.tenpaiSeats.map(seatLabel).join('、') || 'なし'}`, 'mj-banner-detail');
-    return;
-  }
-  if (info.method === 'ツモ') {
+  } else if (info.method === 'ツモ') {
     const seat = info.seats[0];
     const r = info.result;
     bannerLine(box, `${seatLabel(seat)} ツモ`, 'mj-banner-title');
     bannerHand(box, seat, info.tile);
     bannerLine(box, yakuText(r), 'mj-banner-detail');
     bannerLine(box, `${r.han}翻${r.fu}符　${info.total}点`, 'mj-banner-points');
-    return;
+  } else {
+    for (const { seat, result, points } of info.results) {
+      bannerLine(box, `${seatLabel(seat)} ロン（${seatLabel(info.fromSeat)}から）`, 'mj-banner-title');
+      bannerHand(box, seat, info.tile);
+      bannerLine(box, yakuText(result), 'mj-banner-detail');
+      bannerLine(box, `${result.han}翻${result.fu}符　${points}点`, 'mj-banner-points');
+    }
   }
-  for (const { seat, result, points } of info.results) {
-    bannerLine(box, `${seatLabel(seat)} ロン（${seatLabel(info.fromSeat)}から）`, 'mj-banner-title');
-    bannerHand(box, seat, info.tile);
-    bannerLine(box, yakuText(result), 'mj-banner-detail');
-    bannerLine(box, `${result.han}翻${result.fu}符　${points}点`, 'mj-banner-points');
+  bannerReveal(box);
+}
+
+// 局の終わりに全員の手牌と聴牌状況を公開する（相手の手を読む練習の答え合わせ用）。
+// 和了した人の手牌はすでに上に出しているので、状況の行だけにする。
+function bannerReveal(box) {
+  const section = document.createElement('div');
+  section.className = 'mj-banner-reveal';
+  bannerLine(section, '全員の手牌', 'mj-banner-reveal-title');
+  for (let s = 0; s < 4; s++) {
+    bannerLine(section, `${seatLabel(s)}：${tenpaiStatusText(s)}`, 'mj-banner-status');
+    if (!state.reveal.winners.includes(s)) bannerHand(section, s, null);
   }
+  box.appendChild(section);
+}
+
+// 和了牌を除いた手牌（ツモ和了した人は手牌に和了牌が入っているので取り除く）
+function handBeforeWin(seat) {
+  const hand = state.players[seat].hand.slice();
+  const r = state.reveal;
+  if (r && r.winners.includes(seat) && hand.length % 3 === 2) hand.splice(hand.indexOf(r.winTile), 1);
+  return hand;
+}
+
+// 例:「聴牌（6巡目から・ダマ）待ち 3p 6p」「ノーテン（1向聴）」
+function tenpaiStatusText(seat) {
+  const p = state.players[seat];
+  const hand = handBeforeWin(seat);
+  const shanten = computeShanten(toCounts(hand), p.melds.length);
+  if (shanten > 0) return `ノーテン（${shanten}向聴）`;
+  const notes = [];
+  if (p.tenpaiTurn !== null) notes.push(p.tenpaiTurn === 0 ? '配牌から' : `${p.tenpaiTurn}巡目から`);
+  if (p.riichi) notes.push(`${p.riichiTurn}巡目にリーチ`);
+  else if (p.melds.some((m) => m.kind !== 'ankan')) notes.push('副露');
+  else notes.push('ダマ');
+  const waits = tenpaiWaitTypes(hand, p.melds.length).map(tileTypeLabel);
+  return `聴牌（${notes.join('・')}）待ち ${waits.join(' ') || 'なし'}`;
 }
 
 function renderFinalResult(kifuText) {
@@ -1303,6 +1359,59 @@ function renderFinalResult(kifuText) {
     .sort((a, b) => b.score - a.score)
     .forEach((r, i) => bannerLine(box, `${i + 1}位　${seatLabel(r.s)}　${r.score}点`, 'mj-banner-detail'));
   el('mj-kifu-text').value = kifuText;
+}
+
+// ---------------------------------------------------------------------------
+// 局面のコピー（途中経過をAIに相談する用）。文字にする処理は position.js。
+// 他家の手牌は、局が終わって公開したあと（state.reveal があるとき）だけ含める。
+// ---------------------------------------------------------------------------
+
+const SEAT_RELATIONS = ['自分', '下家', '対面', '上家'];
+
+function currentHandLog() {
+  let start = 0;
+  state.eventLog.forEach((line, i) => { if (line.startsWith('--- ')) start = i + 1; });
+  return state.eventLog.slice(start);
+}
+
+function buildPositionView() {
+  const revealed = Boolean(state.reveal);
+  const drawn = state.lastDrawnTile;
+  return {
+    roundLabel: `東${Math.min(state.kyoku, 4)}局`,
+    honba: state.honba,
+    kyotaku: state.kyotaku,
+    wallRemaining: Math.max(0, state.wall.length - state.wallIndex),
+    doraIndicators: state.doraIndicators.slice(0, state.doraRevealed),
+    revealed,
+    players: state.players.map((p, s) => {
+      const showHand = s === 0 || revealed;
+      const justDrew = Boolean(drawn && drawn.seat === s && p.hand.length % 3 === 2 && p.hand.includes(drawn.tile));
+      return {
+        name: s === 0 ? 'あなた' : `${seatLabel(s)}・${SEAT_RELATIONS[s]}`,
+        wind: tileTypeLabel(seatWindType(s)),
+        isDealer: s === state.oya,
+        score: p.score,
+        turn: p.discards.length,
+        riichi: p.riichi,
+        hand: showHand ? p.hand : null,
+        drawnTile: showHand && justDrew ? drawn.tile : null,
+        status: revealed ? tenpaiStatusText(s) : null,
+        melds: p.melds.map((m) => ({
+          label: meldKindLabel(m.kind),
+          tiles: m.tiles,
+          fromName: m.calledFrom === null ? null : seatLabel(m.calledFrom),
+        })),
+        discards: p.discards.map((d) => ({
+          tile: d.tile,
+          tsumogiri: d.tsumogiri,
+          sideways: d.sideways,
+          calledByName: d.calledBy === null ? null : seatLabel(d.calledBy),
+        })),
+      };
+    }),
+    log: currentHandLog(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1323,6 +1432,13 @@ function bootstrap() {
     el('mj-banner').hidden = true;
     el('mj-kifu-text').value = '';
     runMatch();
+  });
+  el('mj-copy-position').addEventListener('click', async (e) => {
+    if (!state) return;
+    const btn = e.currentTarget;
+    const ok = await copyTextToClipboard(buildPositionText(buildPositionView()));
+    btn.textContent = ok ? 'コピーしました' : 'コピーできませんでした';
+    setTimeout(() => { btn.textContent = '局面をコピー'; }, 2000);
   });
   el('mj-copy-kifu').addEventListener('click', async () => {
     const ok = await copyTextToClipboard(el('mj-kifu-text').value);

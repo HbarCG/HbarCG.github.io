@@ -97,8 +97,10 @@
     </div>
 
     <aside class="mj-side">
-      <!-- 向聴数・待ち牌の残り枚数・和了時の役と翻。チェックで表示/非表示を切り替える -->
+      <!-- 向聴数・待ち牌の残り枚数・和了時の役と翻。チェックで表示/非表示を切り替える。
+           「局面をコピー」は今見えている盤面を文字にしてコピーする（AIに相談する用） -->
       <div class="mj-assist-bar">
+        <button type="button" id="mj-copy-position" class="mj-copy-position">局面をコピー</button>
         <label class="mj-assist-toggle"><input type="checkbox" id="mj-assist-toggle" checked> 向聴・待ち・役を表示</label>
       </div>
       <div id="mj-assist" class="mj-assist" aria-live="polite"></div>
@@ -144,6 +146,8 @@
       CPU3人と対局する4人打ちリーチ麻雀。演出は最小限、東風戦・基本役のみの試作版です。
       CPUの強さは総合レベル(1〜5)と読みの深さ(0〜3)の2軸で調整できます。
       対局後は棋譜を天鳳風のテキスト形式でコピーできます（完全互換ではありません）。
+      局が終わると全員の手牌と「何巡目から聴牌していたか」を公開します。
+      「局面をコピー」で、今の盤面（見えている情報だけ）を文字にしてコピーできます。
     </p>
     <p class="back-link"><a href="/apps/">← Apps</a></p>
 
@@ -159,6 +163,7 @@
   <script src="/apps/mahjong/assist.js"></script>
   <script src="/apps/mahjong/ai.js"></script>
   <script src="/apps/mahjong/kifu.js"></script>
+  <script src="/apps/mahjong/position.js"></script>
   <script src="/apps/mahjong/game.js"></script>
 </body>
 </html>
