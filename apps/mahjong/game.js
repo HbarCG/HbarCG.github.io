@@ -80,6 +80,9 @@ function initMatch() {
     reveal: null, // 局が終わって全員の手牌を公開している間 { winners, winTile }
     review: null, // 直前の自分の打牌の答え合わせ（review.js の reviewDiscard の結果）
     reviewStats: { match: 0, total: 0 }, // この対局で答え合わせした打牌のうち、AIと同じだった数
+    pending: null, // あなたが今判断していること（局面コピーに書き出す）{ text, choices, discard, riichi, thenDiscard }
+    myHaipai: [], // この局のあなたの配牌（局面コピーで振り返り用に書き出す）
+    myTurns: [], // この局のあなたの行動。1巡 = ツモか鳴きから打牌まで { actions, review }
   };
   const names = ['あなた', 'CPU1', 'CPU2', 'CPU3'];
   state.kifuLines.push(kifuHeader(names));
@@ -114,6 +117,8 @@ function setupHand() {
   state.callAnnounce = null;
   state.reveal = null;
   state.review = null;
+  state.myHaipai = state.players[0].hand.slice();
+  state.myTurns = [];
 
   state.kifuLines.push(kifuInit({
     kyoku: state.kyoku, honba: state.honba, kyotaku: state.kyotaku,
@@ -321,6 +326,11 @@ function getKakanOptions(hand, melds) {
 
 function waitForHumanDiscard(riichiTiles) {
   selectedTile = null;
+  state.pending = {
+    text: riichiTiles ? 'リーチを宣言し、切る牌を選んでいます' : 'あなたの手番です。切る牌を選んでいます',
+    discard: true,
+    riichi: Boolean(riichiTiles),
+  };
   render({ discardable: riichiTiles || state.players[0].hand.slice() });
   return new Promise((resolve) => { discardResolver = resolve; });
 }
@@ -337,6 +347,7 @@ function onHandTileClick(tileId) {
     return;
   }
   selectedTile = null;
+  state.pending = null;
   const r = discardResolver;
   discardResolver = null;
   r(tileId);
@@ -345,6 +356,12 @@ function onHandTileClick(tileId) {
 // promptText: 文字列、または文字列と { tile: 牌ID } を並べた配列（牌は絵で表示する）
 // choices: { label, value, meld? }。meld があるときは鳴いた後の副露の形をボタンに絵で添える
 function askHuman(promptText, choices) {
+  const parts = Array.isArray(promptText) ? promptText : [promptText];
+  state.pending = {
+    text: parts.map((part) => (typeof part === 'string' ? part : tileText(part.tile))).join(''),
+    choices: choices.map((c) => c.label),
+    thenDiscard: state.players[0].hand.length % 3 === 2, // リーチ・槓・ツモの確認のあとは打牌も選ぶ
+  };
   return new Promise((resolve) => {
     promptResolver = resolve;
     renderPrompt(promptText, choices);
@@ -355,6 +372,7 @@ function onPromptChoice(value) {
   if (promptResolver) {
     const r = promptResolver;
     promptResolver = null;
+    state.pending = null;
     clearPrompt();
     r(value);
   }
@@ -436,6 +454,7 @@ async function declareRiichi(seat) {
   player.ippatsuWindow = true;
   player.score -= 1000;
   state.kyotaku += 1;
+  if (seat === 0) addMyAction({ kind: 'riichi' });
   pushLog(`${seatLabel(seat)}がリーチ`);
   await announceCall(seat, 'リーチ', null);
 }
@@ -488,6 +507,7 @@ async function performKan(seat, kanOption) {
     state.kifuLines.push(kifuCall(seat, 'ankan', kanOption.tiles, seat));
     breakAllIppatsu();
     revealNewDora();
+    if (seat === 0) addMyAction({ kind: 'kan', label: '暗槓', tiles: kanOption.tiles });
     pushLog(`${seatLabel(seat)}が暗槓`);
     await announceCall(seat, 'カン', player.melds.length - 1);
     return false;
@@ -517,6 +537,7 @@ async function performKan(seat, kanOption) {
   state.kifuLines.push(kifuCall(seat, 'kakan', meld.tiles, seat));
   breakAllIppatsu();
   revealNewDora();
+  if (seat === 0) addMyAction({ kind: 'kan', label: '加槓', tiles: meld.tiles });
   pushLog(`${seatLabel(seat)}が加槓`);
   await announceCall(seat, 'カン', kanOption.meldIndex);
   return false;
@@ -615,6 +636,7 @@ async function performCall(seat, call, fromSeat, tileId) {
   breakAllIppatsu();
   if (call.kind === 'minkan') revealNewDora();
   const callText = call.kind === 'pon' ? 'ポン' : call.kind === 'chi' ? 'チー' : 'カン';
+  if (seat === 0) startMyTurn({ kind: 'call', label: meldKindLabel(call.kind), tiles: meld.tiles, fromName: seatLabel(fromSeat) });
   pushLog(`${seatLabel(seat)}が${callText}（${seatLabel(fromSeat)}の${tileLabel(tileId)}）`);
   await announceCall(seat, callText, state.players[seat].melds.length - 1);
 }
@@ -632,6 +654,7 @@ async function discardPhase(seat) {
     const rtile = drawFromRinshan();
     if (rtile === null) return { result: 'ryuukyoku' };
     state.lastDrawnTile = { seat, tile: rtile };
+    if (seat === 0) addMyAction({ kind: 'rinshan', tile: rtile });
     addToHand(seat, rtile);
     state.kifuLines.push(kifuDraw(seat, rtile));
     render();
@@ -656,6 +679,7 @@ async function discardPhase(seat) {
   player.discards.push({ tile: discardTile, tsumogiri, calledBy: null, sideways, order: state.discardCount++ });
   state.lastDiscardSeat = seat;
   state.kifuLines.push(kifuDiscard(seat, discardTile, tsumogiri));
+  if (seat === 0) recordMyDiscard(discardTile, tsumogiri);
   updateFuriten(seat);
   recordTenpaiTurn(seat);
   render();
@@ -671,6 +695,7 @@ async function takeTurn(seat) {
   const tile = drawFromWall();
   if (tile === null) return { result: 'ryuukyoku' };
   state.lastDrawnTile = { seat, tile };
+  if (seat === 0) startMyTurn({ kind: 'draw', tile });
   addToHand(seat, tile);
   state.kifuLines.push(kifuDraw(seat, tile));
   render();
@@ -699,6 +724,7 @@ async function takeTurnAfterKanCall(seat) {
   const rtile = drawFromRinshan();
   if (rtile === null) return { result: 'ryuukyoku' };
   state.lastDrawnTile = { seat, tile: rtile };
+  if (seat === 0) addMyAction({ kind: 'rinshan', tile: rtile });
   addToHand(seat, rtile);
   state.kifuLines.push(kifuDraw(seat, rtile));
   render();
@@ -1340,6 +1366,7 @@ function renderReview() {
   }
 
   const r = state.review;
+  const valueComparable = Boolean(r) && reviewValueText(r.mine, r.ai) !== '—';
   if (!r) {
     assistLine(box, 'mj-review-note', '牌を切ると、お手本のAI（CPUレベル5・読みの深さ3）の打牌と比べます。');
     return;
@@ -1364,14 +1391,15 @@ function renderReview() {
     reviewRow(table, '打牌', makeTile(r.mine.tile), makeTile(r.ai.tile));
     reviewRow(table, '打牌後', assistShantenText(r.mine.shanten), assistShantenText(r.ai.shanten));
     reviewRow(table, '受け入れ', reviewUkeireText(r.mine), reviewUkeireText(r.ai));
-    reviewRow(table, '評価値', reviewValueText(r.mine, r.ai), reviewValueText(r.ai, r.mine));
+    // 評価値を比べられないとき（どちらかの手が遠い）は、行ごと出さない
+    if (valueComparable) reviewRow(table, '評価値', reviewValueText(r.mine, r.ai), reviewValueText(r.ai, r.mine));
     if (r.mine.danger !== null) reviewRow(table, '危険度', reviewDangerText(r.mine), reviewDangerText(r.ai));
     box.appendChild(table);
     assistLine(box, 'mj-review-reason', r.reason);
   }
 
   if (r.threats.length > 0) assistLine(box, 'mj-review-note', `警戒している相手: ${r.threats.join('・')}`);
-  if (!r.same) assistLine(box, 'mj-review-note', '評価値＝打点と和了しやすさをまとめた目安（大きいほど良い）');
+  if (!r.same && valueComparable) assistLine(box, 'mj-review-note', '評価値＝打点と和了しやすさをまとめた目安（大きいほど良い）');
 }
 
 function renderLog() {
@@ -1495,9 +1523,103 @@ function renderFinalResult(kifuText) {
 // ---------------------------------------------------------------------------
 // 局面のコピー（途中経過をAIに相談する用）。文字にする処理は position.js。
 // 他家の手牌は、局が終わって公開したあと（state.reveal があるとき）だけ含める。
+// 向聴数・受け入れ枚数などはAIチャットが数え間違えやすいので、アプリで計算した値を添えて渡す。
 // ---------------------------------------------------------------------------
 
 const SEAT_RELATIONS = ['自分', '下家', '対面', '上家'];
+
+// あなたのこの局の行動を記録する（局が終わったあとに振り返れるよう、局面コピーに書き出す）。
+// ツモか鳴きで新しい巡を始め、槓・リーチ・打牌はその巡に足していく。
+// action: { kind: 'draw' | 'rinshan' | 'call' | 'kan' | 'riichi' | 'discard', ... }（書き方は position.js の actionText）
+function startMyTurn(action) {
+  state.myTurns.push({ actions: [action], review: null });
+}
+
+function addMyAction(action) {
+  const turn = state.myTurns[state.myTurns.length - 1];
+  if (turn) turn.actions.push(action);
+  else startMyTurn(action);
+}
+
+// 打牌を記録する。この打牌の答え合わせをしていれば、お手本のAIの打牌も一緒に残す
+// （リーチ後のツモ切りや、答え合わせがオフのときは残さない）
+function recordMyDiscard(tile, tsumogiri) {
+  addMyAction({ kind: 'discard', tile, tsumogiri });
+  const r = state.review;
+  if (r && r.mine.tile === tile) {
+    state.myTurns[state.myTurns.length - 1].review = { same: r.same, aiTile: r.ai.tile };
+  }
+}
+
+// 局面コピーに添える「アプリの計算」。自分の手牌と見えている情報だけで計算する。
+//   打牌前（14枚相当）→ 打牌の候補ごとの 向聴数・受け入れ・危険度・待ち と、お手本のAIの打牌
+//   打牌後（13枚相当）→ 今の向聴数と受け入れ（聴牌なら待ちと残り枚数・役）
+function buildAdviceAnalysis() {
+  const player = state.players[0];
+  const ctx = buildAiContext(0);
+  const visibleCounts = visibleCountsOf(ctx);
+  const ownDiscardTypes = player.discards.map((d) => tileType(d.tile));
+  const waitsOf = (waits) => waits.map((w) => ({
+    type: w.type,
+    left: Math.max(0, 4 - visibleCounts[w.type]),
+    ron: assistWinText(w.ron),
+    tsumo: assistWinText(w.tsumo),
+  }));
+  const assistCtx = {
+    melds: player.melds,
+    seatWindType: seatWindType(0),
+    roundWindType: state.roundWindType,
+    isDealer: state.oya === 0,
+    riichi: player.riichi,
+    doraIndicators: ctx.doraIndicators,
+  };
+
+  // リーチ中は打牌を選べない（ツモ切りのみ）ので、ツモ牌を除いた13枚で見る
+  let hand = player.hand;
+  const drawn = state.lastDrawnTile;
+  if (player.riichi && hand.length % 3 === 2 && drawn && drawn.seat === 0) hand = removeOne(hand, drawn.tile);
+
+  const info = analyzeHandAssist(hand, assistCtx);
+  if (info.phase === 'wait') {
+    const waits = waitsOf(info.waits);
+    return {
+      phase: 'wait',
+      shanten: info.shanten,
+      ukeire: info.shanten > 0 ? reviewUkeire(toCounts(hand), player.melds.length, info.shanten, visibleCounts) : null,
+      waits,
+      furiten: info.shanten === 0 && (player.furitenTemp || player.furitenPermanent
+        || waits.some((w) => ownDiscardTypes.includes(w.type))),
+    };
+  }
+
+  const keyOf = (id) => `${tileType(id)}${isRedFive(id) ? 'r' : ''}`;
+  const tenpaiWaits = new Map(info.options.map((o) => [keyOf(o.discard), o.waits]));
+  const advice = adviceCandidates(hand, player.melds, ctx);
+  let candidates = advice.candidates.map((d) => {
+    const waits = tenpaiWaits.has(keyOf(d.tile)) ? waitsOf(tenpaiWaits.get(keyOf(d.tile))) : null;
+    return {
+      tile: d.tile,
+      isAi: d.isAi,
+      shanten: d.shanten,
+      ukeire: d.ukeire,
+      danger: d.danger === null ? null : reviewDangerText(d),
+      waits,
+      furiten: Boolean(waits && waits.some((w) => w.type === tileType(d.tile) || ownDiscardTypes.includes(w.type))),
+    };
+  });
+  // リーチを宣言したあとは、聴牌が崩れない牌しか切れない
+  if (state.pending && state.pending.riichi) candidates = candidates.filter((c) => c.shanten === 0);
+  return { phase: 'discard', complete: info.complete, candidates, threats: advice.threats };
+}
+
+// 直前のあなたの打牌が、お手本のAIと違ったときの比較（同じだったとき・まだ打牌していないときは null）
+function lastReviewView() {
+  const r = state.review;
+  const lastTurn = state.myTurns[state.myTurns.length - 1];
+  if (!r || r.same || !lastTurn || !lastTurn.review) return null;
+  const side = (d) => ({ tile: d.tile, shanten: d.shanten, ukeire: d.ukeire });
+  return { mine: side(r.mine), ai: side(r.ai), reason: r.reason };
+}
 
 function currentHandLog() {
   let start = 0;
@@ -1544,6 +1666,11 @@ function buildPositionView() {
       };
     }),
     log: currentHandLog(),
+    record: { haipai: state.myHaipai, turns: state.myTurns },
+    // 局が終わったら（「次へ」を待っている間は）判断することも計算も出さず、振り返りの質問にする
+    pending: revealed ? null : state.pending,
+    analysis: revealed ? null : buildAdviceAnalysis(),
+    lastReview: revealed ? null : lastReviewView(),
   };
 }
 
@@ -1581,7 +1708,7 @@ function bootstrap() {
     const btn = e.currentTarget;
     const ok = await copyTextToClipboard(buildPositionText(buildPositionView()));
     btn.textContent = ok ? 'コピーしました' : 'コピーできませんでした';
-    setTimeout(() => { btn.textContent = '局面をコピー'; }, 2000);
+    setTimeout(() => { btn.textContent = 'AIに相談用にコピー'; }, 2000);
   });
   el('mj-copy-kifu').addEventListener('click', async () => {
     const ok = await copyTextToClipboard(el('mj-kifu-text').value);

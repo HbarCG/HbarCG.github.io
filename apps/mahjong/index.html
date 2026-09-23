@@ -4,12 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>麻雀（試作版） | HbarCG</title>
-  <meta name="description" content="CPU3人と対局する基本ルールのリーチ麻雀。CPUの強さを段階調整でき、対局後に天鳳風の棋譜テキストをコピーできる試作版。">
+  <meta name="description" content="CPU3人と対局しながら練習できるリーチ麻雀の試作版。途中の局面を文字でコピーしてAIチャットに相談したり、自分の打牌をお手本のAIと答え合わせしたりできる。">
   <link rel="canonical" href="https://hbarcg.github.io/apps/mahjong/">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="HbarCG">
   <meta property="og:title" content="麻雀（試作版）">
-  <meta property="og:description" content="CPU3人と対局する基本ルールのリーチ麻雀。CPUの強さを段階調整でき、対局後に天鳳風の棋譜テキストをコピーできる試作版。">
+  <meta property="og:description" content="CPU3人と対局しながら練習できるリーチ麻雀の試作版。途中の局面を文字でコピーしてAIチャットに相談したり、自分の打牌をお手本のAIと答え合わせしたりできる。">
   <meta property="og:url" content="https://hbarcg.github.io/apps/mahjong/">
   <meta property="og:image" content="https://hbarcg.github.io/brand/icon-light.png">
   <meta property="og:locale" content="ja_JP">
@@ -98,12 +98,13 @@
 
     <aside class="mj-side">
       <!-- 向聴数・待ち牌の残り枚数・和了時の役と翻、打牌の答え合わせ。チェックで表示/非表示を切り替える。
-           「局面をコピー」は今見えている盤面を文字にしてコピーする（AIに相談する用） -->
+           「AIに相談用にコピー」は今見えている盤面・アプリの計算・質問を文字にしてコピーする -->
       <div class="mj-assist-bar">
-        <button type="button" id="mj-copy-position" class="mj-copy-position">局面をコピー</button>
+        <button type="button" id="mj-copy-position" class="mj-copy-position">AIに相談用にコピー</button>
         <label class="mj-assist-toggle"><input type="checkbox" id="mj-assist-toggle" checked> 向聴・待ち・役を表示</label>
         <label class="mj-assist-toggle"><input type="checkbox" id="mj-review-toggle" checked> 打牌の答え合わせ</label>
       </div>
+      <p class="mj-hint mj-copy-hint">コピーした文字をAIチャット（ChatGPT・Claudeなど）に貼ると、今の局面について先生役として相談できます。</p>
       <div id="mj-assist" class="mj-assist" aria-live="polite"></div>
       <!-- 自分が切った牌と、お手本のAI（CPUレベル5・読みの深さ3）が切る牌を比べる -->
       <div id="mj-review" class="mj-assist mj-review" aria-live="polite"></div>
@@ -129,7 +130,7 @@
             <option value="3">3（＋壁・ノーチャンス/ワンチャンス）</option>
           </select>
         </label>
-        <p class="mj-hint">読みの深さはレベル4以上でのみ効果があります。</p>
+        <p class="mj-hint">読みの深さはレベル4以上でのみ効果があります。設定の変更は対局中でもすぐに反映されます。</p>
         <button type="button" id="mj-new-game" class="mj-new-game">新しい対局を始める</button>
 
         <h2>ログ</h2>
@@ -146,13 +147,15 @@
   <div class="page mj-about">
     <h2>この試作版について</h2>
     <p class="lede">
-      CPU3人と対局する4人打ちリーチ麻雀。演出は最小限、東風戦・基本役のみの試作版です。
+      CPU3人と対局しながら、AIに相談して上達するための4人打ちリーチ麻雀。演出は最小限、東風戦・基本役のみの試作版です。
       CPUの強さは総合レベル(1〜5)と読みの深さ(0〜3)の2軸で調整できます。
       レベル3以上のCPUの考え方（牌効率・打点・押し引き）は、
       <a href="https://github.com/kobalab/majiang-ai">電脳麻将の思考ルーチン</a>（MIT License）を移植したものです。
       対局後は棋譜を天鳳風のテキスト形式でコピーできます（完全互換ではありません）。
       局が終わると全員の手牌と「何巡目から聴牌していたか」を公開します。
-      「局面をコピー」で、今の盤面（見えている情報だけ）を文字にしてコピーできます。
+      「AIに相談用にコピー」で、今の盤面（見えている情報だけ）を文字にしてコピーできます。
+      アプリで計算した向聴数・受け入れ枚数・待ち、この局の自分のツモと打牌の記録、状況に合わせた質問も添えるので、
+      ChatGPTやClaudeなどのAIチャットにそのまま貼れば、先生役として解説してもらえます。
       「打牌の答え合わせ」をオンにすると、自分が切った牌を一番強い設定のCPUの判断と比べ、
       受け入れ枚数・評価値・危険度の違いを表示します。
     </p>

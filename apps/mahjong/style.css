@@ -689,6 +689,36 @@ button.mj-tile:not(:disabled):focus-visible {
   }
 }
 
+/* 1回目のタップで選んだ牌の上に「もう一度タップで捨てる」ことを小さく出す（操作の説明を別に置かないため）。
+   画面の端で文字が切れないよう、左端の数枚は左揃え、右端（ツモ牌・最後の牌）は右揃えにする */
+button.mj-tile.mj-tile--selected::after {
+  content: 'もう一度タップで打牌';
+  position: absolute;
+  bottom: calc(100% + 0.35rem);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+button.mj-tile.mj-tile--selected:nth-child(-n+3)::after {
+  left: 0;
+  transform: none;
+}
+
+button.mj-tile.mj-tile--selected:last-child::after,
+button.mj-tile.mj-tile--selected.mj-tile--drawn::after {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
 /* リーチ時など、打牌できない牌を暗くする */
 .mj-tile--locked {
   filter: brightness(0.55);
@@ -791,6 +821,11 @@ button.mj-tile:not(:disabled):focus-visible {
 .mj-copy-position {
   font-size: 0.8rem;
   padding: 0.2rem 0.6rem;
+}
+
+/* .mj-hint（下のほうで定義）の余白を詰める */
+.mj-hint.mj-copy-hint {
+  margin: 0.2rem 0 0;
 }
 
 .mj-assist-toggle {

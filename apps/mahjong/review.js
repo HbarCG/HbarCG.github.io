@@ -145,3 +145,29 @@ function reviewDiscard(hand, melds, discardTile, ctx) {
   const threats = danger ? threatsFor(ctx, REVIEW_LEVEL).map((t) => reviewThreatText(t, ctx)) : [];
   return { same, mine, ai, reason: same ? null : reviewReason(mine, ai), threats };
 }
+
+// 相談用のコピー（position.js）に添える、打牌の候補ごとの数字。答え合わせと同じ計算を、手牌の全種類について行う。
+// 同じ牌種は1回だけ調べる（赤5と普通の5はドラの数が変わるので別扱い）。
+// 並び順: お手本のAIの打牌を先頭に、残りは 打牌後の向聴数の小さい順 → 受け入れの多い順。
+// 戻り値: { aiTile, candidates: reviewDescribe の結果に isAi を足したものの配列, threats }
+function adviceCandidates(hand, melds, ctx) {
+  const aiTile = chooseDiscard(hand, melds, REVIEW_LEVEL, REVIEW_DEPTH, ctx);
+  const evaluator = evaluatorFor(ctx, REVIEW_LEVEL);
+  const danger = dangerFunction(ctx, REVIEW_LEVEL, REVIEW_DEPTH);
+  const evalHand = evalHandFromTiles(hand, melds);
+  const visibleCounts = visibleCountsOf(ctx);
+  const keyOf = (id) => `${tileType(id)}${isRedFive(id) ? 'r' : ''}`;
+
+  const seen = new Set();
+  const candidates = [];
+  for (const id of sortTilesByType(hand)) {
+    if (seen.has(keyOf(id))) continue;
+    seen.add(keyOf(id));
+    const d = reviewDescribe(id, evaluator, evalHand, danger, visibleCounts, ctx);
+    d.isAi = keyOf(id) === keyOf(aiTile);
+    candidates.push(d);
+  }
+  candidates.sort((a, b) => (b.isAi - a.isAi) || (a.shanten - b.shanten) || (b.ukeire.total - a.ukeire.total));
+  const threats = danger ? threatsFor(ctx, REVIEW_LEVEL).map((t) => reviewThreatText(t, ctx)) : [];
+  return { aiTile, candidates, threats };
+}
