@@ -100,11 +100,16 @@
       <!-- 向聴数・待ち牌の残り枚数・和了時の役と翻、打牌の答え合わせ。チェックで表示/非表示を切り替える。
            「AIに相談用にコピー」は今見えている盤面・アプリの計算・質問を文字にしてコピーする -->
       <div class="mj-assist-bar">
-        <button type="button" id="mj-copy-position" class="mj-copy-position">AIに相談用にコピー</button>
+        <!-- 前提の説明（ルール・表記・各欄の読み方）は、AIチャットの同じ会話で2回目以降は省いて短くできる。
+             新しい会話を始めるときに付け忘れないよう、状態は覚えずに毎回「付ける」から始める -->
+        <span class="mj-copy-row">
+          <button type="button" id="mj-copy-position" class="mj-copy-position">AIに相談用にコピー</button>
+          <label class="mj-assist-toggle"><input type="checkbox" id="mj-copy-premise" checked> 前提の説明を付ける</label>
+        </span>
         <label class="mj-assist-toggle"><input type="checkbox" id="mj-assist-toggle" checked> 向聴・待ち・役を表示</label>
         <label class="mj-assist-toggle"><input type="checkbox" id="mj-review-toggle" checked> 打牌の答え合わせ</label>
       </div>
-      <p class="mj-hint mj-copy-hint">コピーした文字をAIチャット（ChatGPT・Claudeなど）に貼ると、今の局面について先生役として相談できます。</p>
+      <p class="mj-hint mj-copy-hint">コピーした文字をAIチャット（ChatGPT・Claudeなど）に貼ると、今の局面について先生役として相談できます。同じ会話で2回目以降は「前提の説明を付ける」を外すと短くなります。</p>
       <div id="mj-assist" class="mj-assist" aria-live="polite"></div>
       <!-- 自分が切った牌と、お手本のAI（CPUレベル5・読みの深さ3）が切る牌を比べる -->
       <div id="mj-review" class="mj-assist mj-review" aria-live="polite"></div>
@@ -156,6 +161,7 @@
       「AIに相談用にコピー」で、今の盤面（見えている情報だけ）を文字にしてコピーできます。
       アプリで計算した向聴数・受け入れ枚数・待ち、この局の自分のツモと打牌の記録、状況に合わせた質問も添えるので、
       ChatGPTやClaudeなどのAIチャットにそのまま貼れば、先生役として解説してもらえます。
+      同じ会話で2回目以降は、ルールや表記などの前提の説明を省いた短い文にもできます。
       「打牌の答え合わせ」をオンにすると、自分が切った牌を一番強い設定のCPUの判断と比べ、
       受け入れ枚数・評価値・危険度の違いを表示します。
     </p>

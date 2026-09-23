@@ -9,6 +9,7 @@
  * 見えていない情報（他家の手牌・山・裏ドラ）は、game.js が局の終わりまで渡さない。
  *
  * 書き出す内容（上から順に）:
+ *   前提（ルール・表記・各欄の読み方。2回目以降は省いて1行にできる） /
  *   盤面（全員の点数・河・副露、自分の手牌） / この局の経過 / あなたのこの局の記録（配牌とツモ・打牌の流れ） /
  *   アプリの計算（向聴数・受け入れ・待ち・危険度。AIチャットは数え間違えやすいので、計算した値を渡す） /
  *   直前の打牌とお手本AIの比較 / いま判断すること / 質問（状況に合わせて1つ選ぶ）
@@ -63,16 +64,35 @@ function meldText(m) {
   return `${m.label} ${tilesText(m.tiles)}${from}`;
 }
 
+// AIチャットに最初に伝える前提（ルール・表記・各欄の読み方）。
+// 同じ会話で2回目以降に貼るときは、繰り返さずに短い1行にする（buildPositionText の withPremise）
+function premiseLines() {
+  return [
+    '麻雀の練習中です。これから局面を送るので、先生として教えてください。毎回、最後の「質問」に答えてください。',
+    '',
+    '【前提】',
+    '- ルール: 4人打ち・東風戦・赤5あり（萬子・筒子・索子に1枚ずつ）',
+    '- 牌の表記: m=萬子 p=筒子 s=索子、0=赤5。同じ色の数牌は数字を続けて書く（例: 123m）。字牌は漢字（東南西北白發中）',
+    "- 河: ' はツモ切り、[リーチ] はリーチ宣言牌、[〇〇が鳴き] は鳴かれた牌",
+    '- 巡目: その人の手番が何回来たか。他家の手牌は局が終わるまで伏せています',
+    '- 「あなたのこの局の記録」: 1巡＝ツモか鳴きから打牌まで。（）はお手本AIの打牌',
+    '- 「アプリの計算」: 見えている情報だけから機械的に計算した値です。向聴数・受け入れ枚数・残り枚数はこの値を正としてください',
+    '- 打牌の候補: 先頭がお手本AIの選択、残りは打牌後の向聴数が小さい順→受け入れ枚数が多い順',
+    '- 残り枚数: あなたから見えていない枚数（他家の手の中にある分も含む）',
+    '- お手本AI: このアプリの一番強い設定のCPU。正解とは限らないので、違うと思えば遠慮なく指摘してください',
+  ];
+}
+
 // view: game.js の buildPositionView() が作る、見えている情報だけをまとめたもの
-function buildPositionText(view) {
-  const lines = [];
-  lines.push('麻雀の練習中です。次の局面について、先生として教えてください（最後の「質問」に答えてください）。');
+// withPremise: true なら前提の説明を付ける（新しい会話の最初の1回用）。false なら前提を省いた短い版
+function buildPositionText(view, withPremise = true) {
+  const lines = withPremise
+    ? premiseLines()
+    : ['続きの局面です（前提は最初に伝えたとおりです）。最後の「質問」に答えてください。'];
   lines.push('');
-  lines.push('麻雀の局面（4人打ち・東風戦・赤5あり）');
-  lines.push(`${view.roundLabel} ${view.honba}本場 供託${view.kyotaku} ／ 山の残り${view.wallRemaining}枚`);
+  lines.push(`■ 局面: ${view.roundLabel} ${view.honba}本場 供託${view.kyotaku} ／ 山の残り${view.wallRemaining}枚`);
   const dora = view.doraIndicators.map((id) => tileTypeLabel(doraTypeFromIndicator(id)));
   lines.push(`ドラ表示牌: ${view.doraIndicators.map(tileText).join(' ')}（ドラ: ${dora.join(' ')}）`);
-  lines.push("表記: m=萬子 p=筒子 s=索子、0=赤5。河の ' はツモ切り、[リーチ] はリーチ宣言牌、[〇〇が鳴き] は鳴かれた牌");
   if (view.revealed) lines.push('※この局は終了しています。全員の手牌を公開しています。');
 
   for (const p of view.players) {
@@ -133,7 +153,7 @@ function actionText(a) {
 }
 
 function recordLines(record) {
-  const lines = ['■ あなたのこの局の記録（1巡＝ツモか鳴きから打牌まで。（）はお手本AIの打牌）'];
+  const lines = ['■ あなたのこの局の記録'];
   lines.push(`配牌: ${tilesText(record.haipai)}`);
   record.turns.forEach((turn, i) => {
     let text = `${i + 1}巡目: ${turn.actions.map(actionText).join(' → ')}`;
@@ -171,8 +191,7 @@ function waitLines(waits, furiten, indent) {
 }
 
 function analysisLines(a) {
-  const lines = ['■ アプリの計算（見えている情報だけから機械的に計算した値です。向聴数・受け入れ枚数・残り枚数はこの値を正としてください）'];
-  lines.push('※残り枚数＝あなたから見えていない枚数（他家の手の中にある分も含む）。お手本AI＝このアプリの一番強い設定のCPU');
+  const lines = ['■ アプリの計算'];
   if (a.phase === 'wait') {
     if (a.shanten > 0) {
       lines.push(`あなたの手: ${shantenText(a.shanten)}・${ukeireText(a.ukeire)}`);
@@ -184,7 +203,7 @@ function analysisLines(a) {
   }
 
   if (a.complete) lines.push('あなたの手: 和了形です');
-  lines.push('打牌の候補（打牌後の向聴数と受け入れ。先頭がお手本AIの選択、残りは向聴数→受け入れ枚数の順）:');
+  lines.push('打牌の候補（打牌後の向聴数と受け入れ）:');
   for (const c of a.candidates) {
     const parts = [shantenText(c.shanten)];
     const details = [];

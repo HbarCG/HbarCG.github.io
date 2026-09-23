@@ -1706,7 +1706,7 @@ function bootstrap() {
   el('mj-copy-position').addEventListener('click', async (e) => {
     if (!state) return;
     const btn = e.currentTarget;
-    const ok = await copyTextToClipboard(buildPositionText(buildPositionView()));
+    const ok = await copyTextToClipboard(buildPositionText(buildPositionView(), el('mj-copy-premise').checked));
     btn.textContent = ok ? 'コピーしました' : 'コピーできませんでした';
     setTimeout(() => { btn.textContent = 'AIに相談用にコピー'; }, 2000);
   });

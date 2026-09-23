@@ -823,6 +823,14 @@ button.mj-tile.mj-tile--selected.mj-tile--drawn::after {
   padding: 0.2rem 0.6rem;
 }
 
+/* コピーボタンと「前提の説明を付ける」を離れないよう1組にする */
+.mj-copy-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.6rem;
+}
+
 /* .mj-hint（下のほうで定義）の余白を詰める */
 .mj-hint.mj-copy-hint {
   margin: 0.2rem 0 0;
