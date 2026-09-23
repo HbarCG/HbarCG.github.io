@@ -150,6 +150,7 @@ function buildAiContext(seat) {
     selfSeat: seat,
     selfHand: state.players[seat].hand,
     selfRiichi: state.players[seat].riichi,
+    isDealer: seat === state.oya,
     seatWindType: seatWindType(seat),
     roundWindType: state.roundWindType,
     discardsBySeat: state.players.map((p) => p.discards),
@@ -378,13 +379,14 @@ async function getDiscard(seat) {
   // CPU / 自動人間
   await sleep(thinkDelay());
   const ctx = buildAiContext(seat);
-  if (eligible) {
-    wantsRiichi = decideRiichi(CONFIG.cpuLevel);
-  }
   const tile = chooseDiscard(player.hand, player.melds, CONFIG.cpuLevel, CONFIG.readingDepth, ctx);
-  if (wantsRiichi) {
-    const resultingShanten = computeShanten(toCounts(player.hand.filter((x) => x !== tile)), player.melds.length);
-    if (resultingShanten === 0) await declareRiichi(seat);
+  if (eligible) {
+    // 打牌後も聴牌しているときだけ、リーチするかを判断する
+    const rest = player.hand.filter((x) => x !== tile);
+    if (computeShanten(toCounts(rest), player.melds.length) === 0
+        && decideRiichi(CONFIG.cpuLevel, rest, player.melds, ctx)) {
+      await declareRiichi(seat);
+    }
   }
   return tile;
 }

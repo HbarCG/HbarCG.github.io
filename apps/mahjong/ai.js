@@ -4,6 +4,7 @@
  * CPU思考ルーチン。ルールベース（学習なし）。
  * レベル(1-5)と読みの深さ(0-3)の2軸で調整する。レベル1-3は読みの深さを参照しない
  * （危険牌の読みはレベル4以降でのみ発動する、という意図的な単純化）。
+ * リーチ判断は assist.js の evaluateWaits / countVisibleTypes を使う（役・打点・待ちの残り枚数）。
  *
  * このファイルの関数は game.js から渡される「読み取り専用の盤面情報」(gameView) を
  * 参照するのみで、状態を直接書き換えない。
@@ -120,18 +121,35 @@ function kabeDiscount(type, ctx, opponentSeat) {
   return 0;
 }
 
-function threateningSeats(ctx, selfSeat) {
-  const seats = [];
+// 中盤以降（捨て牌9枚目以降）に手出しで中張牌(3〜7)を切っていれば、ダマで聴牌している気配とみる。
+function looksDamaTenpai(discards) {
+  return discards.slice(8).some((d) => {
+    if (d.tsumogiri) return false;
+    const type = tileType(d.tile);
+    if (suitOfType(type) === 'z') return false;
+    const rank = rankOfType(type);
+    return rank >= 3 && rank <= 7;
+  });
+}
+
+// 警戒すべき他家。kind は 'riichi'（リーチ者）か 'suspect'（リーチしていないが聴牌していそうな人）。
+// suspect: 副露が2つ以上ある（手牌が短く聴牌・一向聴の可能性が高い）か、ダマ聴牌の気配がある。
+function threatsBySeat(ctx, selfSeat) {
+  const threats = [];
   for (let s = 0; s < 4; s++) {
     if (s === selfSeat) continue;
-    if (ctx.riichiBySeat[s]) seats.push(s);
+    if (ctx.riichiBySeat[s]) {
+      threats.push({ seat: s, kind: 'riichi' });
+    } else if ((ctx.meldsBySeat[s] || []).length >= 2 || looksDamaTenpai(ctx.discardsBySeat[s] || [])) {
+      threats.push({ seat: s, kind: 'suspect' });
+    }
   }
-  return seats;
+  return threats;
 }
 
 function dangerScoreForTile(tileId, selfSeat, ctx, readingDepth) {
   const type = tileType(tileId);
-  const threats = threateningSeats(ctx, selfSeat);
+  const threats = threatsBySeat(ctx, selfSeat).map((t) => t.seat);
   if (threats.length === 0) return 0;
   let worst = -Infinity;
   for (const opp of threats) {
@@ -154,6 +172,22 @@ function dangerScoreForTile(tileId, selfSeat, ctx, readingDepth) {
   return worst;
 }
 
+// 押し引きの判断（レベル4-5）。true なら降りる。
+//   リーチ者がいる   : 聴牌で手の価値が基準以上なら押す。レベル5は一向聴でも高い手なら押す。
+//                      それ以外（手が遠い・安い）は降りる。
+//   聴牌気配の人だけ : 二向聴以上なら降りる。聴牌・一向聴なら押す。
+const FOLD_THRESHOLD_TENPAI = { 4: 4, 5: 6 };
+const PUSH_THRESHOLD_ONE_SHANTEN = 8; // 役牌の刻子がある、など高い手の目安
+
+function shouldFold(level, bestShanten, ownValue, threats) {
+  if (threats.length === 0) return false;
+  const facingRiichi = threats.some((t) => t.kind === 'riichi');
+  if (!facingRiichi) return bestShanten >= 2;
+  if (bestShanten === 0) return ownValue < FOLD_THRESHOLD_TENPAI[level];
+  if (bestShanten === 1 && level === 5) return ownValue < PUSH_THRESHOLD_ONE_SHANTEN;
+  return true;
+}
+
 // 打牌を1枚選ぶ。
 function chooseDiscard(hand, melds, level, readingDepth, ctx) {
   const meldCount = melds.length;
@@ -171,17 +205,21 @@ function chooseDiscard(hand, melds, level, readingDepth, ctx) {
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
-  // レベル4-5: 自分が聴牌(bestShanten===0)で、誰かがリーチしていて、自分の手が安いなら降りる
-  if (level >= 4 && bestShanten === 0 && threateningSeats(ctx, ctx.selfSeat).length > 0) {
+  // レベル4-5: 押し引きを判断し、降りるなら一番安全な牌を切る
+  // （安全度が同じなら、向聴数が悪くならない牌を優先する）
+  if (level >= 4 && !ctx.selfRiichi) {
+    const threats = threatsBySeat(ctx, ctx.selfSeat);
     const ownValue = estimateHandValue(hand, melds, ctx.seatWindType, ctx.roundWindType);
-    const scoreThreshold = level === 5 ? 6 : 4;
-    const shouldFold = ownValue < scoreThreshold && !ctx.selfRiichi;
-    if (shouldFold) {
+    if (shouldFold(level, bestShanten, ownValue, threats)) {
       let safest = hand[0];
       let safestScore = Infinity;
+      let safestShanten = Infinity;
       for (const id of hand) {
         const d = dangerScoreForTile(id, ctx.selfSeat, ctx, readingDepth);
-        if (d < safestScore) { safestScore = d; safest = id; }
+        const s = shantenByTile.get(id);
+        if (d < safestScore || (d === safestScore && s < safestShanten)) {
+          safestScore = d; safestShanten = s; safest = id;
+        }
       }
       return safest;
     }
@@ -197,9 +235,33 @@ function chooseDiscard(hand, melds, level, readingDepth, ctx) {
   return best;
 }
 
-// リーチするかどうか。
-function decideRiichi(level) {
-  return level >= 1; // v1は全レベルで聴牌したら即リーチ（レベル4-5の降り判定はchooseDiscard側で処理）
+// リーチするかどうか。handAfter は打牌後の手牌（聴牌している13枚相当）。
+//   レベル1-2 : 聴牌したら即リーチ
+//   レベル3以上: どの待ちでも役があり、ダマで満貫以上が確定しているならダマ
+//   レベル4以上: 待ち牌が場に残っていない（空聴）ならリーチしない
+//   レベル5    : 他家のリーチを受けていて、役があり待ちが残り2枚以下ならダマ
+//                （リーチすると降りられなくなるため）
+function decideRiichi(level, handAfter, melds, ctx) {
+  if (level <= 2) return true;
+
+  const waits = evaluateWaits(handAfter, {
+    melds,
+    seatWindType: ctx.seatWindType,
+    roundWindType: ctx.roundWindType,
+    isDealer: ctx.isDealer,
+    riichi: false,
+    doraIndicators: ctx.doraIndicators,
+  });
+  const hasYakuOnAllWaits = waits.length > 0 && waits.every((w) => w.ron);
+  // 打牌前の手牌で数えると、これから切る牌も「見えている」側に入る
+  const visible = countVisibleTypes(ctx.selfHand, ctx.discardsBySeat, ctx.meldsBySeat, ctx.doraIndicators);
+  const remaining = waits.reduce((sum, w) => sum + Math.max(0, 4 - visible[w.type]), 0);
+
+  if (hasYakuOnAllWaits && Math.min(...waits.map((w) => w.ron.basePoints)) >= 2000) return false;
+  if (level >= 4 && remaining === 0) return false;
+  if (level === 5 && hasYakuOnAllWaits && remaining <= 2
+      && ctx.riichiBySeat.some((r, s) => r && s !== ctx.selfSeat)) return false;
+  return true;
 }
 
 // 鳴き（ポン/チー）をするかどうか。optionsは game.js が合法性を検証済みの候補配列。
@@ -216,7 +278,7 @@ function decideCall(options, hand, melds, level, ctx) {
   for (const opt of options) {
     const remainingHand = hand.filter((id) => !opt.tiles.includes(id));
     const newShanten = computeShanten(toCounts(remainingHand), meldCount + 1);
-    if (newShanten > currentShanten) continue; // シャンテンが進まない鳴きはしない
+    if (newShanten >= currentShanten) continue; // シャンテンが進まない鳴きはしない
 
     const wouldBreakTanyao = opt.resultingMeldTiles.some((id) => isYaochuuType(tileType(id)));
     const isYakuhaiMeld = opt.kind === 'pon' && isYakuhaiType(tileType(opt.resultingMeldTiles[0]), ctx.seatWindType, ctx.roundWindType);
