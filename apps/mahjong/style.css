@@ -650,13 +650,22 @@ button.mj-tile:not(:disabled) {
   transition: transform 0.08s;
 }
 
-button.mj-tile:not(:disabled):hover,
+/* 1回目のタップで選んだ牌。浮かせて枠を付け、もう一度タップすると捨てる */
+button.mj-tile.mj-tile--selected,
 button.mj-tile:not(:disabled):focus-visible {
   transform: translateY(calc(var(--tw) * -0.18));
   outline: none;
   box-shadow:
     0 calc(var(--tw) * 0.07) 0 var(--mj-tile-edge),
     0 0 0 2px var(--mj-highlight);
+}
+
+/* マウスのある端末だけ、カーソルを乗せた牌を少し浮かせる
+   （スマホではタップ後も hover 状態が残り、選択中の牌と紛らわしくなるため） */
+@media (hover: hover) {
+  button.mj-tile:not(:disabled):not(.mj-tile--selected):hover {
+    transform: translateY(calc(var(--tw) * -0.08));
+  }
 }
 
 /* リーチ時など、打牌できない牌を暗くする */

@@ -20,6 +20,7 @@ const CONFIG = {
 
 let state = null;
 let discardResolver = null;
+let selectedTile = null; // 打牌前に1回タップして選んでいる手牌
 let promptResolver = null;
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -281,16 +282,26 @@ function getKakanOptions(hand, melds) {
 // ---------------------------------------------------------------------------
 
 function waitForHumanDiscard(riichiTiles) {
+  selectedTile = null;
   render({ discardable: riichiTiles || state.players[0].hand.slice() });
   return new Promise((resolve) => { discardResolver = resolve; });
 }
 
+// 誤タップ防止のため、1回目のタップでは牌を選んで浮かせるだけにし、
+// 選んでいる牌をもう一度タップしたときに捨てる。
 function onHandTileClick(tileId) {
-  if (discardResolver) {
-    const r = discardResolver;
-    discardResolver = null;
-    r(tileId);
+  if (!discardResolver) return;
+  if (selectedTile !== tileId) {
+    selectedTile = tileId;
+    for (const btn of el('mj-human-hand').children) {
+      btn.classList.toggle('mj-tile--selected', Number(btn.dataset.tile) === tileId);
+    }
+    return;
   }
+  selectedTile = null;
+  const r = discardResolver;
+  discardResolver = null;
+  r(tileId);
 }
 
 // promptText: 文字列、または文字列と { tile: 牌ID } を並べた配列（牌は絵で表示する）
@@ -893,7 +904,9 @@ function renderHandRow(containerId, tiles, opts) {
     if (id === drawnId) classes.push('mj-tile--drawn');
     const enabled = Boolean(discardable && discardable.includes(id));
     if (discardable && !enabled) classes.push('mj-tile--locked');
+    if (enabled && id === selectedTile) classes.push('mj-tile--selected');
     const btn = makeTile(id, { tag: 'button', classes });
+    btn.dataset.tile = String(id);
     btn.disabled = !enabled;
     if (enabled) btn.addEventListener('click', () => onHandTileClick(id));
     box.appendChild(btn);
