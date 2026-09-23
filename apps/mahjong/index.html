@@ -111,10 +111,10 @@
           総合レベル
           <select id="mj-level">
             <option value="1">1（最弱・最短手順のみ）</option>
-            <option value="2">2</option>
-            <option value="3" selected>3（標準）</option>
-            <option value="4">4（危険牌を読んで降りる）</option>
-            <option value="5">5（最強・押し引き判断）</option>
+            <option value="2">2（役を意識する）</option>
+            <option value="3" selected>3（標準・牌効率と打点で打つ）</option>
+            <option value="4">4（＋押し引き・危険牌を読んで降りる）</option>
+            <option value="5">5（最強・＋向聴戻し・副露者も警戒）</option>
           </select>
         </label>
         <label class="mj-config-row">
@@ -122,8 +122,8 @@
           <select id="mj-depth">
             <option value="0">0（フラット）</option>
             <option value="1" selected>1（現物のみ）</option>
-            <option value="2">2（＋スジ・ワンチャンス）</option>
-            <option value="3">3（＋壁読み）</option>
+            <option value="2">2（＋スジ・見えている枚数）</option>
+            <option value="3">3（＋壁・ノーチャンス/ワンチャンス）</option>
           </select>
         </label>
         <p class="mj-hint">読みの深さはレベル4以上でのみ効果があります。</p>
@@ -145,6 +145,8 @@
     <p class="lede">
       CPU3人と対局する4人打ちリーチ麻雀。演出は最小限、東風戦・基本役のみの試作版です。
       CPUの強さは総合レベル(1〜5)と読みの深さ(0〜3)の2軸で調整できます。
+      レベル3以上のCPUの考え方（牌効率・打点・押し引き）は、
+      <a href="https://github.com/kobalab/majiang-ai">電脳麻将の思考ルーチン</a>（MIT License）を移植したものです。
       対局後は棋譜を天鳳風のテキスト形式でコピーできます（完全互換ではありません）。
       局が終わると全員の手牌と「何巡目から聴牌していたか」を公開します。
       「局面をコピー」で、今の盤面（見えている情報だけ）を文字にしてコピーできます。
@@ -161,6 +163,7 @@
   <script src="/apps/mahjong/shanten.js"></script>
   <script src="/apps/mahjong/yaku.js"></script>
   <script src="/apps/mahjong/assist.js"></script>
+  <script src="/apps/mahjong/eval.js"></script>
   <script src="/apps/mahjong/ai.js"></script>
   <script src="/apps/mahjong/kifu.js"></script>
   <script src="/apps/mahjong/position.js"></script>

@@ -103,6 +103,7 @@ function setupHand() {
   state.uraDoraIndicators = dealt.uraDoraIndicators;
   state.lastDrawnTile = null;
   state.lastDiscardSeat = null;
+  state.discardCount = 0;
   state.callAnnounce = null;
   state.reveal = null;
 
@@ -163,6 +164,9 @@ function buildAiContext(seat) {
     discardsBySeat: state.players.map((p) => p.discards),
     meldsBySeat: state.players.map((p) => p.melds),
     riichiBySeat: state.players.map((p) => p.riichi),
+    riichiTurnBySeat: state.players.map((p) => p.riichiTurn),
+    dealerSeat: state.oya,
+    wallRemaining: state.wall.length - state.wallIndex,
     doraIndicators: state.doraIndicators.slice(0, state.doraRevealed),
   };
 }
@@ -454,8 +458,7 @@ async function maybeDeclareKan(seat) {
   }
 
   await sleep(thinkDelay());
-  if (CONFIG.cpuLevel === 1) return null;
-  return options[0];
+  return decideKan(options, player.hand, player.melds, CONFIG.cpuLevel, buildAiContext(seat));
 }
 
 async function performKan(seat, kanOption) {
@@ -630,7 +633,8 @@ async function discardPhase(seat) {
   // リーチ宣言牌は河に横向きで置く。宣言牌が鳴かれた場合は次の捨て牌を横向きにする(実卓の慣習)。
   const sideways = (!wasRiichi && player.riichi) || player.riichiSidewaysPending;
   player.riichiSidewaysPending = false;
-  player.discards.push({ tile: discardTile, tsumogiri, calledBy: null, sideways });
+  // order: 局の中で何枚目の打牌か（リーチ後に通った牌をCPUが読むため）
+  player.discards.push({ tile: discardTile, tsumogiri, calledBy: null, sideways, order: state.discardCount++ });
   state.lastDiscardSeat = seat;
   state.kifuLines.push(kifuDiscard(seat, discardTile, tsumogiri));
   updateFuriten(seat);

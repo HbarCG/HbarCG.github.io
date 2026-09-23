@@ -2,23 +2,18 @@
 
 /*
  * CPU思考ルーチン。ルールベース（学習なし）。
- * レベル(1-5)と読みの深さ(0-3)の2軸で調整する。レベル1-3は読みの深さを参照しない
- * （危険牌の読みはレベル4以降でのみ発動する、という意図的な単純化）。
- * リーチ判断は assist.js の evaluateWaits / countVisibleTypes を使う（役・打点・待ちの残り枚数）。
+ * レベル(1-5)と読みの深さ(0-3)の2軸で調整する。読みの深さはレベル4以上でのみ使う。
  *
- * このファイルの関数は game.js から渡される「読み取り専用の盤面情報」(gameView) を
- * 参照するのみで、状態を直接書き換えない。
+ *   レベル1 : 向聴数が一番進む牌からランダムに切る。鳴かない
+ *   レベル2 : 向聴数が同じ中で、役牌・タンヤオ・染め手の芽を残す（簡易採点）
+ *   レベル3 : 電脳麻将の評価値で打牌・鳴き・槓・リーチを決める（eval.js）。降りない
+ *   レベル4 : ＋押し引き。リーチ者への危険度と手の評価値を比べて、見合わなければ降りる
+ *   レベル5 : ＋向聴戻し（高い手・広い手に組み直す）、副露3つの人も警戒する、
+ *             リーチを受けているときは待ちの少ない手をダマにして降りられるようにする
+ *
+ * このファイルの関数は game.js から渡される「読み取り専用の盤面情報」(ctx) を
+ * 参照するのみで、状態を直接書き換えない（計算結果の置き場として ctx.evaluator だけ使う）。
  */
-
-const DANGER = {
-  genbutsu: 0,
-  suji: 1,
-  noChance: 1,
-  oneChance: 2,
-  kabeDiscount: 1,
-  honorOrTerminalBase: 2,
-  simpleBase: 4,
-};
 
 function isYakuhaiType(type, seatWindType, roundWindType) {
   return isDragonType(type) || type === seatWindType || type === roundWindType;
@@ -30,7 +25,7 @@ function handValueTypes(hand, melds) {
   return types;
 }
 
-// 手牌の「価値」を簡易採点する（役牌温存・タンヤオ整合・ドラ枚数の重み付け）。
+// レベル2向け: 手牌の「価値」を簡易採点する（役牌温存・タンヤオ整合・染め手の芽）。
 function estimateHandValue(hand, melds, seatWindType, roundWindType) {
   const counts = toCounts(hand);
   let value = 0;
@@ -52,144 +47,150 @@ function estimateHandValue(hand, melds, seatWindType, roundWindType) {
   return value;
 }
 
-// レベル2-3向け: 打牌候補ごとに「残した場合の手の価値」を採点し、最大のものを残す
-// （＝価値の低い牌から切る）。
-function scoreKeepValue(candidateDiscard, hand, melds, seatWindType, roundWindType) {
-  const remaining = hand.filter((id) => id !== candidateDiscard);
-  return estimateHandValue(remaining, melds, seatWindType, roundWindType);
-}
+// ---------------------------------------------------------------------------
+// 盤面から評価値の計算を準備する
+// ---------------------------------------------------------------------------
 
-function isGenbutsu(type, opponentSeat, ctx) {
-  const discards = ctx.discardsBySeat[opponentSeat] || [];
-  if (discards.some((d) => tileType(d.tile) === type)) return true;
-  // 他家がロンできず見逃した牌（リーチ後に通った牌）も現物扱いにする簡易実装:
-  // 全員の捨て牌のうち、その対局者のリーチ以降に捨てられた牌は当たり牌ではない、
-  // という厳密な追跡はv1では省略し、当人の捨て牌のみを現物とする。
-  return false;
-}
-
-function isSuji(type, opponentSeat, ctx) {
-  const suit = suitOfType(type);
-  if (suit === 'z') return false;
-  const rank = rankOfType(type); // 1-indexed
-  const suitBase = type - (rank - 1);
-  const checkGenbutsu = (r) => r >= 1 && r <= 9 && isGenbutsu(suitBase + (r - 1), opponentSeat, ctx);
-  if (rank === 5) return checkGenbutsu(2) && checkGenbutsu(8);
-  if (rank <= 3) return checkGenbutsu(rank + 3);
-  if (rank >= 7) return checkGenbutsu(rank - 3);
-  return checkGenbutsu(rank - 3) && checkGenbutsu(rank + 3);
-}
-
-// 場に見えている枚数から、両面待ちが成立しうるか(ワンチャンス/ノーチャンス)を大まかに判定する。
-function visibleCount(type, ctx) {
-  let count = 0;
-  for (const seatDiscards of ctx.discardsBySeat) {
-    for (const d of seatDiscards) if (tileType(d.tile) === type) count++;
+// 自分から見えている赤5 [萬, 筒, 索]
+function visibleRedFives(ctx) {
+  const seen = new Set(ctx.selfHand);
+  for (const discards of ctx.discardsBySeat) {
+    for (const d of discards) if (d.calledBy === null) seen.add(d.tile);
   }
-  for (const seatMelds of ctx.meldsBySeat) {
-    for (const m of seatMelds) for (const t of m.tiles) if (tileType(t) === type) count++;
+  for (const melds of ctx.meldsBySeat) {
+    for (const m of melds) for (const id of m.tiles) seen.add(id);
   }
-  for (const id of ctx.doraIndicators) if (tileType(id) === type) count++;
-  for (const id of ctx.selfHand) if (tileType(id) === type) count++;
-  return count;
+  for (const id of ctx.doraIndicators) seen.add(id);
+  return RED_FIVE_IDS.map((id) => (seen.has(id) ? 1 : 0));
 }
 
-function chanceLevel(type, ctx) {
-  const suit = suitOfType(type);
-  if (suit === 'z') return 2; // 字牌はワンチャンス概念なし、通常基準のまま
-  const rank = rankOfType(type);
-  const suitBase = type - (rank - 1);
-  // その牌を挟むリャンメン成立に必要な、両隣牌の残り枚数を見る
-  let minRemaining = Infinity;
-  for (const r of [rank - 1, rank + 1]) {
-    if (r < 1 || r > 9) continue;
-    const remaining = 4 - visibleCount(suitBase + (r - 1), ctx);
-    if (remaining < minRemaining) minRemaining = remaining;
+function visibleCountsOf(ctx) {
+  return countVisibleTypes(ctx.selfHand, ctx.discardsBySeat, ctx.meldsBySeat, ctx.doraIndicators);
+}
+
+// 1回の判断（打牌とリーチ判断など）の間は同じ計算結果を使い回す
+function evaluatorFor(ctx) {
+  if (!ctx.evaluator) {
+    ctx.evaluator = createEvaluator({
+      visibleCounts: visibleCountsOf(ctx),
+      visibleRed: visibleRedFives(ctx),
+      wallRemaining: ctx.wallRemaining,
+      seatWindType: ctx.seatWindType,
+      roundWindType: ctx.roundWindType,
+      isDealer: ctx.isDealer,
+      doraIndicators: ctx.doraIndicators,
+    });
   }
-  if (minRemaining <= 0) return 0; // ノーチャンス
-  if (minRemaining === 1) return 1; // ワンチャンス
-  return 2;
+  return ctx.evaluator;
 }
 
-function kabeDiscount(type, ctx, opponentSeat) {
-  const seatDiscards = ctx.discardsBySeat[opponentSeat] || [];
-  const earlyCount = Math.min(6, seatDiscards.length);
-  const idxOfType = seatDiscards.findIndex((d) => tileType(d.tile) === type);
-  if (idxOfType !== -1 && idxOfType < 3) return 1; // その対局者が序盤に切った筋は多少安全
-  const visible = visibleCount(type, ctx);
-  if (visible >= 3) return 1; // 場に3枚以上見えている(壁)なら残り枚数から安全度アップ
-  return 0;
+// 評価値で選んだ牌種を、実際の牌IDに戻す（赤5を切るのは red のときだけ）
+function tileIdForChoice(hand, type, red) {
+  if (red) return hand.find((id) => tileType(id) === type && isRedFive(id));
+  return hand.find((id) => tileType(id) === type && !isRedFive(id))
+    ?? hand.find((id) => tileType(id) === type);
 }
 
-// 中盤以降（捨て牌9枚目以降）に手出しで中張牌(3〜7)を切っていれば、ダマで聴牌している気配とみる。
-function looksDamaTenpai(discards) {
-  return discards.slice(8).some((d) => {
-    if (d.tsumogiri) return false;
-    const type = tileType(d.tile);
-    if (suitOfType(type) === 'z') return false;
-    const rank = rankOfType(type);
-    return rank >= 3 && rank <= 7;
-  });
+function othersInRiichi(ctx) {
+  return ctx.riichiBySeat.some((r, s) => r && s !== ctx.selfSeat);
 }
 
-// 警戒すべき他家。kind は 'riichi'（リーチ者）か 'suspect'（リーチしていないが聴牌していそうな人）。
-// suspect: 副露が2つ以上ある（手牌が短く聴牌・一向聴の可能性が高い）か、ダマ聴牌の気配がある。
-function threatsBySeat(ctx, selfSeat) {
-  const threats = [];
+// ---------------------------------------------------------------------------
+// 危険度（レベル4以上の押し引き）
+// ---------------------------------------------------------------------------
+
+// 相手 opp に通っている牌種（現物）。自分で捨てた牌と、リーチ後に誰かが捨てて通った牌。
+function safeTypesAgainst(opp, ctx) {
+  const safe = new Set(ctx.discardsBySeat[opp].map((d) => tileType(d.tile)));
+  const riichiTurn = ctx.riichiTurnBySeat[opp];
+  if (riichiTurn !== null) {
+    const declared = ctx.discardsBySeat[opp][riichiTurn - 1];
+    if (declared) {
+      for (const discards of ctx.discardsBySeat) {
+        for (const d of discards) if (d.order >= declared.order) safe.add(tileType(d.tile));
+      }
+    }
+  }
+  return safe;
+}
+
+// 相手 opp に対する、牌種ごとの危険度（電脳麻将の suan_weixian）。
+// 待ちの形ごとに「その牌で当たりうる組み合わせ」を点数にして足す:
+//   単騎・シャンポン: 見えていない枚数で 0〜3（字牌で3枚残りは8）
+//   両面: 10（1・9側の辺張になる 3・7 は3）。スジ（現物の3つ隣）なら0
+//   嵌張: 3
+// 読みの深さで使う情報を段階的に増やす（電脳麻将はすべて使う＝深さ3に相当。ワンチャンスはこのアプリで追加）:
+//   0: 何も読まない（牌の位置だけ）  1: ＋現物
+//   2: ＋スジ・見えている枚数       3: ＋壁（ノーチャンスなら両面なし、ワンチャンスなら半分）
+function dangerTableAgainst(opp, ctx, readingDepth, rest, myCounts) {
+  const safe = readingDepth >= 1 ? safeTypesAgainst(opp, ctx) : new Set();
+  const isSafe = (t) => safe.has(t);
+  const table = new Array(TILE_TYPE_COUNT).fill(0);
+  for (let t = 0; t < TILE_TYPE_COUNT; t++) {
+    if (isSafe(t)) continue;
+    // 単騎・シャンポン
+    const left = readingDepth >= 2 ? rest[t] - (myCounts[t] ? 0 : 1) : 3;
+    let score = left === 3 ? (t >= 27 ? 8 : 3) : left === 2 ? 3 : left === 1 ? 1 : 0;
+    if (t < 27) {
+      const r = t % 9; // 0〜8
+      // 壁: 両面の相方になる2枚のうち少ないほうの残り枚数
+      const wall = (a, b) => (readingDepth >= 3 ? Math.min(rest[t + a], rest[t + b]) : 4);
+      const ryanmen = (a, b, sujiOffset, penchan) => {
+        const w = wall(a, b);
+        if (w === 0) return 0;
+        const base = penchan ? 3 : readingDepth >= 2 && isSafe(t + sujiOffset) ? 0 : 10;
+        return w === 1 ? base / 2 : base;
+      };
+      if (r - 2 >= 0) score += ryanmen(-2, -1, -3, r - 2 === 0);
+      if (r - 1 >= 0 && r + 1 <= 8) score += wall(-1, 1) === 0 ? 0 : 3;
+      if (r + 2 <= 8) score += ryanmen(1, 2, 3, r + 2 === 8);
+    }
+    table[t] = score;
+  }
+  return table;
+}
+
+// 警戒する相手: リーチ者。レベル5は副露が3つ以上ある人（ほぼ聴牌）も警戒する。
+function threatSeats(ctx, level) {
+  const seats = [];
   for (let s = 0; s < 4; s++) {
-    if (s === selfSeat) continue;
-    if (ctx.riichiBySeat[s]) {
-      threats.push({ seat: s, kind: 'riichi' });
-    } else if ((ctx.meldsBySeat[s] || []).length >= 2 || looksDamaTenpai(ctx.discardsBySeat[s] || [])) {
-      threats.push({ seat: s, kind: 'suspect' });
+    if (s === ctx.selfSeat) continue;
+    if (ctx.riichiBySeat[s]) seats.push(s);
+    else if (level >= 5 && ctx.meldsBySeat[s].length >= 3) seats.push(s);
+  }
+  return seats;
+}
+
+// 牌種ごとの危険度を返す関数。警戒する相手がいなければ null。
+// 相手ごとに合計が100になるよう割合にし（親は1.5倍）、相手の中で一番危ない値を使う（電脳麻将と同じ）。
+function dangerFunction(ctx, level, readingDepth) {
+  const seats = threatSeats(ctx, level);
+  if (seats.length === 0) return null;
+  const rest = visibleCountsOf(ctx).map((v) => Math.max(0, 4 - v));
+  const myCounts = toCounts(ctx.selfHand);
+  const worst = new Array(TILE_TYPE_COUNT).fill(0);
+  for (const opp of seats) {
+    const table = dangerTableAgainst(opp, ctx, readingDepth, rest, myCounts);
+    const sum = table.reduce((a, b) => a + b, 0) || 1;
+    const dealerFactor = opp === ctx.dealerSeat ? 1.5 : 1;
+    for (let t = 0; t < TILE_TYPE_COUNT; t++) {
+      worst[t] = Math.max(worst[t], table[t] / sum * 100 * dealerFactor);
     }
   }
-  return threats;
+  return (type) => worst[type];
 }
 
-function dangerScoreForTile(tileId, selfSeat, ctx, readingDepth) {
-  const type = tileType(tileId);
-  const threats = threatsBySeat(ctx, selfSeat).map((t) => t.seat);
-  if (threats.length === 0) return 0;
-  let worst = -Infinity;
-  for (const opp of threats) {
-    let score = isYaochuuType(type) ? DANGER.honorOrTerminalBase : DANGER.simpleBase;
-    if (readingDepth >= 1 && isGenbutsu(type, opp, ctx)) {
-      score = DANGER.genbutsu;
-    } else {
-      if (readingDepth >= 2) {
-        if (isSuji(type, opp, ctx)) score = Math.min(score, DANGER.suji);
-        const chance = chanceLevel(type, ctx);
-        if (chance === 0) score = Math.min(score, DANGER.noChance);
-        else if (chance === 1) score = Math.min(score, DANGER.oneChance);
-      }
-      if (readingDepth >= 3) {
-        score = Math.max(0, score - kabeDiscount(type, ctx, opp));
-      }
-    }
-    if (score > worst) worst = score;
-  }
-  return worst;
-}
+// ---------------------------------------------------------------------------
+// 打牌
+// ---------------------------------------------------------------------------
 
-// 押し引きの判断（レベル4-5）。true なら降りる。
-//   リーチ者がいる   : 聴牌で手の価値が基準以上なら押す。レベル5は一向聴でも高い手なら押す。
-//                      それ以外（手が遠い・安い）は降りる。
-//   聴牌気配の人だけ : 二向聴以上なら降りる。聴牌・一向聴なら押す。
-const FOLD_THRESHOLD_TENPAI = { 4: 4, 5: 6 };
-const PUSH_THRESHOLD_ONE_SHANTEN = 8; // 役牌の刻子がある、など高い手の目安
-
-function shouldFold(level, bestShanten, ownValue, threats) {
-  if (threats.length === 0) return false;
-  const facingRiichi = threats.some((t) => t.kind === 'riichi');
-  if (!facingRiichi) return bestShanten >= 2;
-  if (bestShanten === 0) return ownValue < FOLD_THRESHOLD_TENPAI[level];
-  if (bestShanten === 1 && level === 5) return ownValue < PUSH_THRESHOLD_ONE_SHANTEN;
-  return true;
-}
-
-// 打牌を1枚選ぶ。
 function chooseDiscard(hand, melds, level, readingDepth, ctx) {
+  if (level >= 3) {
+    const danger = level >= 4 ? dangerFunction(ctx, level, readingDepth) : null;
+    const choice = evalChooseDiscard(evaluatorFor(ctx), evalHandFromTiles(hand, melds), danger, level >= 5);
+    return tileIdForChoice(hand, choice.type, choice.red);
+  }
+
   const meldCount = melds.length;
   let bestShanten = Infinity;
   const shantenByTile = new Map();
@@ -199,50 +200,37 @@ function chooseDiscard(hand, melds, level, readingDepth, ctx) {
     shantenByTile.set(id, s);
     if (s < bestShanten) bestShanten = s;
   }
-  let pool = hand.filter((id) => shantenByTile.get(id) === bestShanten);
+  const pool = hand.filter((id) => shantenByTile.get(id) === bestShanten);
 
   if (level === 1) {
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
-  // レベル4-5: 押し引きを判断し、降りるなら一番安全な牌を切る
-  // （安全度が同じなら、向聴数が悪くならない牌を優先する）
-  if (level >= 4 && !ctx.selfRiichi) {
-    const threats = threatsBySeat(ctx, ctx.selfSeat);
-    const ownValue = estimateHandValue(hand, melds, ctx.seatWindType, ctx.roundWindType);
-    if (shouldFold(level, bestShanten, ownValue, threats)) {
-      let safest = hand[0];
-      let safestScore = Infinity;
-      let safestShanten = Infinity;
-      for (const id of hand) {
-        const d = dangerScoreForTile(id, ctx.selfSeat, ctx, readingDepth);
-        const s = shantenByTile.get(id);
-        if (d < safestScore || (d === safestScore && s < safestShanten)) {
-          safestScore = d; safestShanten = s; safest = id;
-        }
-      }
-      return safest;
-    }
-  }
-
-  // レベル2-3: 同シャンテン内で価値の高い形を残す
+  // レベル2: 同シャンテン内で価値の高い形を残す（＝価値の低い牌から切る）
   let best = pool[0];
   let bestValue = -Infinity;
   for (const id of pool) {
-    const v = scoreKeepValue(id, hand, melds, ctx.seatWindType, ctx.roundWindType);
+    const remaining = hand.filter((x) => x !== id);
+    const v = estimateHandValue(remaining, melds, ctx.seatWindType, ctx.roundWindType);
     if (v > bestValue) { bestValue = v; best = id; }
   }
   return best;
 }
 
+// ---------------------------------------------------------------------------
+// リーチ
+// ---------------------------------------------------------------------------
+
 // リーチするかどうか。handAfter は打牌後の手牌（聴牌している13枚相当）。
 //   レベル1-2 : 聴牌したら即リーチ
-//   レベル3以上: どの待ちでも役があり、ダマで満貫以上が確定しているならダマ
-//   レベル4以上: 待ち牌が場に残っていない（空聴）ならリーチしない
+//   レベル3以上: 評価値が350未満（待ちが少ない・残りツモが少ない）ならダマ（電脳麻将と同じ）。
+//               どの待ちでも役があり、ダマで満貫以上が確定しているならダマ
 //   レベル5    : 他家のリーチを受けていて、役があり待ちが残り2枚以下ならダマ
 //                （リーチすると降りられなくなるため）
 function decideRiichi(level, handAfter, melds, ctx) {
   if (level <= 2) return true;
+
+  if (evaluatorFor(ctx).evaluate(evalHandFromTiles(handAfter, melds)) < 350) return false;
 
   const waits = evaluateWaits(handAfter, {
     melds,
@@ -254,25 +242,28 @@ function decideRiichi(level, handAfter, melds, ctx) {
   });
   const hasYakuOnAllWaits = waits.length > 0 && waits.every((w) => w.ron);
   // 打牌前の手牌で数えると、これから切る牌も「見えている」側に入る
-  const visible = countVisibleTypes(ctx.selfHand, ctx.discardsBySeat, ctx.meldsBySeat, ctx.doraIndicators);
+  const visible = visibleCountsOf(ctx);
   const remaining = waits.reduce((sum, w) => sum + Math.max(0, 4 - visible[w.type]), 0);
 
   if (hasYakuOnAllWaits && Math.min(...waits.map((w) => w.ron.basePoints)) >= 2000) return false;
-  if (level >= 4 && remaining === 0) return false;
-  if (level === 5 && hasYakuOnAllWaits && remaining <= 2
-      && ctx.riichiBySeat.some((r, s) => r && s !== ctx.selfSeat)) return false;
+  if (level === 5 && hasYakuOnAllWaits && remaining <= 2 && othersInRiichi(ctx)) return false;
   return true;
 }
 
-// 鳴き（ポン/チー）をするかどうか。optionsは game.js が合法性を検証済みの候補配列。
-// 各option: {kind:'pon'|'chi', tiles:[使用する手牌side ids], resultingMeldTiles:[...]}
+// ---------------------------------------------------------------------------
+// 鳴き（ポン/チー/大明槓）
+// ---------------------------------------------------------------------------
+
+// options は game.js が合法性を検証済みの候補配列。
+// 各option: {kind:'pon'|'chi'|'minkan', tiles:[使用する手牌side ids], resultingMeldTiles:[...]}
 function decideCall(options, hand, melds, level, ctx) {
   if (options.length === 0) return null;
   if (level === 1) return null; // レベル1は鳴かない
+  if (level >= 3) return decideCallByEval(options, hand, melds, level, ctx);
 
+  // レベル2: 向聴数が進み、役が残りそうな鳴きだけする
   const meldCount = melds.length;
   const currentShanten = computeShanten(toCounts(hand), meldCount);
-
   let bestOption = null;
   let bestScore = -Infinity;
   for (const opt of options) {
@@ -283,18 +274,103 @@ function decideCall(options, hand, melds, level, ctx) {
     const wouldBreakTanyao = opt.resultingMeldTiles.some((id) => isYaochuuType(tileType(id)));
     const isYakuhaiMeld = opt.kind === 'pon' && isYakuhaiType(tileType(opt.resultingMeldTiles[0]), ctx.seatWindType, ctx.roundWindType);
 
-    if (level >= 2 && wouldBreakTanyao && !isYakuhaiMeld) {
-      // 役が残らなくなる鳴みは基本的に避ける(レベル2はここで弾く)
+    if (wouldBreakTanyao && !isYakuhaiMeld) {
+      // 役が残らなくなる鳴きは避ける
       const stillHasYaku = estimateHandValue(remainingHand, melds.concat([{ tiles: opt.resultingMeldTiles }]), ctx.seatWindType, ctx.roundWindType) > 0;
-      if (level === 2 && !stillHasYaku) continue;
+      if (!stillHasYaku) continue;
     }
 
     let score = (currentShanten - newShanten) * 10;
     if (isYakuhaiMeld) score += 8;
     if (!wouldBreakTanyao) score += 3;
-    if (level >= 5) score += 2; // レベル5はやや積極的に鳴く
 
     if (score > bestScore) { bestScore = score; bestOption = opt; }
   }
   return bestOption;
+}
+
+// 鳴いた後の手（評価用）
+function evalHandAfterCall(hand, melds, opt) {
+  const remaining = hand.filter((id) => !opt.tiles.includes(id));
+  return evalHandFromTiles(remaining, melds.concat([{ kind: opt.kind, tiles: opt.resultingMeldTiles }]));
+}
+
+// レベル3以上（電脳麻将の select_fulou）:
+//   二向聴以内 : 鳴いたほうが評価値が上がるなら鳴く。
+//                レベル4以上は、リーチを受けているとき評価値が低い鳴き（安い手の仕掛け）はしない
+//   三向聴以上 : 役に向かって向聴数が進むポン・チーだけする（役牌のポンなど）。リーチを受けていたら鳴かない
+function decideCallByEval(options, hand, melds, level, ctx) {
+  const evaluator = evaluatorFor(ctx);
+  const current = evalHandFromTiles(hand, melds);
+  const shanten = evaluator.shantenOf(current);
+  const facingRiichi = level >= 4 && othersInRiichi(ctx);
+
+  if (shanten < 3) {
+    let best = null;
+    let max = evaluator.evaluate(current);
+    for (const opt of options) {
+      const after = evalHandAfterCall(hand, melds, opt);
+      const x = evaluator.shantenOf(after);
+      if (x >= 3) continue;
+      const value = evaluator.evaluate(after);
+      if (facingRiichi) {
+        if (x > 0 && value < 750) continue;
+        if (x === 0 && value < 250) continue;
+      }
+      if (value - max > EVAL_EPSILON) { max = value; best = opt; }
+    }
+    return best;
+  }
+
+  if (facingRiichi) return null;
+  const base = evaluator.yakuShanten(current);
+  for (const opt of options) {
+    if (opt.kind === 'minkan') continue;
+    if (evaluator.yakuShanten(evalHandAfterCall(hand, melds, opt)) < base) return opt;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// 槓（暗槓/加槓）
+// ---------------------------------------------------------------------------
+
+// options: game.js の getAnkanOptions / getKakanOptions の結果
+//   レベル1  : 槓しない
+//   レベル2  : 最初の候補で必ず槓する
+//   レベル3以上（電脳麻将の select_gang）:
+//     二向聴以内 : 槓しても評価値が下がらないなら槓する
+//     三向聴以上 : 役に向かう向聴数が変わらないなら槓する
+//     レベル4以上は、リーチを受けていて聴牌していなければ槓しない（新ドラを乗せないため）
+function decideKan(options, hand, melds, level, ctx) {
+  if (options.length === 0 || level === 1) return null;
+  if (level === 2) return options[0];
+
+  const evaluator = evaluatorFor(ctx);
+  const current = evalHandFromTiles(hand, melds);
+  const shanten = evaluator.shantenOf(current);
+  if (level >= 4 && othersInRiichi(ctx) && shanten > 0) return null;
+
+  const afterKan = (opt) => {
+    const remaining = hand.filter((id) => !opt.tiles.includes(id));
+    const newMelds = opt.kind === 'ankan'
+      ? melds.concat([{ kind: 'ankan', tiles: opt.tiles }])
+      : melds.map((m, i) => (i === opt.meldIndex ? { kind: 'kakan', tiles: m.tiles.concat(opt.tiles) } : m));
+    return evalHandFromTiles(remaining, newMelds);
+  };
+
+  if (shanten < 3) {
+    let best = null;
+    let max = evaluator.evaluate(current);
+    for (const opt of options) {
+      const after = afterKan(opt);
+      if (evaluator.shantenOf(after) >= 3) continue;
+      const value = evaluator.evaluate(after);
+      if (value - max > -EVAL_EPSILON) { max = value; best = opt; }
+    }
+    return best;
+  }
+
+  const base = evaluator.yakuShanten(current);
+  return options.find((opt) => evaluator.yakuShanten(afterKan(opt)) === base) || null;
 }
