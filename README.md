@@ -74,6 +74,7 @@ HTMLを手で書いたり、既存のページをコピーしたりはしない�
 - **Cloudflare Web Analytics**：ページ別の閲覧数・訪問数・どこから来たか。Secrets の `CLOUDFLARE_API_TOKEN`・`CLOUDFLARE_ACCOUNT_ID`・`CLOUDFLARE_SITE_TAG` を使う
 
 Secretsが未設定の項目は、スキップされるだけでエラーにはならない。どちらも無料。
+閲覧数を数えるため、公開ページの `<head>` には Cloudflare Web Analytics のタグ（`static.cloudflareinsights.com/beacon.min.js`）を入れている。
 
 ## 著作権
 
