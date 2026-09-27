@@ -65,6 +65,16 @@ HTMLを手で書いたり、既存のページをコピーしたりはしない�
 
 `main` ブランチの内容がそのまま https://HbarCG.github.io/ に公開される。
 
+## アクセスの記録（集客の振り返り用）
+
+毎月4日に `.github/workflows/monthly-analytics.yml` が前月分の数字を取得し、`data/analytics/YYYY-MM.json` に保存して、
+要約をメールで送る（実装は `scripts/fetch-analytics.mjs`）。手動で動かすときは、GitHubのActions画面から対象月を指定して実行する。
+
+- **Google Search Console**：検索での表示回数・クリック数・検索された言葉。サービスアカウントの鍵を Secrets の `GSC_SERVICE_ACCOUNT_JSON` に置く
+- **Cloudflare Web Analytics**：ページ別の閲覧数・訪問数・どこから来たか。Secrets の `CLOUDFLARE_API_TOKEN`・`CLOUDFLARE_ACCOUNT_ID`・`CLOUDFLARE_SITE_TAG` を使う
+
+Secretsが未設定の項目は、スキップされるだけでエラーにはならない。どちらも無料。
+
 ## 著作権
 
 このリポジトリのコード・文章・画像の著作権はHbarCGに帰属します。無断での転載・再配布はご遠慮ください。
