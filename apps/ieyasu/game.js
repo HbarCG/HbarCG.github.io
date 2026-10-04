@@ -72,11 +72,12 @@
 
   const SAVE_KEY = 'ieyasu-save';
   const BEST_KEY = 'ieyasu-best';
+  const TUTORIAL_KEY = 'ieyasu-tutorial-done';
   const SAVE_VERSION = 2;
 
   let state = null;
-  // 画面だけの状態（保存しない）
-  const ui = { tab: 'seimu', person: null, bookYear: 'now' };
+  // 画面だけの状態（保存しない）。coach はチュートリアルの何番目を見せているか
+  const ui = { tab: 'seimu', person: null, bookYear: 'now', coach: null };
 
   // ─────────────────────────────── 小さな道具
 
@@ -170,6 +171,22 @@
       if (years > loadBest()) localStorage.setItem(BEST_KEY, String(years));
     } catch (e) {
       // 記録できなくてもゲームは続けられる
+    }
+  }
+
+  function tutorialDone() {
+    try {
+      return localStorage.getItem(TUTORIAL_KEY) === '1';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function markTutorialDone() {
+    try {
+      localStorage.setItem(TUTORIAL_KEY, '1');
+    } catch (e) {
+      // 記録できなければ、次に開いたときにもう一度出るだけ
     }
   }
 
@@ -998,6 +1015,7 @@
     for (const tab of TABS) $(`tab-${tab.id}`).hidden = tab.id !== ui.tab;
     const views = { seimu: renderSeimu, family: renderFamily, finance: renderFinance, org: renderOrg, log: renderLog };
     views[ui.tab]();
+    if (ui.coach !== null) applySpot();
   }
 
   function renderTopbar() {
@@ -1021,6 +1039,9 @@
           el('strong', { text: `${state.year}年` }),
           ` 第${s.gen}代 ${s.name}（${s.age}歳）`,
         ]),
+        el('button', { type: 'button', class: 'iy-guide-btn', id: 'guide-button', onclick: openGuide }, [
+          el('span', { class: 'iy-guide-btn__mark', text: '?' }), 'ガイド',
+        ]),
       ]),
       el('div', { class: 'iy-topbar__gauges' }, gauges),
       el('p', { class: 'iy-topbar__money' }, [
@@ -1039,6 +1060,7 @@
     $('tabbar').replaceChildren(...TABS.map((t) => el('button', {
       type: 'button',
       class: `iy-tab${ui.tab === t.id ? ' iy-tab--active' : ''}`,
+      'data-tab': t.id,
       'aria-current': ui.tab === t.id ? 'page' : 'false',
       onclick: () => { ui.tab = t.id; render(); scrollToGame(); },
     }, [
@@ -1091,6 +1113,7 @@
           if (isLast) startMain();
           else state.prologueStep += 1;
           commit();
+          if (isLast && !tutorialDone()) startTutorial();
         },
       }));
     }
@@ -1491,15 +1514,13 @@
     $('tab-log').replaceChildren(
       panel('記録', [el('ul', { class: 'iy-log' }, state.log.map((entry) =>
         el('li', {}, [el('span', { class: 'iy-log__year', text: `${entry.year}` }), entry.text])))]),
-      panel('遊び方', [el('ul', { class: 'iy-help' }, [
-        '1年に1つ、幕府に出来事が起きる。選択肢から、どう対応するかを決める。',
-        '将軍には性格がある。好みに合う判断をすると、将軍は乗り気で取り組み、能力が伸びる。',
-        '判断の成否は、将軍の能力と、担当の役職（老中・大目付・町奉行）の能力で決まる。',
-        'お金は万両で管理する。年貢は石高と民心で決まり、物価は年々上がる。新田開発や交易で収入を育てよう。',
-        '威光・民心・朝廷のどれかが0になるか、借入が上限を超えると倒幕の危機。3年のうちに立て直せなければゲームオーバー。',
-        '組織の役職に家臣を配置する。家臣は年を取ると引退するので、毎年の登用の候補にも目を配ろう。',
-        '若君には師をつけて育てる。制度は代をまたいで残り、幕府を少しずつ強くする。',
-      ].map((t) => el('li', { text: t })))]),
+      panel('遊び方', [
+        el('p', { class: 'iy-hint', text: 'ルールや画面の見方は、ガイドにまとめてある。上の帯の「ガイド」からも、いつでも開ける。' }),
+        el('div', { class: 'iy-actions' }, [
+          el('button', { type: 'button', text: 'ガイドを開く', onclick: openGuide }),
+          state.phase === 'over' ? null : el('button', { type: 'button', text: 'チュートリアルをもう一度', onclick: startTutorial }),
+        ]),
+      ]),
       panel(null, [
         el('p', { class: 'iy-hint', text: `進行状況はこの端末のブラウザに自動で保存される。これまでの最長記録：${loadBest()}年` }),
         el('button', {
@@ -1508,6 +1529,120 @@
         }),
       ]),
     );
+  }
+
+  // ───── ガイド（いつでも開ける説明）
+
+  function openGuide() {
+    const dialog = $('guide-dialog');
+    const sections = DATA.guide.map((sec, i) => {
+      const d = el('details', { class: 'iy-guide__section' }, [
+        el('summary', { text: sec.title }),
+        el('ul', {}, sec.body.map((t) => el('li', { text: t }))),
+      ]);
+      if (i < 2) d.open = true;
+      return d;
+    });
+    const playing = state.phase !== 'prologue' && state.phase !== 'over';
+    dialog.replaceChildren(
+      el('div', { class: 'iy-dialog__head' }, [
+        el('h2', { text: 'ガイド' }),
+        el('button', { type: 'button', class: 'iy-dialog__close', 'aria-label': 'ガイドを閉じる', text: '×', onclick: closeGuide }),
+      ]),
+      el('div', { class: 'iy-dialog__body' }, [
+        ieyasuSays(el('p', { class: 'iy-voice', text: '「わからぬことがあれば、ここを読め。項目を押すと開く。」' })),
+        ...sections,
+        playing ? el('button', {
+          type: 'button', class: 'iy-secondary', text: 'チュートリアルをもう一度見る',
+          onclick: () => { closeGuide(); startTutorial(); },
+        }) : null,
+      ]),
+    );
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', '');
+  }
+
+  function closeGuide() {
+    const dialog = $('guide-dialog');
+    if (typeof dialog.close === 'function') dialog.close();
+    else dialog.removeAttribute('open');
+  }
+
+  // ───── チュートリアル（初回だけ。家康が画面の各部分を順に案内する）
+
+  function startTutorial() {
+    if (state.phase === 'prologue') return;
+    ui.coach = 0;
+    ui.tab = 'seimu';
+    render();
+    showCoach();
+  }
+
+  function clearSpot() {
+    document.querySelectorAll('.iy-spot, .iy-raise').forEach((n) => n.classList.remove('iy-spot', 'iy-raise'));
+  }
+
+  // 案内している場所を光らせる。固定表示の帯の中なら、帯ごと手前に出す
+  function applySpot() {
+    clearSpot();
+    const step = DATA.tutorial[ui.coach];
+    const target = step && step.target ? document.querySelector(step.target) : null;
+    if (!target) return null;
+    target.classList.add('iy-spot');
+    const bar = target.closest('#topbar, #tabbar');
+    if (bar && bar !== target) bar.classList.add('iy-raise');
+    return target;
+  }
+
+  function showCoach() {
+    const steps = DATA.tutorial;
+    const step = steps[ui.coach];
+    if (step.tab && ui.tab !== step.tab) {
+      ui.tab = step.tab;
+      render();
+    }
+    const target = applySpot();
+    if (target && !target.closest('#tabbar')) target.scrollIntoView({ block: 'center' });
+    if (target && target.id === 'topbar') scrollToGame();
+
+    // 光らせた場所と重ならないように、説明の札を上か下に置く
+    const rect = target ? target.getBoundingClientRect() : null;
+    const atTop = rect && rect.top + rect.height / 2 > window.innerHeight / 2;
+    const isLast = ui.coach === steps.length - 1;
+    const coach = $('coach');
+    coach.hidden = false;
+    document.body.classList.add('iy-coaching');
+    coach.replaceChildren(
+      el('div', { class: 'iy-coach__dim' }),
+      el('div', { class: `iy-coach__card${atTop ? ' iy-coach__card--top' : ''}`, role: 'dialog', 'aria-label': 'チュートリアル' }, [
+        ieyasuSays(el('p', { class: 'iy-voice', text: step.text })),
+        el('div', { class: 'iy-coach__nav' }, [
+          el('span', { class: 'iy-muted', text: `${ui.coach + 1} / ${steps.length}` }),
+          el('button', { type: 'button', class: 'iy-coach__skip', text: 'とばす', onclick: endTutorial }),
+          ui.coach > 0 ? el('button', { type: 'button', text: '戻る', onclick: () => { ui.coach -= 1; showCoach(); } }) : null,
+          el('button', {
+            type: 'button', class: 'iy-coach__next', text: isLast ? '始める' : '次へ',
+            onclick: () => {
+              if (isLast) endTutorial();
+              else { ui.coach += 1; showCoach(); }
+            },
+          }),
+        ]),
+      ]),
+    );
+    coach.querySelector('.iy-coach__next').focus();
+  }
+
+  function endTutorial() {
+    ui.coach = null;
+    clearSpot();
+    $('coach').hidden = true;
+    $('coach').replaceChildren();
+    document.body.classList.remove('iy-coaching');
+    markTutorialDone();
+    ui.tab = 'seimu';
+    render();
+    scrollToGame();
   }
 
   function restart() {
@@ -1519,7 +1654,9 @@
   }
 
   $('title-art').innerHTML = ART.scene('heaven');
+  $('intro-guide').addEventListener('click', openGuide);
   state = load() || newGame();
   lastPhase = state.phase;
   render();
+  if (!tutorialDone() && ['event', 'result', 'manage'].includes(state.phase)) startTutorial();
 })();
