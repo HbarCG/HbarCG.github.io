@@ -5,7 +5,7 @@
 //   IEYASU_ART.ieyasu('worry')      … 家康（神さま姿）の顔。'calm' / 'worry' / 'angry'
 //   IEYASU_ART.shogun('華美')        … 将軍の顔。性格で着物の色が変わる
 //   IEYASU_ART.child('慎重')         … 若君の顔
-//   IEYASU_ART.retainer()            … 家臣の顔（御三家などの候補用）
+//   IEYASU_ART.retainer(3)           … 家臣の顔。数字で着物の色や顔つきが変わる
 window.IEYASU_ART = (() => {
   'use strict';
 
@@ -422,11 +422,15 @@ window.IEYASU_ART = (() => {
       <ellipse cx="32" cy="17" rx="5" ry="3" fill="${C.ink}"/>`, `若君（${trait}）`);
   }
 
-  function retainer() {
+  // 家臣の顔。seed で着物の色と顔つきを少し変える（同じ家臣はいつも同じ顔になる）
+  function retainer(seed = 0) {
+    const robes = [C.ink2, C.blue, C.green2, C.earth2, '#5a4a6a', '#3a5a5a'];
+    const robe = robes[seed % robes.length];
+    const mood = seed % 5 === 3 ? 'angry' : 'calm';
     return portrait(`<rect width="64" height="64" rx="10" fill="#e4e0d4"/>
-      <path d="M4,64 L8,46 Q32,38 56,46 L60,64 Z" fill="${C.ink2}"/>
-      <path d="M8,46 L2,40 L20,44 Z M56,46 L62,40 L44,44 Z" fill="${C.ink2}"/>
-      ${face(32, 30, 13, 'calm')}
+      <path d="M4,64 L8,46 Q32,38 56,46 L60,64 Z" fill="${robe}"/>
+      <path d="M8,46 L2,40 L20,44 Z M56,46 L62,40 L44,44 Z" fill="${robe}"/>
+      ${face(32, 30, 13, mood, { beard: seed % 4 === 1 })}
       <path d="M20,24 Q22,14 32,14 Q42,14 44,24 Q38,20 32,20 Q26,20 20,24 Z" fill="${C.ink}"/>
       <rect x="30" y="11" width="4" height="6" fill="${C.ink}"/>`, '家臣');
   }
