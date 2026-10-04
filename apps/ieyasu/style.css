@@ -135,14 +135,124 @@
   margin: 0 0 1rem;
 }
 
-.iy-voice--aside {
-  padding-left: 0.9rem;
-  border-left: 3px solid var(--color-border);
-  color: var(--color-text-muted);
+/* イラスト */
+.iy-scene {
+  margin: 0 0 1rem;
+  border-radius: 6px;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.iy-scene svg,
+.iy-face svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.iy-scene--title {
+  margin: 1rem 0 1.5rem;
+}
+
+.iy-face {
+  flex: 0 0 auto;
+  width: 56px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.iy-face--small {
+  width: 44px;
+}
+
+/* 家康のせりふ（顔つき） */
+.iy-speech {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+}
+
+.iy-speech__face {
+  flex: 0 0 auto;
+  width: 56px;
+  animation: iy-float 4s ease-in-out infinite;
+}
+
+.iy-speech__face svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+}
+
+.iy-speech__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.6rem 0.9rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, #d4a63a 12%, var(--color-bg));
+  color: var(--color-text);
+}
+
+.iy-speech__body p:last-child {
+  margin-bottom: 0;
+}
+
+.iy-speech__body > p {
+  margin: 0;
+}
+
+@keyframes iy-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iy-speech__face {
+    animation: none;
+  }
 }
 
 .iy-intent {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 0.5rem;
   font-size: 0.95rem;
+}
+
+.iy-intent p {
+  margin: 0;
+}
+
+.iy-status__head {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.iy-heir__head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+}
+
+.iy-panel .iy-option--person {
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.75rem;
+}
+
+.iy-option__text {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.iy-option__text span {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
 }
 
 .iy-note {
@@ -223,7 +333,7 @@
 }
 
 .iy-option__hint,
-.iy-option span:last-child:not(.iy-option__how) {
+.iy-option > span:last-child:not(.iy-option__how):not(.iy-option__text) {
   font-size: 0.82rem;
   color: var(--color-text-muted);
 }

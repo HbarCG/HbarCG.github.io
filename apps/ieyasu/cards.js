@@ -16,6 +16,7 @@
 //   text:  結果の文章
 //
 // ■ カードに書けるもの
+//   scene: 場面の絵の名前（art.js の SCENES。castle / fire / ship など）
 //   minYear: この年以降に出る / when: 出る条件（関数） / weight: 出やすさ（標準1）
 //   kind: 'famine'（飢饉）や 'foreign'（異国）。対応する制度があると悪い効果が半分になる
 //   once: true … 一度しか出ない
@@ -26,6 +27,8 @@ window.IEYASU_DATA = {
     {
       year: 1616,
       title: '駿府にて',
+      mood: 'worry',
+      scene: 'sickbed',
       text: [
         '元和二年、駿府城。天下を平らげて十余年、わしの命もいよいよ尽きようとしておる。',
         '七十五年。よう生きた。……生きたが、どうにも落ち着かぬ。わしが死んだあと、この幕府は本当に続くのか。',
@@ -34,6 +37,7 @@ window.IEYASU_DATA = {
     {
       year: 1616,
       title: '最後の布石',
+      scene: 'castle',
       text: [
         '死ぬ前に、ひとつだけ布石を打っておこう。何もかもは無理じゃ。いちばん大事なものをひとつ選ぶ。',
       ],
@@ -58,6 +62,7 @@ window.IEYASU_DATA = {
     {
       year: 1617,
       title: '東照大権現',
+      scene: 'heaven',
       text: [
         '……気がつくと、日光の山の上におった。なんと、わしは神として祀られたらしい。東照大権現。仰々しい名じゃ。',
         '体はない。声も届かぬ。できるのは見ていることだけ。息子の秀忠は真面目じゃが、慎重がすぎる。見ていて肩がこる。肩はないが。',
@@ -66,6 +71,7 @@ window.IEYASU_DATA = {
     {
       year: 1623,
       title: '三代・家光',
+      scene: 'hall',
       text: [
         '秀忠が退き、孫の家光が三代将軍となった。',
         'こやつは妙にわしを慕っておる。なにかにつけて「権現様」と手を合わせに来る。……悪い気はせぬ。',
@@ -74,6 +80,7 @@ window.IEYASU_DATA = {
     {
       year: 1636,
       title: '東照宮、完成',
+      scene: 'shrine',
       text: [
         '寛永十三年。家光が日光の社を建て直した。金箔、極彩色、見上げるほどの彫り物。……やりすぎじゃ。わしは質素が好きなのじゃ。',
         'だが、参拝の者たちの祈りが流れ込んでくるにつれて、体の奥から力がわいてきた。体はないが。',
@@ -83,6 +90,8 @@ window.IEYASU_DATA = {
     {
       year: 1636,
       title: '凶報',
+      mood: 'worry',
+      scene: 'sickbed',
       text: [
         'その矢先、家光が倒れた。',
         'いかん。家光にはまだ世継ぎがおらぬ。ここで家光を失えば、幕府はたちまち揺らぐ。',
@@ -110,6 +119,7 @@ window.IEYASU_DATA = {
   cards: [
     {
       id: 'castle-repair',
+      scene: 'castle',
       title: '無断の城普請',
       text: '西国の大名が、届け出もなく城の石垣を積み直しているという。',
       ieyasu: '福島の一件を思い出すのう。甘く見れば、ほかの大名もまねをする。',
@@ -125,6 +135,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'famine-sign',
+      scene: 'famine',
       title: '凶作の兆し',
       kind: 'famine',
       text: '長雨が続き、東国の稲の育ちが悪い。このままでは秋の年貢は望めない。',
@@ -140,6 +151,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'nikko-visit',
+      scene: 'shrine',
       title: '日光社参',
       text: '将軍が日光へ参りたいと言い出した。行列を整えるには、相応の費用がかかる。',
       ieyasu: 'わしのために金を使うな……と言いたいところじゃが、来てくれると力がわくのも確かでのう。',
@@ -154,6 +166,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'court-rank',
+      scene: 'court',
       title: '朝廷の官位',
       text: '朝廷が、幕府に相談なく大名に官位を授けようとしている。',
       ieyasu: '朝廷は敵ではない。だが、大名と朝廷が直に結びつくのは、いちばん危うい。',
@@ -168,6 +181,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'edo-fire',
+      scene: 'fire',
       title: '江戸の大火',
       text: '江戸の町が三日三晩燃え続けた。焼け出された者があふれている。',
       ieyasu: '江戸は燃える町じゃ。燃えたあとにどう建て直すかで、将軍の器が知れる。',
@@ -183,6 +197,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'southern-ships',
+      scene: 'ship',
       title: '南蛮船',
       kind: 'foreign',
       text: '異国の船が交易を求めて港に来た。宣教師も乗っているらしい。',
@@ -199,6 +214,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'ronin',
+      scene: 'ronin',
       title: '浪人の不満',
       text: '取りつぶされた家の浪人たちが江戸に集まり、不穏な噂が立っている。',
       ieyasu: '大名を潰せば、浪人が生まれる。威光の裏側じゃな。',
@@ -214,6 +230,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'mine-decline',
+      scene: 'mine',
       title: '金山の衰え',
       text: '佐渡の金の出が年々細っている。このままでは幕府の蔵が持たない。',
       ieyasu: '山はいつか尽きる。尽きたあとのことを考えておくのが政じゃ。',
@@ -229,6 +246,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'roju-feud',
+      scene: 'hall',
       title: '老中の争い',
       text: '二人の老中が政の方針をめぐって激しく対立し、城中が二つに割れている。',
       ieyasu: '家臣の争いを放っておくのがいちばんいかん。だが、どちらかを切れば、恨みが残る。',
@@ -244,6 +262,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'tozama-marriage',
+      scene: 'palanquin',
       title: '外様の縁組',
       text: '有力な外様大名同士が、幕府の許しを得ずに縁組をまとめようとしている。',
       ieyasu: '大名同士が手を結ぶ。それがいちばん恐ろしい。わしは身をもって知っておる。',
@@ -258,6 +277,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'good-harvest',
+      scene: 'harvest',
       title: '豊作',
       text: '今年は天候に恵まれ、どの国も大豊作だ。',
       ieyasu: '良い年こそ、気を抜くな。悪い年は必ず来る。',
@@ -272,6 +292,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'river-work',
+      scene: 'river',
       title: '大河の治水',
       text: '毎年のように暴れる大河を、堤で押さえてほしいという訴えが続いている。',
       ieyasu: '利根川の流れを変えたのは、わしの代からの大仕事じゃった。',
@@ -286,6 +307,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'ikki',
+      scene: 'ikki',
       title: '一揆',
       text: '重い年貢に耐えかねた百姓たちが、代官所に押し寄せた。',
       ieyasu: '一揆が起きるのは、上がしくじったときじゃ。百姓が悪いのではない。',
@@ -301,6 +323,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'shogun-ill',
+      scene: 'sickbed',
       title: '将軍の不調',
       text: '将軍が近ごろ、ひどく疲れた顔をしている。政務の詰めすぎだと侍医は言う。',
       ieyasu: '体を壊しては、何もかも終わりじゃ。わしは薬を自分で調合しておった。',
@@ -315,6 +338,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'court-poor',
+      scene: 'court',
       title: '朝廷の窮乏',
       text: '御所の修繕もままならないほど、朝廷の暮らし向きが苦しいらしい。',
       ieyasu: '朝廷を困らせて得することはない。かといって、太らせすぎるのも考えものじゃ。',
@@ -329,6 +353,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'tutor',
+      scene: 'study',
       title: '若君の教育係',
       when: (s) => s.heirs.length > 0,
       text: '若君の教育係を誰にするか、家臣たちの意見が割れている。',
@@ -344,6 +369,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'earthquake',
+      scene: 'earthquake',
       title: '大地震',
       text: '関東を大きな地震が襲った。城の石垣も崩れ、町は混乱している。',
       ieyasu: 'こればかりは、誰のせいでもない。だからこそ、どう動くかが見られる。',
@@ -359,6 +385,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'merchant-loan',
+      scene: 'money',
       title: '大坂の豪商',
       text: '大坂の豪商が、幕府に大金を貸してもよいと申し出てきた。',
       ieyasu: '商人の力が、刀より強くなる日が来るのかもしれぬ。',
@@ -373,6 +400,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'shrine-repair',
+      scene: 'shrine',
       title: '東照宮の修繕',
       text: '日光の社の彩色が色あせてきた。修繕には大きな費用がかかる。',
       ieyasu: 'わしの家じゃ。……いや、私情は挟まぬ。挟まぬが、直してくれるとうれしい。',
@@ -387,6 +415,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'roads',
+      scene: 'road',
       title: '街道の整備',
       text: '五街道の宿場が荒れ、旅人や荷が滞りがちだと報せが届いた。',
       ieyasu: '道は国の血の巡りじゃ。詰まれば、体じゅうが弱る。',
@@ -402,6 +431,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'kanjo-fraud',
+      scene: 'money',
       title: '勘定方の不正',
       text: '幕府の金を扱う役人が、帳簿をごまかして私腹を肥やしていたことがわかった。',
       ieyasu: '一人の不正は、仕組みの穴を教えてくれる。穴を塞がねば、また誰かが落ちる。',
@@ -416,6 +446,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'ooku',
+      scene: 'banquet',
       title: '大奥の勢い',
       text: '大奥の女中たちの数が増え、その費えが幕府の蔵を圧迫している。',
       ieyasu: '奥のことは奥に任せる。じゃが、蔵が空になるのは困る。',
@@ -430,6 +461,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'falconry',
+      scene: 'falcon',
       title: '鷹狩り',
       text: '将軍が鷹狩りに出たいと言っている。供の者や村々への負担は小さくない。',
       ieyasu: '鷹狩りはよいぞ。体も鍛えられるし、領地の様子も見える。わしも大好きじゃった。',
@@ -444,6 +476,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'scholar',
+      scene: 'study',
       title: '学問の流行',
       text: '儒学が武士のあいだで流行している。学問を幕府として後押しすべきか。',
       ieyasu: '戦のない世には、刀より書物で人を治めることになる。わしもそう考えておった。',
@@ -458,6 +491,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'epidemic',
+      scene: 'sickbed',
       title: '疫病',
       text: '江戸で疱瘡がはやり、子どもたちが次々と倒れている。',
       ieyasu: '若君にうつらねばよいが……。',
@@ -472,6 +506,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'loyal-retainer',
+      scene: 'hall',
       title: '直言の家臣',
       text: '若い家臣が、将軍の政を面と向かって批判する書状を差し出してきた。',
       ieyasu: '耳に痛いことを言う家臣は宝じゃ。本多正信がそうであった。',
@@ -486,6 +521,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'heir-sick',
+      scene: 'sickbed',
       title: '若君の病',
       when: (s) => s.heirs.some((h) => h.age < 15),
       text: '幼い若君が高い熱を出し、三日三晩うなされている。',
@@ -501,6 +537,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'daimyo-debt',
+      scene: 'money',
       title: '大名の借金',
       text: '多くの大名が商人からの借金に苦しみ、幕府に救いを求めてきた。',
       ieyasu: '大名が弱るのは、幕府にとって悪いことばかりではない。じゃが、潰れられても困る。',
@@ -517,6 +554,7 @@ window.IEYASU_DATA = {
     // ───────── 年が進むと来る大きな試練
     {
       id: 'great-famine',
+      scene: 'famine',
       title: '大飢饉',
       kind: 'famine',
       minYear: 1680,
@@ -535,6 +573,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'daimyo-league',
+      scene: 'league',
       title: '大名連合の噂',
       minYear: 1660,
       trial: true,
@@ -554,6 +593,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'black-ships',
+      scene: 'blackship',
       title: '異国の黒い船',
       kind: 'foreign',
       minYear: 1780,
@@ -573,6 +613,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'court-defiance',
+      scene: 'court',
       title: '朝廷の不満',
       minYear: 1700,
       trial: true,

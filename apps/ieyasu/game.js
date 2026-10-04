@@ -4,6 +4,7 @@
   'use strict';
 
   const DATA = window.IEYASU_DATA;
+  const ART = window.IEYASU_ART;
 
   const CONFIG = {
     START_YEAR: 1637,       // 本編が始まる年（東照宮完成の翌年）
@@ -554,6 +555,7 @@
     if (panel.hidden) return;
     const s = state.shogun;
 
+    $('stat-portrait').innerHTML = ART.shogun(s.trait);
     $('stat-year').textContent = `${state.year}年`;
     $('stat-age').textContent = `開府から${bakufuYears()}年`;
     $('stat-shogun').textContent = `第${s.gen}代 ${s.name}（${s.age}歳・${s.trait}）`;
@@ -596,6 +598,34 @@
     stage.append(...[].concat(views[state.phase]()));
   }
 
+  // イラスト（art.js が作る固定のSVG文字列）を入れる箱
+  function art(svg, cls) {
+    const box = el('div', { class: cls, 'aria-hidden': 'true' });
+    box.innerHTML = svg;
+    return box;
+  }
+
+  function sceneArt(name) {
+    return art(ART.scene(name), 'iy-scene');
+  }
+
+  // 家康の顔つきのせりふ。children は文字列か要素
+  function ieyasuSays(children, mood = 'calm') {
+    return el('div', { class: 'iy-speech' }, [
+      art(ART.ieyasu(mood), 'iy-speech__face'),
+      el('div', { class: 'iy-speech__body' }, [].concat(children)),
+    ]);
+  }
+
+  function ieyasuMood() {
+    return Object.values(state.shogunate).some((v) => v <= 25) ? 'worry' : 'calm';
+  }
+
+  function personArt(person) {
+    if (person.house) return art(ART.retainer(), 'iy-face');
+    return art(person.age < CONFIG.ADULT_AGE ? ART.child(person.trait) : ART.shogun(person.trait), 'iy-face');
+  }
+
   function paragraphs(lines) {
     return [].concat(lines).map((line) => el('p', { text: line }));
   }
@@ -606,7 +636,8 @@
     const nodes = [
       el('p', { class: 'iy-year', text: `${step.year}年` }),
       el('h2', { text: step.title }),
-      el('div', { class: 'iy-voice' }, paragraphs(step.text)),
+      sceneArt(step.scene),
+      ieyasuSays(el('div', { class: 'iy-voice' }, paragraphs(step.text)), step.mood),
     ];
     const next = () => {
       state.prologueNote = null;
@@ -631,7 +662,7 @@
       nodes.push(list);
     } else {
       if (state.prologueNote) {
-        nodes.splice(2, 0, el('p', { class: 'iy-note', text: state.prologueNote }));
+        nodes.splice(3, 0, el('p', { class: 'iy-note', text: state.prologueNote }));
       }
       nodes.push(el('button', { type: 'button', class: 'iy-primary', onclick: next, text: isLast ? '幕府を見守る' : '次へ' }));
     }
@@ -644,12 +675,16 @@
     const nodes = [
       el('p', { class: 'iy-year', text: `${state.year}年${card.trial ? '　大きな試練' : ''}` }),
       el('h2', { text: card.title }),
+      sceneArt(card.scene),
       el('p', { text: card.text }),
-      el('p', { class: 'iy-voice iy-voice--aside', text: `権現様「${card.ieyasu}」` }),
-      el('p', { class: 'iy-intent' }, [
+      ieyasuSays(el('p', { class: 'iy-voice', text: `「${card.ieyasu}」` }), card.trial ? 'worry' : ieyasuMood()),
+      el('div', { class: 'iy-intent' }, [
+        art(ART.shogun(state.shogun.trait), 'iy-face iy-face--small'),
+        el('p', {}, [
         `将軍・${state.shogun.name}（${state.shogun.trait}）は「`,
         el('strong', { text: card.options[pickIndex].label }),
         '」を選ぼうとしている。',
+        ]),
       ]),
     ];
 
@@ -682,13 +717,16 @@
 
   function viewResult() {
     const r = state.result;
+    const card = state.card && cardById(state.card.id);
     return [
       el('p', { class: 'iy-year', text: `${state.year}年` }),
       el('h2', { text: `${r.title}：${r.choice}` }),
-      r.oracle ? el('p', { class: 'iy-voice iy-voice--aside', text: r.oracle }) : null,
+      card ? sceneArt(card.scene) : null,
+      r.oracle ? ieyasuSays(el('p', { class: 'iy-voice', text: r.oracle }), 'angry') : null,
       el('p', { class: r.failed ? 'iy-failed' : '', text: r.text }),
       changeList(r.changes),
       r.growth ? el('p', { class: 'iy-note', text: r.growth }) : null,
+      r.failed ? ieyasuSays(el('p', { class: 'iy-voice', text: '「……むう。」' }), 'worry') : null,
       el('button', {
         type: 'button', class: 'iy-primary', text: '政務の間へ',
         onclick: () => { state.phase = 'manage'; state.result = null; commit(); },
@@ -710,9 +748,12 @@
       }
     }
     return el('div', { class: 'iy-heir' }, [
-      el('p', { class: 'iy-heir__name' }, [
-        el('strong', { text: heir.name }),
-        `（${heir.age}歳・${heir.trait}）`,
+      el('div', { class: 'iy-heir__head' }, [
+        personArt(heir),
+        el('p', { class: 'iy-heir__name' }, [
+          el('strong', { text: heir.name }),
+          `（${heir.age}歳・${heir.trait}）`,
+        ]),
       ]),
       el('p', { class: 'iy-heir__stats', text: Object.keys(ABILITY_LABELS).map((k) => `${ABILITY_LABELS[k]}${heir.stats[k]}`).join('　') }),
       canTeach
@@ -726,6 +767,7 @@
     const nodes = [
       el('p', { class: 'iy-year', text: `${state.year}年` }),
       el('h2', { text: '政務の間' }),
+      sceneArt('castle'),
       el('p', { class: 'iy-hint', text: '神力と実績を使って、次の代への備えをする。終わったら年を越す。' }),
       el('h3', { text: '若君' }),
     ];
@@ -780,14 +822,18 @@
     const nodes = [
       el('p', { class: 'iy-year', text: `${state.year}年` }),
       el('h2', { text: reason === 'retire' ? '将軍職を譲る' : '将軍、世を去る' }),
+      sceneArt(reason === 'retire' ? 'hall' : 'sickbed'),
       el('p', { text: intro }),
     ];
     const list = el('div', { class: 'iy-options' });
     candidates.forEach((c, i) => {
       const warn = c.age < CONFIG.ADULT_AGE ? '　幼い将軍になる（威光が下がる）' : '';
-      list.append(el('button', { type: 'button', class: 'iy-option', onclick: () => crown(i) }, [
-        el('strong', { text: `${c.name}（${c.age}歳・${c.trait}）` }),
-        el('span', { text: Object.keys(ABILITY_LABELS).map((k) => `${ABILITY_LABELS[k]}${c.stats[k]}`).join('　') + warn }),
+      list.append(el('button', { type: 'button', class: 'iy-option iy-option--person', onclick: () => crown(i) }, [
+        personArt(c),
+        el('span', { class: 'iy-option__text' }, [
+          el('strong', { text: `${c.name}（${c.age}歳・${c.trait}）` }),
+          el('span', { text: Object.keys(ABILITY_LABELS).map((k) => `${ABILITY_LABELS[k]}${c.stats[k]}`).join('　') + warn }),
+        ]),
       ]));
     });
     nodes.push(list);
@@ -799,10 +845,9 @@
     return [
       el('p', { class: 'iy-year', text: `${state.year}年` }),
       el('h2', { text: '倒幕' }),
-      el('div', { class: 'iy-voice' }, paragraphs([
-        `徳川の幕府は、開府から${years}年で幕を閉じた。最後の将軍は、第${state.shogun.gen}代・${state.shogun.name}。`,
-        '日光の山の上で、権現様は長いため息をついた。……次こそは。',
-      ])),
+      sceneArt('fall'),
+      el('p', { text: `徳川の幕府は、開府から${years}年で幕を閉じた。最後の将軍は、第${state.shogun.gen}代・${state.shogun.name}。` }),
+      ieyasuSays(el('p', { class: 'iy-voice', text: '日光の山の上で、権現様は長いため息をついた。……次こそは。' }), 'worry'),
       el('p', { class: 'iy-note', text: `これまでの最長記録：${Math.max(years, loadBest())}年（史実の幕府は約265年）` }),
       el('button', { type: 'button', class: 'iy-primary', text: 'もう一度、最初から', onclick: restart }),
     ];
@@ -830,6 +875,7 @@
     if (window.confirm('保存されている進行状況を消して、はじめからやり直しますか？')) restart();
   });
 
+  $('title-art').innerHTML = ART.scene('heaven');
   state = load() || newGame();
   lastPhase = state.phase;
   render();
