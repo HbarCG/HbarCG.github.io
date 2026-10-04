@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>家康の憂鬱 | HbarCG</title>
+  <meta name="description" content="神となった家康が、日光の山の上から子孫の将軍たちを導き、幕府を守り続ける世代交代型の経営シミュレーション（試作版）。">
+  <link rel="canonical" href="https://hbarcg.github.io/apps/ieyasu/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="HbarCG">
+  <meta property="og:title" content="家康の憂鬱">
+  <meta property="og:description" content="神となった家康が、日光の山の上から子孫の将軍たちを導き、幕府を守り続ける世代交代型の経営シミュレーション（試作版）。">
+  <meta property="og:url" content="https://hbarcg.github.io/apps/ieyasu/">
+  <meta property="og:image" content="https://hbarcg.github.io/brand/og-image.png">
+  <meta property="og:locale" content="ja_JP">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/apps/ieyasu/style.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "c3945604e04946f68c8212fdc5cfbfeb"}'></script>
+</head>
+<body>
+  <div class="page">
+    <header class="site-header">
+      <p class="site-title"><a href="/"><span class="mark-hb">Hbar</span>CG</a></p>
+      <nav class="site-nav">
+        <a href="/essays/">Essays</a>
+        <a href="/apps/" aria-current="true">Apps</a>
+        <a href="/about/">About</a>
+      </nav>
+    </header>
+
+    <main>
+      <p class="back-link"><a href="/apps/">← Apps</a></p>
+
+      <h1>家康の憂鬱</h1>
+      <p class="lede">
+        神として日光に祀られた家康は、自分の幕府が心配でならない。体はなく、できるのは将軍の夢枕に立つことと、若君を夢の中で教えることだけ。口を出しすぎれば子孫は育たず、黙っていれば幕府が危うい。倒幕されるまで、幕府は何年続くだろうか。（試作版）
+      </p>
+      <p class="iy-hint">
+        進行状況はこの端末のブラウザに自動で保存される。
+        <button type="button" id="btn-reset" class="iy-link-button">はじめからやり直す</button>
+      </p>
+
+      <section class="iy-panel iy-status" id="status" hidden>
+        <div class="iy-status__head">
+          <p><strong id="stat-year"></strong>　<span class="iy-muted" id="stat-age"></span></p>
+          <p id="stat-shogun"></p>
+          <p class="iy-muted" id="stat-abilities"></p>
+        </div>
+        <div class="iy-bars" id="stat-bars"></div>
+        <dl class="iy-resources">
+          <div><dt>神力</dt><dd id="stat-shinryoku"></dd></div>
+          <div><dt>信仰</dt><dd id="stat-shinko"></dd></div>
+          <div><dt>実績</dt><dd id="stat-jisseki"></dd></div>
+        </dl>
+        <p class="iy-crisis" id="crisis" role="alert" hidden></p>
+      </section>
+
+      <section class="iy-panel iy-stage" id="stage" aria-live="polite"></section>
+
+      <section class="iy-panel" id="log-panel" hidden>
+        <h2>記録</h2>
+        <ul class="iy-log" id="log"></ul>
+      </section>
+
+      <section class="iy-panel">
+        <h2>歴代将軍</h2>
+        <ol class="iy-history" id="history"></ol>
+      </section>
+
+      <details class="iy-panel iy-help">
+        <summary>遊び方</summary>
+        <ul>
+          <li>1年に1つ、幕府に出来事が起きる。将軍は自分の性格に合った判断をしようとする。</li>
+          <li>そのまま<strong>見守る</strong>と、将軍は経験を積んで能力が伸びる。神力を使って<strong>夢枕に立つ</strong>と、判断を変えられるが、将軍は育たない。</li>
+          <li>財政・威光・民心・朝廷のどれかが0になると倒幕の危機。3年のうちに立て直せなければゲームオーバー。</li>
+          <li>神力は東照宮への信仰から毎年たまる。若君の教育、将軍の判断を変えること、隠居を勧めることに使う。</li>
+          <li>実績を使って整えた制度は、代をまたいで残り、幕府を少しずつ強くする。</li>
+          <li>年が進むほど、大きな試練がやって来る。</li>
+        </ul>
+      </details>
+    </main>
+
+    <footer class="site-footer">
+      <p>&copy; 2026 HbarCG</p>
+    </footer>
+  </div>
+
+  <script src="/apps/ieyasu/cards.js"></script>
+  <script src="/apps/ieyasu/game.js"></script>
+</body>
+</html>
