@@ -1,5 +1,6 @@
 // 家康の憂鬱（試作版）の本体。
-// 物語・出来事カード・制度のデータは cards.js にある。ここは「1年の流れ」と画面の描画だけを受け持つ。
+// 物語・出来事カード・制度のデータは cards.js、イラストは art.js にある。
+// ここは「1年の流れ」「お金の帳簿」「組織」「家系図」と、画面の描画を受け持つ。
 (() => {
   'use strict';
 
@@ -9,48 +10,81 @@
   const CONFIG = {
     START_YEAR: 1637,       // 本編が始まる年（東照宮完成の翌年）
     BAKUFU_FOUNDED: 1603,   // 幕府を開いた年（何年続いたかの起点）
-    ORACLE_COST: 2,         // 夢枕に立つ（将軍の判断を変える）のに使う神力
-    TEACH_COST: 1,          // 若君を1回教育するのに使う神力
-    RETIRE_COST: 3,         // 将軍に隠居を勧めるのに使う神力
-    SHINRYOKU_MAX: 12,
     ABILITY_MAX: 20,
     ADULT_AGE: 15,          // これ未満で将軍になると「幼い将軍」
     TEACH_AGE_LIMIT: 20,    // この歳までは教育できる
+    TEACH_COST: 10,         // 若君の教育費（万両/回）
     MAX_HEIRS: 3,
     HEIR_BIRTH_CHANCE: 0.2,
     CARD_COOLDOWN: 10,      // 同じ出来事は、この年数のあいだ出ない
-    CRISIS_YEARS: 3,        // 状態が0になってから立て直すまでの猶予
-    CRISIS_SAFE: 10,        // 全部の状態がこれを超えたら危機を脱する
+    CRISIS_YEARS: 3,        // 危機になってから立て直すまでの猶予
+    CRISIS_SAFE: 10,        // 威光・民心・朝廷がすべてこれを超え、借入が上限以下なら危機を脱する
+    INTEREST: 0.08,         // 借入の利息（年）
+    DEBT_LIMIT: 2,          // 借りられる上限は、その年の歳入のこの倍まで
+    LOAN_STEP: 20,          // 財務画面で1回に借りる・返す額（万両）
+    RICE_STEP: 20,          // 財務画面で1回に売る蔵米（万両ぶん）
+    MAX_RETAINERS: 12,
+    CANDIDATES: 2,          // 毎年あらわれる登用の候補
+    BOOKS_KEPT: 30,         // 決算を何年ぶん残すか
   };
 
-  const STATE_LABELS = { zaisei: '財政', ikou: '威光', minshin: '民心', chotei: '朝廷' };
+  const STATE_LABELS = { ikou: '威光', minshin: '民心', chotei: '朝廷' };
   const ABILITY_LABELS = { seimu: '政務', bui: '武威', jintoku: '人徳', kenko: '健康' };
-  const OTHER_LABELS = { shinko: '信仰', jisseki: '実績', health: '将軍の健康' };
+  const RETAINER_LABELS = { seimu: '政務', sanyo: '算用', bui: '武威', jinbo: '人望' };
   const TEACH_LABELS = { seimu: '学問', bui: '武芸', jintoku: '人の道', kenko: '養生' };
+  const FIN_LABELS = {
+    ryo: ['現金', '万両'], borrow: ['借入', '万両'], rice: ['蔵米', '万両'], kokudaka: ['天領の石高', '万石'],
+    mine: ['金銀山の産出', '万両/年'], trade: ['運上金・交易', '万両/年'], ooku: ['大奥の費え', '万両/年'],
+  };
+  const OTHER_LABELS = { jisseki: '実績', health: '将軍の健康' };
   const TRAITS = ['慎重', '豪胆', '寛大', '倹約', '華美'];
   const CHILD_NAMES = ['竹千代', '長松', '徳松', '亀松', '鶴松', '国松', '万寿丸', '虎松', '福松', '松千代'];
   // 本編はオリジナルの歴史なので、実在の将軍とは違う名前にする
   const NAME_KANJI = ['信', '昌', '貞', '盛', '隆', '寛', '泰', '弘', '保', '和', '成', '明', '敬', '直', '房',
     '輝', '長', '孝', '正', '清', '時', '邦', '周', '範', '教', '良', '景', '義', '道', '元'];
-  const GOSANKE_HOUSES = ['尾張家', '紀伊家', '水戸家'];
-  const ORACLE_LINES = [
-    '「{name}よ、そうではない……」その夜、将軍の夢枕に権現様が立った。',
-    '「{name}、よう聞け」夢の中の老人の声に、将軍は飛び起きた。',
-    '将軍は夢を見た。日光の山の上から、誰かがじっとこちらを見ている夢を。',
+  const SURNAMES = ['本多', '酒井', '井伊', '土井', '阿部', '堀田', '大久保', '水野', '稲葉', '青山', '戸田', '板倉',
+    '牧野', '久世', '秋元', '大岡', '内藤', '鳥居', '榊原', '小笠原', '保科', '安藤', '松浦', '植村', '永井', '太田'];
+  const GIVEN = ['正', '忠', '信', '勝', '重', '秀', '直', '利', '政', '清', '長', '元', '之', '次', '則', '経', '隆', '房', '昌', '貞'];
+  const GOSANKE = [
+    { house: '尾張家', founder: '義直' },
+    { house: '紀伊家', founder: '頼宣' },
+    { house: '水戸家', founder: '頼房' },
+  ];
+
+  // 組織の役職。stat はその役職で使う家臣の能力
+  const POSTS = [
+    { id: 'roju', name: '老中', stat: 'seimu', desc: '政の要。「政務」で決まる判断を助け、腕が立てば実績も増える。' },
+    { id: 'kanjo', name: '勘定奉行', stat: 'sanyo', desc: '金蔵の番人。年貢の取り立てと経費の多さを左右する。' },
+    { id: 'machi', name: '町奉行', stat: 'jinbo', desc: '江戸の町と民を治める。毎年の民心と、「人徳」で決まる判断を助ける。' },
+    { id: 'ometsuke', name: '大目付', stat: 'bui', desc: '大名を見張る。毎年の威光と、「武威」で決まる判断を助ける。' },
+    { id: 'shoshidai', name: '京都所司代', stat: 'seimu', desc: '京で朝廷と向き合う。毎年の朝廷との関係を左右する。' },
+    { id: 'jisha', name: '寺社奉行', stat: 'jinbo', desc: '寺社と東照宮を預かる。毎年の威光と民心をわずかに支える。' },
+  ];
+  const CHECK_POST = { seimu: 'roju', bui: 'ometsuke', jintoku: 'machi' };
+
+  const TABS = [
+    { id: 'seimu', icon: '政', label: '政務' },
+    { id: 'family', icon: '系', label: '家系図' },
+    { id: 'finance', icon: '財', label: '財務' },
+    { id: 'org', icon: '組', label: '組織' },
+    { id: 'log', icon: '記', label: '記録' },
   ];
 
   const SAVE_KEY = 'ieyasu-save';
   const BEST_KEY = 'ieyasu-best';
-  const SAVE_VERSION = 1;
+  const SAVE_VERSION = 2;
 
   let state = null;
+  // 画面だけの状態（保存しない）
+  const ui = { tab: 'seimu', person: null, bookYear: 'now' };
 
   // ─────────────────────────────── 小さな道具
 
   const rand = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
   const pick = (list) => list[Math.floor(Math.random() * list.length)];
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-  const signed = (n) => (n > 0 ? `+${n}` : `−${Math.abs(n)}`);
+  const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : '±0');
+  const money = (n) => `${n < 0 ? '−' : ''}${Math.abs(Math.round(n)).toLocaleString('ja-JP')}`;
 
   function el(tag, attrs = {}, children = []) {
     const node = document.createElement(tag);
@@ -58,14 +92,18 @@
       if (key === 'class') node.className = value;
       else if (key === 'text') node.textContent = value;
       else if (key === 'onclick') node.addEventListener('click', value);
+      else if (key === 'onchange') node.addEventListener('change', value);
       else if (key === 'disabled') node.disabled = Boolean(value);
+      else if (key === 'selected') node.selected = Boolean(value);
       else node.setAttribute(key, value);
     }
     for (const child of [].concat(children)) {
-      if (child) node.append(child);
+      if (child !== null && child !== undefined && child !== false) node.append(child);
     }
     return node;
   }
+
+  const $ = (id) => document.getElementById(id);
 
   function institution(id) {
     return DATA.institutions.find((i) => i.id === id);
@@ -77,7 +115,7 @@
 
   function addLog(text) {
     state.log.unshift({ year: state.year, text });
-    state.log = state.log.slice(0, 40);
+    state.log = state.log.slice(0, 80);
   }
 
   function bakufuYears() {
@@ -86,7 +124,17 @@
 
   // 年が進むほど、悪い出来事の痛手が大きくなる
   function difficulty() {
-    return 1 + Math.max(0, state.year - CONFIG.START_YEAR) / 120;
+    return 1 + Math.max(0, state.year - CONFIG.START_YEAR) / 150;
+  }
+
+  // 物価。年が進むほど上がり、支出（俸禄・費え・出来事の費用）がかさむ。年貢は石高で決まるので物価には追いつかない
+  function price() {
+    return 1 + Math.max(0, state.year - CONFIG.START_YEAR) / 100;
+  }
+
+  function nextId() {
+    state.nextId += 1;
+    return state.nextId;
   }
 
   // ─────────────────────────────── 保存
@@ -104,7 +152,7 @@
       const saved = JSON.parse(localStorage.getItem(SAVE_KEY));
       if (saved && saved.version === SAVE_VERSION) return saved;
     } catch (e) {
-      // 壊れた保存データは捨てて、はじめからにする
+      // 壊れた保存データや古い形式は捨てて、はじめからにする
     }
     return null;
   }
@@ -128,20 +176,20 @@
   // ─────────────────────────────── はじまり
 
   function newGame() {
-    return {
+    state = {
       version: SAVE_VERSION,
       phase: 'prologue',
       prologueStep: 0,
+      prologueNote: null,
       year: 1616,
-      shogunate: { zaisei: 55, ikou: 60, minshin: 55, chotei: 50 },
-      shinko: 70,
-      shinryoku: 3,
+      nextId: 0,
+      gauges: { ikou: 60, minshin: 55, chotei: 50 },
+      fin: { cash: 250, rice: 60, debt: 0, kokudaka: 400, mine: 30, trade: 5, ooku: 10, infra: 200, lastRevenue: 120 },
       jisseki: 0,
-      shogun: {
-        name: '家光', gen: 3, age: 33, health: 35, startYear: 1623, trait: '華美',
-        stats: { seimu: 9, bui: 8, jintoku: 7 },
-      },
+      shogun: null,
       heirs: [],
+      retainers: [],
+      candidates: [],
       institutions: [],
       usedNames: ['家康', '秀忠', '家光'],
       seen: {},
@@ -149,21 +197,67 @@
       result: null,
       succession: null,
       crisis: null,
+      ledger: { year: CONFIG.START_YEAR, items: [] },
+      books: [],
+      family: [],
       log: [],
-      history: [
-        { gen: 1, name: '家康', from: 1603, to: 1605, note: '将軍職を秀忠に譲る' },
-        { gen: 2, name: '秀忠', from: 1605, to: 1623, note: '将軍職を家光に譲る' },
-      ],
     };
+
+    // 家系図（史実の部分）
+    const ieyasu = addPerson({ name: '家康', born: 1543, parentId: null, trait: '慎重', gen: 1, from: 1603, to: 1605,
+      start: { seimu: 18, bui: 18, jintoku: 16 }, note: '幕府を開く。将軍職を秀忠に譲り、大御所として政を見る。' });
+    GOSANKE.forEach((g, i) => {
+      addPerson({ name: g.founder, born: 1600 + i * 2, parentId: ieyasu.id, house: g.house, note: `${g.house}の祖。` });
+    });
+    const hidetada = addPerson({ name: '秀忠', born: 1579, parentId: ieyasu.id, trait: '慎重', gen: 2, from: 1605, to: 1623,
+      start: { seimu: 12, bui: 9, jintoku: 11 }, note: '将軍職を家光に譲る。' });
+    hidetada.end = { ...hidetada.start };
+    ieyasu.end = { ...ieyasu.start };
+    const iemitsu = addPerson({ name: '家光', born: 1604, parentId: hidetada.id, trait: '華美', gen: 3, from: 1623,
+      start: { seimu: 9, bui: 8, jintoku: 7 } });
+
+    state.shogun = {
+      personId: iemitsu.id, name: '家光', gen: 3, age: 33, health: 35, startYear: 1623, trait: '華美',
+      stats: { seimu: 9, bui: 8, jintoku: 7 },
+    };
+
+    // 家光の時代の家臣たち
+    const seeded = [
+      { name: '松平信綱', age: 41, stats: { seimu: 17, sanyo: 12, bui: 8, jinbo: 10 }, post: 'roju' },
+      { name: '板倉重宗', age: 51, stats: { seimu: 14, sanyo: 9, bui: 7, jinbo: 12 }, post: 'shoshidai' },
+      { name: '酒井忠勝', age: 50, stats: { seimu: 13, sanyo: 10, bui: 10, jinbo: 11 }, post: null },
+    ];
+    for (const r of seeded) state.retainers.push(makeRetainer(r));
+    for (const post of ['kanjo', 'machi', 'ometsuke', 'jisha']) {
+      const r = makeRetainer();
+      r.stats[POSTS.find((p) => p.id === post).stat] = rand(9, 13);
+      r.salary = salaryOf(r.stats);
+      r.post = post;
+      state.retainers.push(r);
+    }
+    state.candidates = makeCandidates();
+    return state;
+  }
+
+  function addPerson(p) {
+    const added = { id: nextId(), insts: [], ...p };
+    state.family.push(added);
+    return added;
+  }
+
+  function person(id) {
+    return state.family.find((p) => p.id === id);
   }
 
   function startMain() {
     state.year = CONFIG.START_YEAR;
     state.phase = 'event';
-    addLog('家光が倒れた。権現様は、夢枕に立つ力を得た。');
+    state.ledger = { year: state.year, items: [] };
+    addLog('家光が倒れた。東照宮で力を得た権現様は、自ら幕府の舵を取ることにした。');
     const heir = makeHeir('竹千代');
     state.heirs.push(heir);
     addLog(`若君・${heir.name}が生まれた。家光は床の中で涙を流して喜んだ。`);
+    for (const id of state.institutions) applyInstitutionOn(id);
     drawCard();
   }
 
@@ -173,10 +267,14 @@
     const parent = state.shogun.stats;
     const inherit = (v) => clamp(Math.round(v * 0.3) + rand(2, 6), 1, CONFIG.ABILITY_MAX);
     const used = state.heirs.map((h) => h.name);
+    const heirName = name || pick(CHILD_NAMES.filter((n) => !used.includes(n)));
+    const trait = Math.random() < 0.5 ? state.shogun.trait : pick(TRAITS);
+    const p = addPerson({ name: heirName, childName: heirName, born: state.year, parentId: state.shogun.personId, trait });
     return {
-      name: name || pick(CHILD_NAMES.filter((n) => !used.includes(n))),
+      personId: p.id,
+      name: heirName,
       age: 0,
-      trait: Math.random() < 0.5 ? state.shogun.trait : pick(TRAITS),
+      trait,
       stats: {
         seimu: inherit(parent.seimu),
         bui: inherit(parent.bui),
@@ -198,6 +296,204 @@
     return state.heirs.reduce((a, b) => (b.age > a.age ? b : a), state.heirs[0]);
   }
 
+  // ─────────────────────────────── 家臣
+
+  function salaryOf(stats) {
+    const sum = Object.values(stats).reduce((a, b) => a + b, 0);
+    return Math.max(1, Math.round(sum / 12));
+  }
+
+  function makeRetainer(seed = {}) {
+    let name = seed.name;
+    if (!name) {
+      const used = new Set(state.retainers.map((r) => r.name).concat(state.candidates.map((c) => c.name)));
+      do {
+        name = `${pick(SURNAMES)}${pick(GIVEN)}${pick(GIVEN)}`;
+      } while (used.has(name) || name[name.length - 1] === name[name.length - 2]);
+    }
+    const stats = seed.stats || { seimu: rand(3, 10), sanyo: rand(3, 10), bui: rand(3, 10), jinbo: rand(3, 10) };
+    if (!seed.stats) {
+      const strong = pick(Object.keys(stats));
+      stats[strong] = clamp(stats[strong] + rand(3, 8), 1, CONFIG.ABILITY_MAX);
+    }
+    const id = nextId();
+    return { id, name, age: seed.age || rand(22, 40), stats, salary: salaryOf(stats), post: seed.post || null, seed: id * 7 + name.length };
+  }
+
+  function makeCandidates() {
+    return Array.from({ length: CONFIG.CANDIDATES }, () => makeRetainer({ age: rand(20, 34) }));
+  }
+
+  function holder(postId) {
+    return state.retainers.find((r) => r.post === postId) || null;
+  }
+
+  // 役職の働きぶり。空席なら 4 として扱う（空席は損）
+  function postValue(postId) {
+    const h = holder(postId);
+    const post = POSTS.find((p) => p.id === postId);
+    return h ? h.stats[post.stat] : 4;
+  }
+
+  function postBonus(postId, div = 4) {
+    return Math.round((postValue(postId) - 10) / div);
+  }
+
+  function assign(retainerId, postId) {
+    const current = holder(postId);
+    if (current) current.post = null;
+    const r = state.retainers.find((x) => x.id === retainerId);
+    if (r) {
+      r.post = postId;
+      addLog(`${r.name}を${POSTS.find((p) => p.id === postId).name}に任じた。`);
+    }
+    commit();
+  }
+
+  function autoAssign() {
+    for (const post of POSTS) {
+      if (holder(post.id)) continue;
+      const free = state.retainers.filter((r) => !r.post);
+      if (free.length === 0) break;
+      const best = free.reduce((a, b) => (b.stats[post.stat] > a.stats[post.stat] ? b : a));
+      best.post = post.id;
+      addLog(`${best.name}を${post.name}に任じた。`);
+    }
+    commit();
+  }
+
+  function hire(index) {
+    if (state.retainers.length >= CONFIG.MAX_RETAINERS) return;
+    const c = state.candidates.splice(index, 1)[0];
+    state.retainers.push(c);
+    addLog(`${c.name}を召し抱えた（俸禄 年${c.salary}万両）。`);
+    commit();
+  }
+
+  function dismiss(id) {
+    const r = state.retainers.find((x) => x.id === id);
+    if (!r || !window.confirm(`${r.name}に暇を出しますか？`)) return;
+    state.retainers = state.retainers.filter((x) => x.id !== id);
+    addLog(`${r.name}に暇を出した。`);
+    commit();
+  }
+
+  function vacancies() {
+    return POSTS.filter((p) => !holder(p.id));
+  }
+
+  // ─────────────────────────────── 帳簿
+
+  // cf: 'op'（営業）/ 'inv'（投資）/ 'fin'（財務）
+  function book(cf, label, amount) {
+    if (amount === 0) return;
+    state.ledger.items.push({ cf, label, amount: Math.round(amount) });
+  }
+
+  function debtLimit() {
+    return Math.round(state.fin.lastRevenue * CONFIG.DEBT_LIMIT);
+  }
+
+  function assets() {
+    const f = state.fin;
+    return [
+      { label: '金蔵の現金', value: Math.max(0, Math.round(f.cash)) },
+      { label: '蔵米', value: Math.round(f.rice) },
+      { label: '金銀山（産出の8年ぶん）', value: Math.round(f.mine * 8) },
+      { label: '城・堤・街道などの普請', value: Math.round(f.infra) },
+    ];
+  }
+
+  function netAssets() {
+    return assets().reduce((a, b) => a + b.value, 0) - state.fin.debt;
+  }
+
+  function borrow(amount, label = '商人からの借入') {
+    state.fin.cash += amount;
+    state.fin.debt += amount;
+    book('fin', label, amount);
+  }
+
+  function repay() {
+    const amount = Math.min(CONFIG.LOAN_STEP, state.fin.debt);
+    if (amount <= 0 || state.fin.cash < amount) return;
+    state.fin.cash -= amount;
+    state.fin.debt -= amount;
+    book('fin', '借入の返済', -amount);
+    addLog(`借入を${amount}万両返した。`);
+    commit();
+  }
+
+  function borrowMore() {
+    if (state.fin.debt + CONFIG.LOAN_STEP > debtLimit()) return;
+    borrow(CONFIG.LOAN_STEP);
+    addLog(`商人から${CONFIG.LOAN_STEP}万両借りた。`);
+    commit();
+  }
+
+  function sellRice() {
+    const amount = Math.min(CONFIG.RICE_STEP, Math.floor(state.fin.rice));
+    if (amount <= 0) return;
+    state.fin.rice -= amount;
+    state.fin.cash += amount;
+    book('op', '蔵米の売却', amount);
+    addLog(`蔵米を${amount}万両ぶん売った。`);
+    commit();
+  }
+
+  // 1年の決算。収入と経常の支出を帳簿につけ、帳簿を締める
+  function closeBooks() {
+    const f = state.fin;
+    const s = state.shogun;
+    const inflation = price();
+    const kanjo = postValue('kanjo');
+
+    const nengu = Math.round(f.kokudaka * 0.25 * (0.7 + state.gauges.minshin / 400) * (0.9 + s.stats.seimu / 100)
+      * (1 + (kanjo - 10) * 0.015) * (hasInstitution('kanjo') ? 1.08 : 1));
+    const mine = Math.round(f.mine);
+    // 商いは時代とともに大きくなる（交易の上がりは年々増える）
+    const trade = Math.round(f.trade * (1 + (state.year - CONFIG.START_YEAR) / 250));
+    const costRate = 1 - (kanjo - 10) * 0.01 - (hasInstitution('kanjo') ? 0.05 : 0);
+    const hatamoto = Math.round(60 * inflation * costRate);
+    const salaries = state.retainers.reduce((sum, r) => sum + (r.post ? r.salary : Math.ceil(r.salary / 2)), 0);
+    const ooku = Math.round(f.ooku * inflation * costRate);
+    const court = Math.round(5 * inflation * costRate);
+    const upkeep = state.institutions.reduce((sum, id) => sum + (institution(id)?.upkeep || 0), 0);
+    const interest = Math.round(f.debt * CONFIG.INTEREST);
+
+    const regular = [
+      ['op', '年貢', nengu], ['op', '金銀山', mine], ['op', '運上金・交易', trade],
+      ['op', '旗本・御家人の俸禄', -hatamoto], ['op', '家臣の俸禄', -salaries], ['op', '大奥の費え', -ooku],
+      ['op', '朝廷・寺社への費え', -court], ['op', '制度の維持費', -upkeep], ['fin', '借入の利息', -interest],
+    ];
+    for (const [cf, label, amount] of regular) {
+      f.cash += amount;
+      book(cf, label, amount);
+    }
+    f.lastRevenue = nengu + mine + trade;
+
+    // 現金が尽きたら、商人から借りてしのぐ
+    if (f.cash < 0) {
+      const need = Math.ceil(-f.cash) + 10;
+      borrow(need, '商人からの借入（資金繰り）');
+      applyEffects({ ikou: -2 });
+      addLog(`金蔵が空になり、商人から${need}万両を借りてしのいだ。`);
+    }
+
+    // 資産の目減り（金山は掘るほど細り、蔵米は傷み、普請は古びる）
+    f.mine = Math.max(0, f.mine * 0.985);
+    f.rice = Math.max(0, f.rice * 0.95);
+    f.infra = Math.max(0, f.infra * 0.99);
+
+    const total = (cf) => state.ledger.items.filter((i) => i.cf === cf).reduce((a, b) => a + b.amount, 0);
+    state.books.unshift({
+      year: state.year, items: state.ledger.items,
+      op: total('op'), inv: total('inv'), fin: total('fin'),
+      cash: Math.round(f.cash), debt: Math.round(f.debt), net: Math.round(netAssets()),
+    });
+    state.books = state.books.slice(0, CONFIG.BOOKS_KEPT);
+  }
+
   // ─────────────────────────────── 出来事
 
   function cardById(id) {
@@ -210,9 +506,11 @@
   }
 
   function drawCard() {
+    // cards.js の when(s) は s.shogunate と s.heirs を見る
+    const view = { ...state, shogunate: state.gauges };
     const usable = (card, useCooldown) => {
       if (card.minYear && state.year < card.minYear) return false;
-      if (card.when && !card.when(state)) return false;
+      if (card.when && !card.when(view)) return false;
       const last = state.seen[card.id];
       if (last === undefined) return true;
       if (card.once) return false;
@@ -228,33 +526,34 @@
       roll -= cardWeight(c);
       if (roll <= 0) { chosen = c; break; }
     }
-    state.card = { id: chosen.id, shogunPick: shogunPick(chosen) };
+    state.card = { id: chosen.id };
   }
 
-  // 将軍は自分の性格に合う選択肢を選ぶ。合うものがなければ、見た目の損得がいちばん良いものを選ぶ
-  function shogunPick(card) {
-    const byTrait = card.options.findIndex((o) => o.tag === state.shogun.trait);
-    if (byTrait >= 0) return byTrait;
-    const score = (o) => Object.keys(STATE_LABELS).reduce((sum, k) => sum + (o.effects[k] || 0), 0);
-    let best = 0;
-    card.options.forEach((o, i) => { if (score(o) > score(card.options[best])) best = i; });
-    return best;
+  function checkAbility(check) {
+    const post = CHECK_POST[check.stat];
+    const bonus = post ? Math.max(0, Math.floor((postValue(post) - 8) / 3)) : 0;
+    return state.shogun.stats[check.stat] + bonus;
   }
 
   function successChance(check) {
-    const ability = state.shogun.stats[check.stat];
-    return clamp(0.5 + (ability - check.dc) * 0.07, 0.15, 0.92);
+    return clamp(0.5 + (checkAbility(check) - check.dc) * 0.07, 0.15, 0.92);
   }
 
   function isGuarded(kind) {
     return Boolean(kind) && state.institutions.some((id) => institution(id)?.guards === kind);
   }
 
+  // 費用の見込み（物価を反映）
+  function scaledCost(ryo) {
+    return ryo < 0 ? Math.round(ryo * price()) : ryo;
+  }
+
   // 効果を反映し、画面に出す「何がどれだけ変わったか」の一覧を返す
-  function applyEffects(effects, kind) {
+  function applyEffects(effects, opts = {}) {
     const changes = [];
     if (!effects) return changes;
-    const guarded = isGuarded(kind);
+    const guarded = isGuarded(opts.kind);
+    const f = state.fin;
     for (const [key, raw] of Object.entries(effects)) {
       if (key === 'heir') {
         const heir = eldestHeir();
@@ -266,12 +565,28 @@
         continue;
       }
       let v = raw;
+      let unit = '';
       if (STATE_LABELS[key]) {
         if (v < 0) v = Math.round(v * difficulty());
         if (v < 0 && guarded) v = Math.ceil(v / 2);
-        state.shogunate[key] = clamp(state.shogunate[key] + v, 0, 100);
-      } else if (key === 'shinko') {
-        state.shinko = clamp(state.shinko + v, 0, 100);
+        state.gauges[key] = clamp(state.gauges[key] + v, 0, 100);
+      } else if (key === 'ryo') {
+        v = scaledCost(v);
+        if (v < 0 && guarded) v = Math.ceil(v / 2);
+        f.cash += v;
+        if (opts.invest && v < 0) {
+          f.infra += -v;
+          book('inv', opts.label || '普請', v);
+        } else {
+          book('op', opts.label ? `臨時：${opts.label}` : '臨時の出入り', v);
+        }
+        unit = '万両';
+      } else if (key === 'borrow') {
+        borrow(v);
+        unit = '万両';
+      } else if (FIN_LABELS[key]) {
+        f[key] = Math.max(0, f[key] + v);
+        unit = FIN_LABELS[key][1];
       } else if (key === 'jisseki') {
         state.jisseki = Math.max(0, state.jisseki + v);
       } else if (key === 'health') {
@@ -279,28 +594,27 @@
       } else {
         continue;
       }
-      if (v !== 0) changes.push({ label: STATE_LABELS[key] || OTHER_LABELS[key], delta: v });
+      const label = STATE_LABELS[key] || (FIN_LABELS[key] && FIN_LABELS[key][0]) || OTHER_LABELS[key];
+      if (v !== 0) changes.push({ label, delta: v, unit });
     }
     return changes;
   }
 
-  function choose(index, overridden) {
+  function choose(index) {
     const card = cardById(state.card.id);
     const option = card.options[index];
-    if (overridden) {
-      if (state.shinryoku < CONFIG.ORACLE_COST) return;
-      state.shinryoku -= CONFIG.ORACLE_COST;
-    }
 
     let success = true;
     if (option.check) success = Math.random() < successChance(option.check);
-    const changes = applyEffects(success ? option.effects : option.fail, card.kind);
+    const changes = applyEffects(success ? option.effects : option.fail,
+      { kind: card.kind, invest: option.invest, label: card.title });
 
-    // 任せた場合だけ、将軍は経験を積んで育つ
+    // 将軍の好みに合う判断なら、将軍は乗り気で取り組み、経験を積んで育つ
+    const eager = option.tag === state.shogun.trait;
     let growth = null;
-    if (!overridden && option.grow && state.shogun.stats[option.grow] < CONFIG.ABILITY_MAX) {
+    if (eager && option.grow && state.shogun.stats[option.grow] < CONFIG.ABILITY_MAX) {
       state.shogun.stats[option.grow] += 1;
-      growth = `将軍の${ABILITY_LABELS[option.grow]}が1上がった（任された経験）`;
+      growth = `将軍は乗り気で取り組み、${ABILITY_LABELS[option.grow]}が1上がった。`;
     }
 
     state.seen[card.id] = state.year;
@@ -309,55 +623,75 @@
       choice: option.label,
       text: success ? option.text : option.failText,
       failed: !success,
-      oracle: overridden ? pick(ORACLE_LINES).replace('{name}', state.shogun.name) : null,
       changes,
       growth,
     };
-    addLog(`${card.title}：「${option.label}」${overridden ? '（夢枕に立った）' : ''}${success ? '' : '……しくじった'}`);
+    addLog(`${card.title}：「${option.label}」${success ? '' : '……しくじった'}`);
     state.phase = 'result';
     commit();
   }
 
   // ─────────────────────────────── 政務の間（教育・制度・隠居）
 
+  function teachCost() {
+    return Math.round(CONFIG.TEACH_COST * price());
+  }
+
   function teach(heirIndex, stat) {
     const heir = state.heirs[heirIndex];
-    if (!heir || heir.taughtYear === state.year || state.shinryoku < CONFIG.TEACH_COST) return;
-    state.shinryoku -= CONFIG.TEACH_COST;
+    if (!heir || heir.taughtYear === state.year) return;
+    const cost = teachCost();
+    state.fin.cash -= cost;
+    book('op', '若君の教育費', -cost);
     const gain = 2 + (hasInstitution('gakumon') ? 1 : 0);
     heir.stats[stat] = clamp(heir.stats[stat] + gain, 1, CONFIG.ABILITY_MAX);
     heir.taughtYear = state.year;
-    addLog(`若君・${heir.name}の夢に立ち、${TEACH_LABELS[stat]}を授けた（${ABILITY_LABELS[stat]}+${gain}）。`);
+    addLog(`若君・${heir.name}に${TEACH_LABELS[stat]}の師をつけた（${ABILITY_LABELS[stat]}+${gain}、${cost}万両）。`);
     commit();
+  }
+
+  function institutionCost(inst) {
+    return Math.round((inst.ryo || 0) * price());
   }
 
   function institutionStatus(inst) {
     if (hasInstitution(inst.id)) return { ok: false, reason: '整備済み' };
     if (state.jisseki < inst.cost) return { ok: false, reason: `実績が${inst.cost}必要` };
     for (const [key, min] of Object.entries(inst.requires || {})) {
-      if (state.shogunate[key] < min) return { ok: false, reason: `${STATE_LABELS[key]}が${min}必要` };
+      if (state.gauges[key] < min) return { ok: false, reason: `${STATE_LABELS[key]}が${min}必要` };
     }
+    if (state.fin.cash < institutionCost(inst)) return { ok: false, reason: `現金が${institutionCost(inst)}万両必要` };
     return { ok: true };
+  }
+
+  function applyInstitutionOn(id) {
+    const on = institution(id)?.on;
+    if (on) applyEffects(on);
   }
 
   function establish(id) {
     const inst = institution(id);
     if (!institutionStatus(inst).ok) return;
+    const cost = institutionCost(inst);
     state.jisseki -= inst.cost;
+    state.fin.cash -= cost;
+    state.fin.infra += cost;
+    book('inv', `制度の整備：${inst.name}`, -cost);
     state.institutions.push(id);
+    person(state.shogun.personId).insts.push(inst.name);
+    applyInstitutionOn(id);
     addLog(`制度「${inst.name}」を整えた。この制度は代をまたいで残る。`);
     commit();
   }
 
   function canRetire() {
-    return state.heirs.some((h) => h.age >= CONFIG.ADULT_AGE) && state.shinryoku >= CONFIG.RETIRE_COST;
+    return state.heirs.some((h) => h.age >= CONFIG.ADULT_AGE);
   }
 
   function retire() {
     if (!canRetire()) return;
-    if (!window.confirm(`神力を${CONFIG.RETIRE_COST}使って、${state.shogun.name}に隠居を勧めますか？`)) return;
-    state.shinryoku -= CONFIG.RETIRE_COST;
-    addLog(`権現様の勧めにより、${state.shogun.name}は将軍職を退き、大御所となった。`);
+    if (!window.confirm(`${state.shogun.name}を隠居させ、将軍職を譲りますか？`)) return;
+    addLog(`${state.shogun.name}は将軍職を退き、大御所となった。`);
     startSuccession('retire');
     commit();
   }
@@ -374,26 +708,37 @@
       if (yearly) applyEffects(yearly);
     }
 
-    // 将軍の能力による自然な増減。能力が低いと少しずつ悪くなる。
-    // 時代が下るほど幕府の費えは膨らみ、長い平和で大名は幕府を恐れなくなっていく
-    const age = Math.floor((state.year - CONFIG.START_YEAR) / 50);
+    // 将軍と役職の働きによる自然な増減。時代が下るほど大名は幕府を恐れなくなる
+    const era = Math.floor((state.year - CONFIG.START_YEAR) / 50);
     const drift = {
-      zaisei: Math.floor(s.stats.seimu / 4) - 3 - age,
-      ikou: Math.floor(s.stats.bui / 5) - 2 - Math.floor(age / 2),
-      minshin: Math.floor(s.stats.jintoku / 5) - 2,
-      chotei: 0,
+      ikou: Math.floor(s.stats.bui / 5) - 2 - Math.floor(era / 2) + postBonus('ometsuke') + postBonus('jisha', 8),
+      minshin: Math.floor(s.stats.jintoku / 5) - 2 + postBonus('machi') + postBonus('jisha', 8),
+      chotei: postBonus('shoshidai') + (state.gauges.chotei > 60 ? -1 : 0),
     };
     // 満ち足りた状態は長続きしない（慢心）
     for (const key of Object.keys(drift)) {
-      if (state.shogunate[key] > 80) drift[key] -= 2;
-      else if (key === 'chotei' && state.shogunate.chotei > 60) drift[key] -= 1;
+      if (state.gauges[key] > 80) drift[key] -= 2;
     }
     applyEffects(drift);
-    state.shinko = clamp(state.shinko - 2, 0, 100);
+    state.jisseki += 1 + (s.stats.seimu >= 12 ? 1 : 0) + (postValue('roju') >= 14 ? 1 : 0);
 
-    // 神力と実績
-    state.shinryoku = Math.min(CONFIG.SHINRYOKU_MAX, state.shinryoku + 1 + Math.floor(state.shinko / 25));
-    state.jisseki += 1 + (s.stats.seimu >= 12 ? 1 : 0);
+    closeBooks();
+
+    // 家臣が歳をとる。腕は役目の中で磨かれ、老いれば職を辞す
+    for (const r of [...state.retainers]) {
+      r.age += 1;
+      if (r.post && r.age < 45 && Math.random() < 0.3) {
+        const stat = POSTS.find((p) => p.id === r.post).stat;
+        r.stats[stat] = clamp(r.stats[stat] + 1, 1, CONFIG.ABILITY_MAX);
+        r.salary = salaryOf(r.stats);
+      }
+      if (r.age > 58 && Math.random() < (r.age - 58) * 0.05) {
+        state.retainers = state.retainers.filter((x) => x !== r);
+        const post = r.post ? `${POSTS.find((p) => p.id === r.post).name}の` : '';
+        notes.push(`${post}${r.name}が老いて職を辞した（${r.age}歳）。`);
+      }
+    }
+    state.candidates = makeCandidates();
 
     // 若君が育つ
     for (const heir of state.heirs) {
@@ -421,27 +766,32 @@
     }
 
     // 倒幕の危機
-    const values = Object.values(state.shogunate);
+    const broke = state.fin.debt > debtLimit();
+    const low = Object.keys(state.gauges).filter((k) => state.gauges[k] <= 0).map((k) => STATE_LABELS[k]);
+    if (broke) low.push('財政（借入が上限超え）');
     if (state.crisis) {
-      if (values.every((v) => v > CONFIG.CRISIS_SAFE)) {
+      const safe = Object.values(state.gauges).every((v) => v > CONFIG.CRISIS_SAFE) && !broke;
+      if (safe) {
         state.crisis = null;
         notes.push('幕府は危機を脱した。');
       } else {
         state.crisis.years -= 1;
         if (state.crisis.years <= 0) {
+          notes.forEach(addLog);
           state.year += 1;
           gameOver();
           return;
         }
       }
-    } else if (values.some((v) => v <= 0)) {
-      const fallen = Object.keys(state.shogunate).filter((k) => state.shogunate[k] <= 0).map((k) => STATE_LABELS[k]);
+    } else if (low.length > 0) {
       state.crisis = { years: CONFIG.CRISIS_YEARS };
-      notes.push(`${fallen.join('・')}が尽きた。倒幕の危機！${CONFIG.CRISIS_YEARS}年のうちに立て直さねばならぬ。`);
+      notes.push(`${low.join('・')}が尽きた。倒幕の危機！${CONFIG.CRISIS_YEARS}年のうちに立て直さねばならぬ。`);
     }
 
-    state.year += 1;
     notes.forEach(addLog);
+    state.year += 1;
+    state.ledger = { year: state.year, items: [] };
+    ui.bookYear = String(state.year - 1);
 
     if (died) {
       addLog(`将軍・${s.name}が${s.age}歳で世を去った。`);
@@ -455,20 +805,28 @@
 
   // ─────────────────────────────── 世代交代
 
+  function closeReign(note) {
+    const s = state.shogun;
+    const p = person(s.personId);
+    p.to = state.year;
+    p.end = { ...s.stats };
+    p.endAge = s.age;
+    p.endGauges = { ...state.gauges };
+    p.endNet = Math.round(netAssets());
+    p.note = note;
+  }
+
   function startSuccession(reason) {
     const s = state.shogun;
-    state.history.push({
-      gen: s.gen, name: s.name, from: s.startYear, to: state.year,
-      note: reason === 'retire' ? '隠居して大御所となる' : `${s.age}歳で没する`,
-    });
+    closeReign(reason === 'retire' ? '隠居して大御所となる。' : `${s.age}歳で没する。`);
 
     let mode = 'heirs';
-    let candidates = state.heirs.map((h) => ({ ...h, house: null }));
+    let candidates = state.heirs.map((h) => ({ ...h }));
     if (candidates.length === 0) {
       if (hasInstitution('gosanke')) {
         mode = 'gosanke';
-        candidates = GOSANKE_HOUSES.map((house) => ({
-          name: `${house}の若殿`, house, age: rand(18, 34), trait: pick(TRAITS),
+        candidates = GOSANKE.map((g) => ({
+          name: `${g.house}の若殿`, house: g.house, age: rand(18, 34), trait: pick(TRAITS),
           stats: { seimu: rand(6, 12), bui: rand(6, 12), jintoku: rand(6, 12), kenko: rand(7, 14) },
         }));
       } else {
@@ -488,10 +846,27 @@
     const c = candidates[index];
     const prev = state.shogun;
     const name = makeShogunName();
+
+    // 家系図に記す。御三家から迎えた人は、その家の祖の下につなぐ
+    let p;
+    if (c.personId) {
+      p = person(c.personId);
+    } else {
+      const founder = state.family.find((x) => x.house === c.house && !x.gen);
+      p = addPerson({ name, born: state.year - c.age, parentId: founder ? founder.id : state.family[0].id, house: c.house, trait: c.trait });
+    }
+    p.name = name;
+    p.gen = prev.gen + 1;
+    p.from = state.year;
+    p.start = { seimu: c.stats.seimu, bui: c.stats.bui, jintoku: c.stats.jintoku };
+    for (const h of state.heirs) {
+      if (h.personId !== c.personId) person(h.personId).note = '一門として家を出る。';
+    }
+
     state.shogun = {
-      name, gen: prev.gen + 1, age: c.age, startYear: state.year, trait: c.trait,
+      personId: p.id, name, gen: prev.gen + 1, age: c.age, startYear: state.year, trait: c.trait,
       health: clamp(c.stats.kenko * 5, 20, 100),
-      stats: { seimu: c.stats.seimu, bui: c.stats.bui, jintoku: c.stats.jintoku },
+      stats: { ...p.start },
     };
 
     const from = c.house ? `${c.house}から迎えられた` : `若君・${c.name}が`;
@@ -508,94 +883,40 @@
       addLog('幼い将軍に、大名たちは侮りの目を向けている。');
     }
 
-    // 兄弟は一門として家を出る。若君は新しい将軍の子から生まれる
     state.heirs = [];
     state.succession = null;
     state.phase = 'event';
+    ui.person = p.id;
     drawCard();
     commit();
   }
 
   function gameOver() {
     state.phase = 'over';
-    const s = state.shogun;
-    state.history.push({ gen: s.gen, name: s.name, from: s.startYear, to: state.year, note: '倒幕により幕府滅ぶ' });
+    closeReign('倒幕により、幕府とともに倒れる。');
     addLog(`倒幕。徳川幕府は${bakufuYears()}年で幕を閉じた。`);
     saveBest(bakufuYears());
     commit();
   }
 
-  // ─────────────────────────────── 描画
-
-  const $ = (id) => document.getElementById(id);
+  // ─────────────────────────────── 描画の共通部品
 
   let lastPhase = null;
 
   function commit() {
     save();
     render();
-    // 場面が変わったら、状態が見える位置まで戻す（スマホで下までスクロールしたままにならないように）
+    // 場面が変わったら、画面の上に戻す（スマホで下までスクロールしたままにならないように）
     if (state.phase !== lastPhase) {
-      const target = state.phase === 'prologue' ? $('stage') : $('status');
-      if (target.getBoundingClientRect().top < 0) target.scrollIntoView({ block: 'start' });
+      if (state.phase === 'prologue') $('stage').scrollIntoView({ block: 'start' });
+      else if (ui.tab === 'seimu') scrollToGame();
     }
     lastPhase = state.phase;
   }
 
-  function render() {
-    renderStatus();
-    renderStage();
-    renderLog();
-    renderHistory();
-  }
-
-  function renderStatus() {
-    const panel = $('status');
-    panel.hidden = state.phase === 'prologue';
-    if (panel.hidden) return;
-    const s = state.shogun;
-
-    $('stat-portrait').innerHTML = ART.shogun(s.trait);
-    $('stat-year').textContent = `${state.year}年`;
-    $('stat-age').textContent = `開府から${bakufuYears()}年`;
-    $('stat-shogun').textContent = `第${s.gen}代 ${s.name}（${s.age}歳・${s.trait}）`;
-    $('stat-abilities').textContent =
-      `政務${s.stats.seimu}　武威${s.stats.bui}　人徳${s.stats.jintoku}　健康${s.health}`;
-
-    const bars = $('stat-bars');
-    bars.replaceChildren();
-    for (const [key, label] of Object.entries(STATE_LABELS)) {
-      const value = state.shogunate[key];
-      const fill = el('div', { class: 'iy-bar__fill' });
-      fill.style.width = `${value}%`;
-      bars.append(el('div', { class: `iy-bar${value <= 20 ? ' iy-bar--low' : ''}` }, [
-        el('span', { class: 'iy-bar__label', text: label }),
-        el('div', { class: 'iy-bar__track' }, fill),
-        el('span', { class: 'iy-bar__value', text: String(value) }),
-      ]));
-    }
-
-    $('stat-shinryoku').textContent = `${state.shinryoku} / ${CONFIG.SHINRYOKU_MAX}`;
-    $('stat-shinko').textContent = String(state.shinko);
-    $('stat-jisseki').textContent = String(state.jisseki);
-
-    const crisis = $('crisis');
-    crisis.hidden = !state.crisis;
-    if (state.crisis) crisis.textContent = `倒幕の危機：あと${state.crisis.years}年のうちに、すべての状態を${CONFIG.CRISIS_SAFE}より上に戻せ`;
-  }
-
-  function renderStage() {
-    const stage = $('stage');
-    stage.replaceChildren();
-    const views = {
-      prologue: viewPrologue,
-      event: viewEvent,
-      result: viewResult,
-      manage: viewManage,
-      succession: viewSuccession,
-      over: viewOver,
-    };
-    stage.append(...[].concat(views[state.phase]()));
+  function scrollToGame() {
+    const top = $('game').getBoundingClientRect().top + window.scrollY - 8;
+    if (window.scrollY > top) window.scrollTo(0, top);
   }
 
   // イラスト（art.js が作る固定のSVG文字列）を入れる箱
@@ -609,7 +930,6 @@
     return art(ART.scene(name), 'iy-scene');
   }
 
-  // 家康の顔つきのせりふ。children は文字列か要素
   function ieyasuSays(children, mood = 'calm') {
     return el('div', { class: 'iy-speech' }, [
       art(ART.ieyasu(mood), 'iy-speech__face'),
@@ -618,16 +938,124 @@
   }
 
   function ieyasuMood() {
-    return Object.values(state.shogunate).some((v) => v <= 25) ? 'worry' : 'calm';
+    const tight = state.fin.debt > debtLimit() * 0.7 || state.fin.cash < 20;
+    return tight || Object.values(state.gauges).some((v) => v <= 25) ? 'worry' : 'calm';
   }
 
-  function personArt(person) {
-    if (person.house) return art(ART.retainer(), 'iy-face');
-    return art(person.age < CONFIG.ADULT_AGE ? ART.child(person.trait) : ART.shogun(person.trait), 'iy-face');
+  // 人物の顔。家康・将軍・若君・御三家の人などで描き分ける
+  function faceOf(p, small) {
+    const cls = `iy-face${small ? ' iy-face--small' : ''}`;
+    if (p.gen === 1) return art(ART.ieyasu('calm'), cls);
+    if (p.house && !p.gen) return art(ART.retainer(p.id || 0), cls);
+    const age = p.age !== undefined ? p.age : state.year - p.born;
+    if (!p.gen && age < CONFIG.ADULT_AGE) return art(ART.child(p.trait), cls);
+    return art(ART.shogun(p.trait || '慎重'), cls);
+  }
+
+  function retainerFace(r, small) {
+    return art(ART.retainer(r.seed), `iy-face${small ? ' iy-face--small' : ''}`);
   }
 
   function paragraphs(lines) {
     return [].concat(lines).map((line) => el('p', { text: line }));
+  }
+
+  function statBars(stats, labels, compare) {
+    return el('div', { class: 'iy-stats' }, Object.keys(labels).filter((k) => stats[k] !== undefined).map((k) => {
+      const fill = el('div', { class: 'iy-bar__fill' });
+      fill.style.width = `${(stats[k] / CONFIG.ABILITY_MAX) * 100}%`;
+      const diff = compare && compare[k] !== undefined ? stats[k] - compare[k] : 0;
+      return el('div', { class: 'iy-bar' }, [
+        el('span', { class: 'iy-bar__label', text: labels[k] }),
+        el('div', { class: 'iy-bar__track' }, fill),
+        el('span', { class: 'iy-bar__value', text: diff ? `${stats[k]}（${signed(diff)}）` : String(stats[k]) }),
+      ]);
+    }));
+  }
+
+  function changeList(changes) {
+    if (changes.length === 0) return null;
+    return el('ul', { class: 'iy-changes' }, changes.map((c) =>
+      el('li', { class: c.delta > 0 ? 'iy-up' : 'iy-down', text: `${c.label} ${signed(c.delta)}${c.unit || ''}` })));
+  }
+
+  function panel(title, children, cls = '') {
+    return el('section', { class: `iy-panel ${cls}` }, [title ? el('h2', { text: title }) : null].concat(children));
+  }
+
+  // ─────────────────────────────── 描画
+
+  function render() {
+    const playing = state.phase !== 'prologue';
+    $('intro').hidden = playing;
+    $('topbar').hidden = !playing;
+    $('tabbar').hidden = !playing;
+    document.body.classList.toggle('iy-has-tabbar', playing);
+    if (!playing) ui.tab = 'seimu';
+
+    renderTopbar();
+    renderTabbar();
+    for (const tab of TABS) $(`tab-${tab.id}`).hidden = tab.id !== ui.tab;
+    const views = { seimu: renderSeimu, family: renderFamily, finance: renderFinance, org: renderOrg, log: renderLog };
+    views[ui.tab]();
+  }
+
+  function renderTopbar() {
+    if (state.phase === 'prologue') return;
+    const s = state.shogun;
+    const f = state.fin;
+    const gauges = Object.entries(STATE_LABELS).map(([key, label]) => {
+      const v = state.gauges[key];
+      const fill = el('div', { class: 'iy-mini__fill' });
+      fill.style.width = `${v}%`;
+      return el('div', { class: `iy-mini${v <= 20 ? ' iy-mini--low' : ''}` }, [
+        el('span', { class: 'iy-mini__label', text: `${label} ${v}` }),
+        el('div', { class: 'iy-mini__track' }, fill),
+      ]);
+    });
+    const overLimit = f.debt > debtLimit();
+    $('topbar').replaceChildren(...[
+      el('div', { class: 'iy-topbar__row' }, [
+        art(ART.shogun(s.trait), 'iy-face iy-face--tiny'),
+        el('p', { class: 'iy-topbar__title' }, [
+          el('strong', { text: `${state.year}年` }),
+          ` 第${s.gen}代 ${s.name}（${s.age}歳）`,
+        ]),
+      ]),
+      el('div', { class: 'iy-topbar__gauges' }, gauges),
+      el('p', { class: 'iy-topbar__money' }, [
+        `現金 ${money(f.cash)}万両　`,
+        el('span', { class: overLimit ? 'iy-warn' : '', text: `借入 ${money(f.debt)}/${money(debtLimit())}` }),
+        `　実績 ${state.jisseki}`,
+      ]),
+      state.crisis
+        ? el('p', { class: 'iy-crisis', role: 'alert', text: `倒幕の危機：あと${state.crisis.years}年で立て直せ（威光・民心・朝廷を${CONFIG.CRISIS_SAFE}より上、借入を上限以下に）` })
+        : null,
+    ].filter(Boolean));
+  }
+
+  function renderTabbar() {
+    const alerts = { org: vacancies().length > 0, seimu: ['event', 'succession'].includes(state.phase) };
+    $('tabbar').replaceChildren(...TABS.map((t) => el('button', {
+      type: 'button',
+      class: `iy-tab${ui.tab === t.id ? ' iy-tab--active' : ''}`,
+      'aria-current': ui.tab === t.id ? 'page' : 'false',
+      onclick: () => { ui.tab = t.id; render(); scrollToGame(); },
+    }, [
+      el('span', { class: 'iy-tab__icon', text: t.icon }),
+      el('span', { class: 'iy-tab__label', text: t.label }),
+      alerts[t.id] && ui.tab !== t.id ? el('span', { class: 'iy-tab__dot', 'aria-label': '要対応' }) : null,
+    ])));
+  }
+
+  // ───── 政務
+
+  function renderSeimu() {
+    const views = {
+      prologue: viewPrologue, event: viewEvent, result: viewResult,
+      manage: viewManage, succession: viewSuccession, over: viewOver,
+    };
+    $('stage').replaceChildren(...[].concat(views[state.phase]()).filter(Boolean));
   }
 
   function viewPrologue() {
@@ -639,12 +1067,6 @@
       sceneArt(step.scene),
       ieyasuSays(el('div', { class: 'iy-voice' }, paragraphs(step.text)), step.mood),
     ];
-    const next = () => {
-      state.prologueNote = null;
-      if (isLast) startMain();
-      else state.prologueStep += 1;
-      commit();
-    };
     if (step.choices) {
       const list = el('div', { class: 'iy-options' });
       step.choices.forEach((choice) => {
@@ -657,72 +1079,71 @@
             state.prologueNote = choice.text;
             commit();
           },
-        }, [el('strong', { text: choice.label }), el('span', { text: institution(choice.institution).desc })]));
+        }, [el('strong', { text: choice.label }), el('span', { class: 'iy-option__hint', text: institution(choice.institution).desc })]));
       });
       nodes.push(list);
     } else {
-      if (state.prologueNote) {
-        nodes.splice(3, 0, el('p', { class: 'iy-note', text: state.prologueNote }));
-      }
-      nodes.push(el('button', { type: 'button', class: 'iy-primary', onclick: next, text: isLast ? '幕府を見守る' : '次へ' }));
+      if (state.prologueNote) nodes.splice(3, 0, el('p', { class: 'iy-note', text: state.prologueNote }));
+      nodes.push(el('button', {
+        type: 'button', class: 'iy-primary', text: isLast ? '幕府の経営を始める' : '次へ',
+        onclick: () => {
+          state.prologueNote = null;
+          if (isLast) startMain();
+          else state.prologueStep += 1;
+          commit();
+        },
+      }));
     }
     return nodes;
   }
 
+  function optionHints(option) {
+    const hints = [];
+    const ryo = option.effects.ryo;
+    if (ryo < 0) hints.push(`費用 約${Math.abs(scaledCost(ryo))}万両${option.invest ? '（投資）' : ''}`);
+    if (option.effects.borrow) hints.push(`${option.effects.borrow}万両を借りる`);
+    if (option.check) {
+      hints.push(`成否は${ABILITY_LABELS[option.check.stat]}しだい（見込み${Math.round(successChance(option.check) * 100)}%）`);
+    }
+    return hints.join('　');
+  }
+
   function viewEvent() {
     const card = cardById(state.card.id);
-    const pickIndex = state.card.shogunPick;
-    const nodes = [
+    const s = state.shogun;
+    const list = el('div', { class: 'iy-options' });
+    card.options.forEach((option, i) => {
+      const liked = option.tag === s.trait;
+      const hint = optionHints(option);
+      list.append(el('button', {
+        type: 'button', class: `iy-option${liked ? ' iy-option--pick' : ''}`, onclick: () => choose(i),
+      }, [
+        liked ? el('span', { class: 'iy-option__how', text: '将軍の好み' }) : null,
+        el('strong', { text: option.label }),
+        hint ? el('span', { class: 'iy-option__hint', text: hint }) : null,
+      ]));
+    });
+    return [
       el('p', { class: 'iy-year', text: `${state.year}年${card.trial ? '　大きな試練' : ''}` }),
       el('h2', { text: card.title }),
       sceneArt(card.scene),
       el('p', { text: card.text }),
       ieyasuSays(el('p', { class: 'iy-voice', text: `「${card.ieyasu}」` }), card.trial ? 'worry' : ieyasuMood()),
       el('div', { class: 'iy-intent' }, [
-        art(ART.shogun(state.shogun.trait), 'iy-face iy-face--small'),
-        el('p', {}, [
-        `将軍・${state.shogun.name}（${state.shogun.trait}）は「`,
-        el('strong', { text: card.options[pickIndex].label }),
-        '」を選ぼうとしている。',
-        ]),
+        art(ART.shogun(s.trait), 'iy-face iy-face--small'),
+        el('p', { text: `将軍・${s.name}は${s.trait}な性格。好みに合う判断なら、乗り気で取り組んで育つ。` }),
       ]),
+      list,
     ];
-
-    const list = el('div', { class: 'iy-options' });
-    card.options.forEach((option, i) => {
-      const isPick = i === pickIndex;
-      const hint = option.check
-        ? `成否は将軍の${ABILITY_LABELS[option.check.stat]}しだい（見込み${Math.round(successChance(option.check) * 100)}%）`
-        : '';
-      list.append(el('button', {
-        type: 'button',
-        class: `iy-option${isPick ? ' iy-option--pick' : ''}`,
-        disabled: !isPick && state.shinryoku < CONFIG.ORACLE_COST,
-        onclick: () => choose(i, !isPick),
-      }, [
-        el('span', { class: 'iy-option__how', text: isPick ? '見守る（将軍に任せる）' : `夢枕に立つ（神力${CONFIG.ORACLE_COST}）` }),
-        el('strong', { text: option.label }),
-        hint ? el('span', { class: 'iy-option__hint', text: hint }) : null,
-      ]));
-    });
-    nodes.push(list);
-    return nodes;
-  }
-
-  function changeList(changes) {
-    if (changes.length === 0) return null;
-    return el('ul', { class: 'iy-changes' }, changes.map((c) =>
-      el('li', { class: c.delta > 0 ? 'iy-up' : 'iy-down', text: `${c.label} ${signed(c.delta)}` })));
   }
 
   function viewResult() {
     const r = state.result;
-    const card = state.card && cardById(state.card.id);
+    const card = cardById(state.card.id);
     return [
       el('p', { class: 'iy-year', text: `${state.year}年` }),
       el('h2', { text: `${r.title}：${r.choice}` }),
-      card ? sceneArt(card.scene) : null,
-      r.oracle ? ieyasuSays(el('p', { class: 'iy-voice', text: r.oracle }), 'angry') : null,
+      sceneArt(card.scene),
       el('p', { class: r.failed ? 'iy-failed' : '', text: r.text }),
       changeList(r.changes),
       r.growth ? el('p', { class: 'iy-note', text: r.growth }) : null,
@@ -731,44 +1152,32 @@
         type: 'button', class: 'iy-primary', text: '政務の間へ',
         onclick: () => { state.phase = 'manage'; state.result = null; commit(); },
       }),
-    ].filter(Boolean);
+    ];
   }
 
   function heirCard(heir, index) {
     const canTeach = heir.age < CONFIG.TEACH_AGE_LIMIT;
     const taught = heir.taughtYear === state.year;
-    const buttons = el('div', { class: 'iy-teach' });
-    if (canTeach) {
-      for (const stat of Object.keys(TEACH_LABELS)) {
-        buttons.append(el('button', {
-          type: 'button', text: TEACH_LABELS[stat],
-          disabled: taught || state.shinryoku < CONFIG.TEACH_COST,
-          onclick: () => teach(index, stat),
-        }));
-      }
-    }
     return el('div', { class: 'iy-heir' }, [
       el('div', { class: 'iy-heir__head' }, [
-        personArt(heir),
-        el('p', { class: 'iy-heir__name' }, [
-          el('strong', { text: heir.name }),
-          `（${heir.age}歳・${heir.trait}）`,
-        ]),
+        faceOf(heir),
+        el('p', { class: 'iy-heir__name' }, [el('strong', { text: heir.name }), `（${heir.age}歳・${heir.trait}）`]),
       ]),
-      el('p', { class: 'iy-heir__stats', text: Object.keys(ABILITY_LABELS).map((k) => `${ABILITY_LABELS[k]}${heir.stats[k]}`).join('　') }),
+      statBars(heir.stats, ABILITY_LABELS),
       canTeach
-        ? el('p', { class: 'iy-hint', text: taught ? '今年はもう教えた。' : `夢で教える（神力${CONFIG.TEACH_COST}・1年に1回）` })
-        : el('p', { class: 'iy-hint', text: '成人したので、もう教えられない。' }),
-      canTeach ? buttons : null,
-    ].filter(Boolean));
+        ? el('p', { class: 'iy-hint', text: taught ? '今年はもう師をつけた。' : `師をつける（教育費 ${teachCost()}万両・1年に1回）` })
+        : el('p', { class: 'iy-hint', text: '成人したので、教育は終わった。' }),
+      canTeach ? el('div', { class: 'iy-teach' }, Object.keys(TEACH_LABELS).map((stat) => el('button', {
+        type: 'button', text: TEACH_LABELS[stat], disabled: taught, onclick: () => teach(index, stat),
+      }))) : null,
+    ]);
   }
 
   function viewManage() {
     const nodes = [
       el('p', { class: 'iy-year', text: `${state.year}年` }),
       el('h2', { text: '政務の間' }),
-      sceneArt('castle'),
-      el('p', { class: 'iy-hint', text: '神力と実績を使って、次の代への備えをする。終わったら年を越す。' }),
+      el('p', { class: 'iy-hint', text: '若君の教育、制度の整備、代替わりを決める。財務と組織は下のメニューから。終わったら年を越す。' }),
       el('h3', { text: '若君' }),
     ];
 
@@ -777,12 +1186,8 @@
     } else {
       state.heirs.forEach((h, i) => nodes.push(heirCard(h, i)));
     }
-
-    if (state.heirs.some((h) => h.age >= CONFIG.ADULT_AGE)) {
-      nodes.push(el('button', {
-        type: 'button', class: 'iy-secondary', disabled: !canRetire(), onclick: retire,
-        text: `将軍に隠居を勧める（神力${CONFIG.RETIRE_COST}）`,
-      }));
+    if (canRetire()) {
+      nodes.push(el('button', { type: 'button', class: 'iy-secondary', onclick: retire, text: `${state.shogun.name}を隠居させ、将軍職を譲る` }));
     }
 
     // 制度の一覧は長いので、たたんでおく。整えられるものがあるときだけ開く
@@ -797,47 +1202,48 @@
     for (const inst of insts) {
       if (hasInstitution(inst.id)) continue;
       const status = institutionStatus(inst);
+      const cost = institutionCost(inst);
       list.append(el('div', { class: 'iy-inst' }, [
-        el('p', { class: 'iy-inst__name' }, [el('strong', { text: inst.name }), `（実績${inst.cost}）`]),
+        el('p', { class: 'iy-inst__name' }, [el('strong', { text: inst.name }), `（実績${inst.cost}${cost ? `・${cost}万両` : ''}）`]),
         el('p', { class: 'iy-hint', text: inst.desc }),
-        el('button', {
-          type: 'button', text: status.ok ? '整える' : status.reason,
-          disabled: !status.ok, onclick: () => establish(inst.id),
-        }),
+        el('button', { type: 'button', text: status.ok ? '整える' : status.reason, disabled: !status.ok, onclick: () => establish(inst.id) }),
       ]));
     }
     nodes.push(list);
 
-    nodes.push(el('button', { type: 'button', class: 'iy-primary', text: '年を越す', onclick: endYear }));
+    if (vacancies().length > 0) {
+      nodes.push(el('p', { class: 'iy-warn-box', text: `空いている役職があります（${vacancies().map((p) => p.name).join('・')}）。空席のままだと、その役目の働きが落ちる。` }));
+      nodes.push(el('button', { type: 'button', class: 'iy-secondary', text: '組織を開く', onclick: () => { ui.tab = 'org'; render(); scrollToGame(); } }));
+    }
+    nodes.push(el('button', { type: 'button', class: 'iy-primary', text: '年を越す（決算）', onclick: endYear }));
     return nodes;
   }
 
   function viewSuccession() {
     const { reason, mode, candidates } = state.succession;
     const intro = {
-      heirs: '次の将軍を選ぶ。権現様の声は、夢を通して家臣たちにも届く。',
+      heirs: '次の将軍を選ぶ。',
       gosanke: '本家に跡継ぎがいない。御三家から次の将軍を迎える。',
       dispute: '跡継ぎがいない。一門の中から、争いの末に一人が担ぎ出された。',
     }[mode];
-    const nodes = [
-      el('p', { class: 'iy-year', text: `${state.year}年` }),
-      el('h2', { text: reason === 'retire' ? '将軍職を譲る' : '将軍、世を去る' }),
-      sceneArt(reason === 'retire' ? 'hall' : 'sickbed'),
-      el('p', { text: intro }),
-    ];
     const list = el('div', { class: 'iy-options' });
     candidates.forEach((c, i) => {
       const warn = c.age < CONFIG.ADULT_AGE ? '　幼い将軍になる（威光が下がる）' : '';
       list.append(el('button', { type: 'button', class: 'iy-option iy-option--person', onclick: () => crown(i) }, [
-        personArt(c),
+        faceOf({ ...c, id: i + 3 }),
         el('span', { class: 'iy-option__text' }, [
           el('strong', { text: `${c.name}（${c.age}歳・${c.trait}）` }),
           el('span', { text: Object.keys(ABILITY_LABELS).map((k) => `${ABILITY_LABELS[k]}${c.stats[k]}`).join('　') + warn }),
         ]),
       ]));
     });
-    nodes.push(list);
-    return nodes;
+    return [
+      el('p', { class: 'iy-year', text: `${state.year}年` }),
+      el('h2', { text: reason === 'retire' ? '将軍職を譲る' : '将軍、世を去る' }),
+      sceneArt(reason === 'retire' ? 'hall' : 'sickbed'),
+      el('p', { text: intro }),
+      list,
+    ];
   }
 
   function viewOver() {
@@ -848,32 +1254,269 @@
       sceneArt('fall'),
       el('p', { text: `徳川の幕府は、開府から${years}年で幕を閉じた。最後の将軍は、第${state.shogun.gen}代・${state.shogun.name}。` }),
       ieyasuSays(el('p', { class: 'iy-voice', text: '日光の山の上で、権現様は長いため息をついた。……次こそは。' }), 'worry'),
-      el('p', { class: 'iy-note', text: `これまでの最長記録：${Math.max(years, loadBest())}年（史実の幕府は約265年）` }),
+      el('p', { class: 'iy-note', text: `これまでの最長記録：${Math.max(years, loadBest())}年（史実の幕府は約265年）。家系図と財務の記録は、このまま見られる。` }),
       el('button', { type: 'button', class: 'iy-primary', text: 'もう一度、最初から', onclick: restart }),
     ];
   }
 
-  function renderLog() {
-    const list = $('log');
-    list.replaceChildren(...state.log.map((entry) =>
-      el('li', {}, [el('span', { class: 'iy-log__year', text: `${entry.year}` }), entry.text])));
-    $('log-panel').hidden = state.log.length === 0;
+  // ───── 家系図
+
+  function renderFamily() {
+    if (!person(ui.person)) ui.person = state.shogun.personId;
+    const selected = person(ui.person);
+    const children = (id) => state.family.filter((p) => p.parentId === id).sort((a, b) => a.born - b.born);
+    const node = (p) => {
+      const isCurrent = p.id === state.shogun.personId && state.phase !== 'over';
+      const meta = p.gen ? `第${p.gen}代　${p.from}〜${p.to || '在位中'}` : p.house || `${p.born}年生まれ`;
+      const kids = children(p.id);
+      return el('li', {}, [
+        el('button', {
+          type: 'button',
+          class: `iy-node${p.gen ? ' iy-node--shogun' : ''}${p.id === selected.id ? ' iy-node--selected' : ''}`,
+          onclick: () => { ui.person = p.id; renderFamily(); scrollToGame(); },
+        }, [
+          faceOf(p, true),
+          el('span', { class: 'iy-node__text' }, [
+            el('strong', { text: p.name + (isCurrent ? '（当代）' : '') }),
+            el('span', { text: meta }),
+          ]),
+        ]),
+        kids.length ? el('ul', {}, kids.map(node)) : null,
+      ]);
+    };
+
+    $('tab-family').replaceChildren(
+      panel('家系図', [
+        el('p', { class: 'iy-hint', text: '名前を押すと、その人の記録が上に出る。太枠は将軍になった人。' }),
+        detailOf(selected),
+        el('ul', { class: 'iy-tree' }, children(null).map(node)),
+      ]),
+    );
   }
 
-  function renderHistory() {
-    const list = $('history');
-    list.replaceChildren(...state.history.map((h) =>
-      el('li', { text: `第${h.gen}代 ${h.name}（${h.from}〜${h.to}年）${h.note}` })));
+  function detailOf(p) {
+    const isCurrent = p.id === state.shogun.personId && state.phase !== 'over';
+    const heir = state.heirs.find((h) => h.personId === p.id);
+    const facts = [p.gen ? `第${p.gen}代将軍` : '', p.house || '', p.trait ? `性格：${p.trait}` : '', `${p.born}年生まれ`].filter(Boolean);
+    const nodes = [
+      el('div', { class: 'iy-heir__head' }, [
+        faceOf(p),
+        el('p', {}, [
+          el('strong', { text: p.name }),
+          p.childName && p.childName !== p.name ? `（幼名 ${p.childName}）` : '',
+          el('br'),
+          el('span', { class: 'iy-muted', text: facts.join('・') }),
+        ]),
+      ]),
+    ];
+    if (p.gen) {
+      nodes.push(el('p', { class: 'iy-hint', text: `在位：${p.from}〜${p.to || '在位中'}年（${(p.to || state.year) - p.from}年）` }));
+      if (isCurrent) {
+        nodes.push(el('h3', { text: '今の能力（かっこ内は就任時からの伸び）' }));
+        nodes.push(statBars(state.shogun.stats, { seimu: '政務', bui: '武威', jintoku: '人徳' }, p.start));
+        nodes.push(el('p', { class: 'iy-hint', text: `${state.shogun.age}歳・健康${state.shogun.health}` }));
+      } else if (p.end) {
+        nodes.push(el('h3', { text: '退任時の能力（かっこ内は就任時からの伸び）' }));
+        nodes.push(statBars(p.end, { seimu: '政務', bui: '武威', jintoku: '人徳' }, p.start));
+      }
+      if (p.insts.length) nodes.push(el('p', { class: 'iy-hint', text: `整えた制度：${p.insts.join('、')}` }));
+      if (p.endGauges) {
+        nodes.push(el('p', { class: 'iy-hint', text: `退任時の幕府：${Object.entries(STATE_LABELS).map(([k, l]) => `${l}${p.endGauges[k]}`).join('　')}　純資産 ${money(p.endNet)}万両` }));
+      }
+    } else if (heir) {
+      nodes.push(el('h3', { text: '若君の能力' }));
+      nodes.push(statBars(heir.stats, ABILITY_LABELS));
+    }
+    if (p.note) nodes.push(el('p', { class: 'iy-note', text: p.note }));
+    return el('div', { class: 'iy-detail' }, nodes);
+  }
+
+  // ───── 財務
+
+  function cfTable(items) {
+    const sections = [
+      ['op', '営業キャッシュフロー（年貢・経費など）'],
+      ['inv', '投資キャッシュフロー（普請・制度の整備）'],
+      ['fin', '財務キャッシュフロー（借入・返済・利息）'],
+    ];
+    const rows = [];
+    let total = 0;
+    for (const [cf, title] of sections) {
+      const list = items.filter((i) => i.cf === cf);
+      const sum = list.reduce((a, b) => a + b.amount, 0);
+      total += sum;
+      rows.push(el('tr', { class: 'iy-table__section' }, [el('th', { colspan: '2', text: title })]));
+      // 同じ名目はまとめて1行にする
+      const merged = new Map();
+      for (const i of list) merged.set(i.label, (merged.get(i.label) || 0) + i.amount);
+      if (merged.size === 0) rows.push(el('tr', {}, [el('td', { class: 'iy-muted', text: 'なし' }), el('td', { text: '' })]));
+      for (const [label, amount] of merged) {
+        rows.push(el('tr', {}, [el('td', { text: label }), el('td', { class: amount < 0 ? 'iy-down' : '', text: money(amount) })]));
+      }
+      rows.push(el('tr', { class: 'iy-table__sub' }, [el('td', { text: '小計' }), el('td', { class: sum < 0 ? 'iy-down' : '', text: money(sum) })]));
+    }
+    rows.push(el('tr', { class: 'iy-table__total' }, [el('td', { text: '現金の増減' }), el('td', { class: total < 0 ? 'iy-down' : '', text: money(total) })]));
+    return el('table', { class: 'iy-table' }, [el('tbody', {}, rows)]);
+  }
+
+  function renderFinance() {
+    const f = state.fin;
+    const assetRows = assets();
+    const totalAssets = assetRows.reduce((a, b) => a + b.value, 0);
+    const limit = debtLimit();
+
+    // キャッシュフロー計算書（今年の途中経過か、過去の決算）
+    const select = el('select', {
+      'aria-label': '表示する年',
+      onchange: (e) => { ui.bookYear = e.target.value; renderFinance(); },
+    }, [el('option', { value: 'now', text: `${state.year}年（今年・途中経過）`, selected: ui.bookYear === 'now' })]
+      .concat(state.books.map((b) => el('option', { value: String(b.year), text: `${b.year}年の決算`, selected: ui.bookYear === String(b.year) }))));
+    const shown = state.books.find((b) => String(b.year) === ui.bookYear) || state.ledger;
+
+    const bs = el('table', { class: 'iy-table' }, [el('tbody', {}, [
+      el('tr', { class: 'iy-table__section' }, [el('th', { colspan: '2', text: '資産' })]),
+      ...assetRows.map((a) => el('tr', {}, [el('td', { text: a.label }), el('td', { text: money(a.value) })])),
+      el('tr', { class: 'iy-table__sub' }, [el('td', { text: '資産の合計' }), el('td', { text: money(totalAssets) })]),
+      el('tr', { class: 'iy-table__section' }, [el('th', { colspan: '2', text: '負債' })]),
+      el('tr', {}, [el('td', { text: '商人からの借入' }), el('td', { text: money(f.debt) })]),
+      el('tr', { class: 'iy-table__section' }, [el('th', { colspan: '2', text: '純資産' })]),
+      el('tr', { class: 'iy-table__total' }, [el('td', { text: '幕府の元手（資産−負債）' }), el('td', { class: netAssets() < 0 ? 'iy-down' : '', text: money(netAssets()) })]),
+    ])]);
+
+    const trend = el('table', { class: 'iy-table iy-table--trend' }, [
+      el('thead', {}, el('tr', {}, ['年', '営業', '投資', '財務', '現金', '借入'].map((h) => el('th', { text: h })))),
+      el('tbody', {}, state.books.slice(0, 12).map((b) => el('tr', {}, [
+        el('td', { text: String(b.year) }),
+        ...[b.op, b.inv, b.fin, b.cash, b.debt].map((v, i) => el('td', { class: v < 0 && i < 3 ? 'iy-down' : '', text: money(v) })),
+      ]))),
+    ]);
+
+    $('tab-finance').replaceChildren(...[
+      panel('財務', [
+        el('p', { class: 'iy-hint', text: '金額の単位はすべて万両。年を越すときに決算をする。' }),
+        el('dl', { class: 'iy-kpis' }, [
+          ['現金', money(f.cash)], ['借入（上限）', `${money(f.debt)}（${money(limit)}）`], ['純資産', money(netAssets())],
+          ['天領の石高', `${Math.round(f.kokudaka)}万石`], ['昨年の歳入', money(f.lastRevenue)], ['大奥の費え', `${Math.round(f.ooku)}/年`],
+        ].map(([k, v]) => el('div', {}, [el('dt', { text: k }), el('dd', { text: v })]))),
+        state.phase === 'over' ? null : el('div', { class: 'iy-actions' }, [
+          el('button', { type: 'button', text: `${CONFIG.LOAN_STEP}万両借りる`, disabled: f.debt + CONFIG.LOAN_STEP > limit, onclick: borrowMore }),
+          el('button', { type: 'button', text: `${CONFIG.LOAN_STEP}万両返す`, disabled: f.debt <= 0 || f.cash < Math.min(CONFIG.LOAN_STEP, f.debt), onclick: repay }),
+          el('button', { type: 'button', text: '蔵米を売る', disabled: f.rice < 1, onclick: sellRice }),
+        ]),
+        el('p', { class: 'iy-hint', text: `借入には年${CONFIG.INTEREST * 100}%の利息がつく。借入が上限（歳入の${CONFIG.DEBT_LIMIT}倍）を超えると財政破綻の危機になる。` }),
+      ]),
+      panel('キャッシュフロー計算書', [select, cfTable(shown.items)]),
+      panel('バランスシート（いま）', [bs]),
+      state.books.length ? panel('決算の推移', [el('div', { class: 'iy-scroll' }, trend)]) : null,
+    ].filter(Boolean));
+  }
+
+  // ───── 組織
+
+  function retainerStats(r, highlight) {
+    return el('p', { class: 'iy-retainer__stats' }, Object.entries(RETAINER_LABELS).map(([k, l]) =>
+      el('span', { class: k === highlight ? 'iy-strong' : '', text: `${l}${r.stats[k]}` })));
+  }
+
+  function retainerRow(r, button) {
+    return el('div', { class: 'iy-retainer iy-retainer--row' }, [
+      retainerFace(r, true),
+      el('div', {}, [
+        el('p', { class: 'iy-retainer__name', text: `${r.name}（${r.age}歳・俸禄${r.salary}万両）` }),
+        retainerStats(r),
+      ]),
+      button,
+    ]);
+  }
+
+  function renderOrg() {
+    const s = state.shogun;
+    const over = state.phase === 'over';
+    const salaries = state.retainers.reduce((sum, r) => sum + (r.post ? r.salary : Math.ceil(r.salary / 2)), 0);
+
+    const posts = POSTS.map((post) => {
+      const h = holder(post.id);
+      const select = el('select', {
+        'aria-label': `${post.name}に就ける者`,
+        disabled: over,
+        onchange: (e) => assign(Number(e.target.value), post.id),
+      }, [el('option', { value: '', text: h ? '入れ替える…' : '任じる者を選ぶ…', selected: true, disabled: true })]
+        .concat(state.retainers.filter((r) => r !== h).map((r) => el('option', {
+          value: String(r.id),
+          text: `${r.name}（${RETAINER_LABELS[post.stat]}${r.stats[post.stat]}${r.post ? `・今は${POSTS.find((p) => p.id === r.post).name}` : ''}）`,
+        }))));
+      return el('div', { class: `iy-post${h ? '' : ' iy-post--vacant'}` }, [
+        el('p', { class: 'iy-post__name' }, [el('strong', { text: post.name }), el('span', { class: 'iy-muted', text: `　見る能力：${RETAINER_LABELS[post.stat]}` })]),
+        el('p', { class: 'iy-hint', text: post.desc }),
+        h
+          ? el('div', { class: 'iy-retainer' }, [retainerFace(h, true), el('div', {}, [
+            el('p', { class: 'iy-retainer__name', text: `${h.name}（${h.age}歳・俸禄${h.salary}万両）` }),
+            retainerStats(h, post.stat),
+          ])])
+          : el('p', { class: 'iy-warn', text: '空席' }),
+        select,
+      ]);
+    });
+
+    const reserve = state.retainers.filter((r) => !r.post);
+    $('tab-org').replaceChildren(
+      panel('将軍', [
+        el('div', { class: 'iy-heir__head' }, [
+          art(ART.shogun(s.trait), 'iy-face'),
+          el('p', {}, [el('strong', { text: `第${s.gen}代 ${s.name}` }), `（${s.age}歳・${s.trait}・健康${s.health}）`]),
+        ]),
+        statBars(s.stats, { seimu: '政務', bui: '武威', jintoku: '人徳' }),
+      ]),
+      panel('役職', [
+        el('p', { class: 'iy-hint', text: `家臣 ${state.retainers.length}人・俸禄の合計 年${salaries}万両（控えの家臣は半額）` }),
+        vacancies().length && reserve.length && !over
+          ? el('button', { type: 'button', class: 'iy-secondary', text: '空席に、いちばん向いている控えの家臣を就ける', onclick: autoAssign })
+          : null,
+        ...posts,
+      ]),
+      panel('控えの家臣', reserve.length
+        ? reserve.map((r) => retainerRow(r, el('button', { type: 'button', text: '暇を出す', disabled: over, onclick: () => dismiss(r.id) })))
+        : [el('p', { class: 'iy-hint', text: '控えの家臣はいない。' })]),
+      panel('登用の候補（今年）', state.candidates.length
+        ? state.candidates.map((c, i) => retainerRow(c, el('button', {
+          type: 'button', text: '召し抱える', disabled: state.retainers.length >= CONFIG.MAX_RETAINERS || over, onclick: () => hire(i),
+        })))
+        : [el('p', { class: 'iy-hint', text: '今年の候補はもういない。来年また現れる。' })]),
+    );
+  }
+
+  // ───── 記録
+
+  function renderLog() {
+    $('tab-log').replaceChildren(
+      panel('記録', [el('ul', { class: 'iy-log' }, state.log.map((entry) =>
+        el('li', {}, [el('span', { class: 'iy-log__year', text: `${entry.year}` }), entry.text])))]),
+      panel('遊び方', [el('ul', { class: 'iy-help' }, [
+        '1年に1つ、幕府に出来事が起きる。選択肢から、どう対応するかを決める。',
+        '将軍には性格がある。好みに合う判断をすると、将軍は乗り気で取り組み、能力が伸びる。',
+        '判断の成否は、将軍の能力と、担当の役職（老中・大目付・町奉行）の能力で決まる。',
+        'お金は万両で管理する。年貢は石高と民心で決まり、物価は年々上がる。新田開発や交易で収入を育てよう。',
+        '威光・民心・朝廷のどれかが0になるか、借入が上限を超えると倒幕の危機。3年のうちに立て直せなければゲームオーバー。',
+        '組織の役職に家臣を配置する。家臣は年を取ると引退するので、毎年の登用の候補にも目を配ろう。',
+        '若君には師をつけて育てる。制度は代をまたいで残り、幕府を少しずつ強くする。',
+      ].map((t) => el('li', { text: t })))]),
+      panel(null, [
+        el('p', { class: 'iy-hint', text: `進行状況はこの端末のブラウザに自動で保存される。これまでの最長記録：${loadBest()}年` }),
+        el('button', {
+          type: 'button', class: 'iy-secondary', text: 'はじめからやり直す',
+          onclick: () => { if (window.confirm('保存されている進行状況を消して、はじめからやり直しますか？')) restart(); },
+        }),
+      ]),
+    );
   }
 
   function restart() {
-    state = newGame();
+    newGame();
+    ui.tab = 'seimu';
+    ui.person = null;
+    ui.bookYear = 'now';
     commit();
   }
-
-  $('btn-reset').addEventListener('click', () => {
-    if (window.confirm('保存されている進行状況を消して、はじめからやり直しますか？')) restart();
-  });
 
   $('title-art').innerHTML = ART.scene('heaven');
   state = load() || newGame();
