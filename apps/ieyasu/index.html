@@ -34,6 +34,7 @@
       <p class="back-link"><a href="/apps/">← Apps</a></p>
 
       <h1>家康の憂鬱</h1>
+      <div class="iy-scene iy-scene--title" id="title-art" aria-hidden="true"></div>
       <p class="lede">
         神として日光に祀られた家康は、自分の幕府が心配でならない。体はなく、できるのは将軍の夢枕に立つことと、若君を夢の中で教えることだけ。口を出しすぎれば子孫は育たず、黙っていれば幕府が危うい。倒幕されるまで、幕府は何年続くだろうか。（試作版）
       </p>
@@ -44,9 +45,12 @@
 
       <section class="iy-panel iy-status" id="status" hidden>
         <div class="iy-status__head">
-          <p><strong id="stat-year"></strong>　<span class="iy-muted" id="stat-age"></span></p>
-          <p id="stat-shogun"></p>
-          <p class="iy-muted" id="stat-abilities"></p>
+          <div class="iy-face" id="stat-portrait" aria-hidden="true"></div>
+          <div>
+            <p><strong id="stat-year"></strong>　<span class="iy-muted" id="stat-age"></span></p>
+            <p id="stat-shogun"></p>
+            <p class="iy-muted" id="stat-abilities"></p>
+          </div>
         </div>
         <div class="iy-bars" id="stat-bars"></div>
         <dl class="iy-resources">
@@ -87,6 +91,7 @@
     </footer>
   </div>
 
+  <script src="/apps/ieyasu/art.js"></script>
   <script src="/apps/ieyasu/cards.js"></script>
   <script src="/apps/ieyasu/game.js"></script>
 </body>
