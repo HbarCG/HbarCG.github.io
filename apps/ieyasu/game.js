@@ -1978,6 +1978,14 @@
     commit();
   }
 
+  // 開発用の入り口。scripts/ieyasu-selfplay.mjs が、画面を使わずに自動で遊ばせるときに使う
+  window.IEYASU_DEV = {
+    get state() { return state; },
+    CONFIG, POSTS,
+    startMain, choose, endYear, closeReport, crown, hire, autoAssign,
+    teach, teachCost, establish, institutionStatus, repay, retire, canRetire,
+  };
+
   $('title-art').innerHTML = ART.scene('heaven');
   $('intro-guide').addEventListener('click', openGuide);
   state = load() || newGame();
