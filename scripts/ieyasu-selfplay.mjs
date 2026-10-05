@@ -136,11 +136,17 @@ const POLICIES = {
       for (let i = s.daughters.length - 1; i >= 0; i--) {
         if (s.daughters[i].age >= dev.CONFIG.DAUGHTER_MARRY_AGE && s.fin.cash > 80) dev.marryDaughter(i, "daimyo");
       }
-      // 若君の枠が埋まっていたら、素質の低い若君を養子に出して枠を空ける
+      // 若君の枠が埋まっていたら、素質の低い若君を養子に出して枠を空ける。
+      // 血筋がいちばん上がる御三家・御三卿へ出す（上がらなければ大名家へ）
       if (s.heirs.length >= dev.CONFIG.MAX_HEIRS && s.fin.cash > 50) {
         const kaku = (h) => sum3(h.stats);
         const weakest = s.heirs.reduce((w, h, i) => (kaku(h) < kaku(s.heirs[w]) ? i : w), 0);
-        if ((s.heirs[weakest].stars || 3) <= 2) dev.adoptOut(weakest);
+        const heir = s.heirs[weakest];
+        if ((heir.stars || 3) <= 2) {
+          const gain = (b) => sum3(dev.projectedBlood(b, heir)) - sum3(b.blood);
+          const best = s.branches.reduce((a, b) => (gain(b) > gain(a) ? b : a), s.branches[0]);
+          dev.adoptOut(weakest, best && gain(best) >= 1 ? best.id : "daimyo");
+        }
       }
       // 老いた将軍は、成人した若君がいれば隠居させる
       if (s.shogun.age >= 62 && dev.canRetire()) dev.retire();
@@ -153,14 +159,11 @@ const POLICIES = {
       const score = (b) => sum3(b.stats) + (b.skill ? 3 : 0);
       return offers.reduce((best, b, i) => (score(b) > score(offers[best]) ? i : best), 0);
     },
+    // 跡継ぎ：能力の合計がいちばん高い者。幼い者と、若君をさしおく分家の者は少し割り引く
     crown(g) {
-      const list = g.dev.state.succession.candidates;
-      const adult = (c) => c.age >= g.dev.CONFIG.ADULT_AGE;
-      return list.reduce((best, c, i) => {
-        const b = list[best];
-        if (adult(c) !== adult(b)) return adult(c) ? i : best;
-        return sum3(c.stats) > sum3(b.stats) ? i : best;
-      }, 0);
+      const { candidates: list, mode } = g.dev.state.succession;
+      const score = (c) => sum3(c.stats) - (c.age < g.dev.CONFIG.ADULT_AGE ? 8 : 0) - (c.branchId && mode === "heirs" ? 5 : 0);
+      return list.reduce((best, c, i) => (score(c) > score(list[best]) ? i : best), 0);
     },
   },
 };
@@ -169,17 +172,18 @@ function playOne(seed, policy, fuseki) {
   const g = createGame(seed);
   const { dev, data } = g;
   const counts = { succession: {}, shogunKaku: [], warned: 0, left: 0, candidates: [], raises: 0,
-    wives: {}, stars: [0, 0, 0, 0, 0, 0], daughters: 0 };
+    wives: {}, stars: [0, 0, 0, 0, 0, 0], daughters: 0, meddle: 0, balancedYears: 0 };
   // 決算報告の「その年の出来事」から数える
   const NOTE_PATTERNS = { warned: /不満を漏らしている/, left: /見切りをつけて去った/ };
 
-  // プロローグの「最後の布石」
+  // プロローグの「最後の布石」（制度か、遺訓のような始まりの効果）
   const base = data.prologue.find((p) => p.choices).choices.filter((c) => !c.unlock);
   const choice = fuseki === "random"
     ? base[Math.floor(g.rand() * base.length)]
-    : base.find((c) => c.institution === fuseki);
+    : base.find((c) => c.institution === fuseki || c.bonus === fuseki);
   if (!choice) throw new Error(`布石が見つからない: ${fuseki}`);
-  dev.state.institutions.push(choice.institution);
+  if (choice.institution) dev.state.institutions.push(choice.institution);
+  if (choice.bonus) dev.state.legacy = choice.bonus;
   dev.startMain();
   counts.shogunKaku.push(sum3(dev.state.shogun.stats));
 
@@ -188,6 +192,7 @@ function playOne(seed, policy, fuseki) {
     if (s.phase === "over" || s.year - FOUNDED >= MAX_YEARS) break;
     if (s.phase === "event") {
       const card = data.cards.find((c) => c.id === s.card.id);
+      if (card.id === "branch-meddle") counts.meddle += 1;
       dev.choose(policy.choose(g, card));
     } else if (s.phase === "result") {
       s.phase = "manage";
@@ -196,6 +201,7 @@ function playOne(seed, policy, fuseki) {
       policy.manage(g);
       if (dev.state.phase === "manage") {
         dev.endYear();
+        if (dev.branchesBalanced()) counts.balancedYears += 1;
         const report = dev.state.report;
         if (report) {
           for (const note of report.notes) {
@@ -220,9 +226,12 @@ function playOne(seed, policy, fuseki) {
     } else if (s.phase === "report") {
       dev.closeReport();
     } else if (s.phase === "succession") {
-      const mode = s.succession.mode;
-      counts.succession[mode] = (counts.succession[mode] || 0) + 1;
-      dev.crown(policy.crown(g));
+      const { mode, candidates } = s.succession;
+      const pickIndex = policy.crown(g);
+      const c = candidates[pickIndex];
+      const key = mode === "dispute" ? "dispute" : !c.branchId ? "heir" : mode === "heirs" ? "bypass" : "branch";
+      counts.succession[key] = (counts.succession[key] || 0) + 1;
+      dev.crown(pickIndex);
       counts.shogunKaku.push(sum3(dev.state.shogun.stats));
     } else {
       throw new Error(`知らない場面: ${s.phase}`);
@@ -255,6 +264,10 @@ function playOne(seed, policy, fuseki) {
     wives: counts.wives,
     stars: counts.stars,
     daughters: counts.daughters,
+    meddle: counts.meddle,
+    balancedYears: counts.balancedYears,
+    sankeKaku: s.branches ? avg(s.branches.filter((b) => b.kind === "sanke").map((b) => sum3(b.blood))) : 0,
+    kyo: s.branches ? s.branches.some((b) => b.kind === "kyo") : false,
   };
 }
 
@@ -287,7 +300,7 @@ function main() {
   const succ = {};
   for (const r of results) for (const [mode, k] of Object.entries(r.succession)) succ[mode] = (succ[mode] || 0) + k;
   const succTotal = Object.values(succ).reduce((a, b) => a + b, 0);
-  const SUCC_LABELS = { heirs: "若君から", gosanke: "御三家から", dispute: "跡目争い" };
+  const SUCC_LABELS = { heir: "若君から", bypass: "若君をさしおいて分家から", branch: "分家から（若君なし）", dispute: "跡目争い" };
 
   console.log(`家康の憂鬱 自動プレイ ${n}回（遊び方: ${args.policy}、布石: ${args.fuseki}、種: ${args.seed}〜${args.seed + n - 1}）`);
   console.log(`続いた年数（開府から）: 平均 ${Math.round(avg(years))} / 中央 ${quantile(years, 0.5)} / 下位10% ${quantile(years, 0.1)} / 上位10% ${quantile(years, 0.9)} / 最短 ${years[0]} / 最長 ${years[n - 1]}`);
@@ -311,6 +324,10 @@ function main() {
     const wifeTotal = Object.values(wives).reduce((a, b) => a + b, 0);
     console.log(`若君の素質: ${[1, 2, 3, 4, 5].map((s) => `★${s} ${pct(starTotal[s], sons)}`).join(" / ")}　姫: 1回あたり平均 ${avg(results.map((r) => r.daughters)).toFixed(1)}人`);
     console.log(`正室: ${Object.entries(wives).map(([k, n]) => `${WIFE_LABELS[k] || k} ${pct(n, wifeTotal)}`).join(" / ")}（1回あたり平均 ${(wifeTotal / n).toFixed(1)}人）`);
+  }
+  if (results.some((r) => r.sankeKaku)) {
+    const per100 = (key) => (avg(results.map((r) => (r[key] / Math.max(1, r.years)) * 100))).toFixed(1);
+    console.log(`御三家: 終わりの血筋の格 平均 ${avg(results.map((r) => r.sankeKaku)).toFixed(1)}　釣り合っていた年 ${per100("balancedYears")}%　横やり 100年あたり ${per100("meddle")}回　御三卿を立てた ${pct(results.filter((r) => r.kyo).length, n)}`);
   }
   console.log(`（${((Date.now() - started) / 1000).toFixed(1)}秒）`);
 }

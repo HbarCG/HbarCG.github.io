@@ -26,7 +26,18 @@
     CONCUBINE_UPKEEP: 2,    // 側室1人ごとの大奥の費え（万両/年）
     INHERIT_RATE: 0.45,     // 生まれた子の能力は、父と母の能力の平均のこの割合（＋少しの運と素質）
     DAUGHTER_MARRY_AGE: 13, // 姫を嫁がせられる歳
-    ADOPT_OUT_COST: 10,     // 若君を他家へ養子に出すときの支度金（万両）
+    ADOPT_OUT_COST: 10,     // 若君を大名家へ養子に出すときの支度金（万両）
+    // 御三家・御三卿の血筋（跡継ぎの候補の能力の目安。政務・武威・人徳それぞれの値）
+    BLOOD_BASE: 8,          // 放っておくと、血筋はこの値に近づいていく（平凡）
+    BLOOD_START: 9,         // 御三家の始まりの血筋（格27）
+    BLOOD_STRONG: 12,       // 最後の布石で「御三家を固める」を選んだときの血筋（格36）
+    BLOOD_DECAY: 0.01,      // 毎年、血筋が BLOOD_BASE に近づく割合（70年ほどで差が半分になる）
+    BRANCH_ADOPT_COST: 15,  // 若君を御三家・御三卿へ養子に出すときの支度金（万両）
+    BYPASS_IKOU: 5,         // 本家の若君をさしおいて分家から迎えると、威光がこれだけ下がる
+    MEDDLE_GAP: 8,          // 御三家の一家の格が、ほかの二家の平均よりこれだけ高いと、口を出してくる
+    BALANCE_MIN: 30,        // 三家がそろってこの格以上で、
+    BALANCE_SPREAD: 6,      // 格の差がこれ以内なら、互いに牽制して威光が毎年+1
+    HEAD_CHANGE: 0.05,      // 分家の当主が、1年に代替わりする見込み（当主になって12年たってから）
     CARD_COOLDOWN: 10,      // 同じ出来事は、この年数のあいだ出ない
     CRISIS_YEARS: 3,        // 危機になってから立て直すまでの猶予
     CRISIS_SAFE: 10,        // 威光・民心・朝廷がすべてこれを超え、借入が上限以下なら危機を脱する
@@ -67,12 +78,6 @@
   const SURNAMES = ['本多', '酒井', '井伊', '土井', '阿部', '堀田', '大久保', '水野', '稲葉', '青山', '戸田', '板倉',
     '牧野', '久世', '秋元', '大岡', '内藤', '鳥居', '榊原', '小笠原', '保科', '安藤', '松浦', '植村', '永井', '太田'];
   const GIVEN = ['正', '忠', '信', '勝', '重', '秀', '直', '利', '政', '清', '長', '元', '之', '次', '則', '経', '隆', '房', '昌', '貞'];
-  const GOSANKE = [
-    { house: '尾張家', founder: '義直' },
-    { house: '紀伊家', founder: '頼宣' },
-    { house: '水戸家', founder: '頼房' },
-  ];
-
   // 組織の役職。stat はその役職で使う家臣の能力
   const POSTS = [
     { id: 'roju', name: '老中', stat: 'seimu', desc: '政の要。「政務」で決まる判断を助け、腕が立てば実績も増える。' },
@@ -184,6 +189,11 @@
       saved.fin.ooku = Math.max(0, saved.fin.ooku - 4);
     }
     saved.daughters = saved.daughters || [];
+    if (!saved.branches) {
+      // 御三家を代々続く家にする前の保存データ。布石で御三家を固めていたら、血筋の強い状態で始める
+      const strong = (saved.institutions || []).includes('gosanke');
+      saved.branches = DATA.branches.map((def) => makeBranch(def, 'sanke', strong ? CONFIG.BLOOD_STRONG : CONFIG.BLOOD_START, saved.year));
+    }
     if (saved.shogun && saved.shogun.stress === undefined) saved.shogun.stress = 0;
     if (saved.shogun && saved.shogun.skill === undefined) saved.shogun.skill = null;
     return saved;
@@ -266,6 +276,8 @@
       shogun: null,
       heirs: [],
       daughters: [],    // 将軍の娘（姫）
+      // 御三家（と、のちに立つ御三卿）。血筋・当主・家風を持って代々続く
+      branches: DATA.branches.map((def) => makeBranch(def, 'sanke', CONFIG.BLOOD_START, 1616)),
       // 大奥。wife: 正室 / concubines: 側室の数 / offers: 来ている縁談 / nextOffer: 次に縁談が来る年
       oku: { wife: null, concubines: 0, offers: null, nextOffer: 0 },
       retainers: [],
@@ -295,7 +307,7 @@
     // 家系図（史実の部分）
     const ieyasu = addPerson({ name: '家康', born: 1543, parentId: null, trait: '慎重', gen: 1, from: 1603, to: 1605,
       start: { seimu: 18, bui: 18, jintoku: 16 }, note: '幕府を開く。将軍職を秀忠に譲り、大御所として政を見る。' });
-    GOSANKE.forEach((g, i) => {
+    DATA.branches.forEach((g, i) => {
       addPerson({ name: g.founder, born: 1600 + i * 2, parentId: ieyasu.id, house: g.house, note: `${g.house}の祖。` });
     });
     const hidetada = addPerson({ name: '秀忠', born: 1579, parentId: ieyasu.id, trait: '慎重', gen: 2, from: 1605, to: 1623,
@@ -307,7 +319,7 @@
 
     state.shogun = {
       personId: iemitsu.id, name: '家光', gen: 3, age: 33, health: 35, startYear: 1623, trait: '華美',
-      stats: { seimu: 9, bui: 8, jintoku: 7 }, stress: 0, skill: null,
+      stats: { seimu: 9, bui: 8, jintoku: 7 }, stress: 0, skill: null, house: null,
     };
 
     // 家光の時代の家臣たち
@@ -387,6 +399,9 @@
     } else if (bonus === 'kokudaka') {
       state.fin.kokudaka += 60;
       addLog('遺訓により、天下普請で天領の田が広がっていた。');
+    } else if (bonus === 'gosanke') {
+      for (const b of state.branches) b.blood = { seimu: CONFIG.BLOOD_STRONG, bui: CONFIG.BLOOD_STRONG, jintoku: CONFIG.BLOOD_STRONG };
+      addLog('最後の布石により、御三家にはよい血が入っていた。');
     }
   }
 
@@ -599,16 +614,134 @@
     commit();
   }
 
-  // 若君を他家へ養子に出す（若君の枠が空く。大名との縁で、威光が少し上がる）
-  function adoptOut(index) {
+  // 若君を養子に出す（若君の枠が空く）。target は御三家・御三卿の id か 'daimyo'。
+  // 御三家・御三卿へ出すと、その家の血筋が若君の見込みまで強くなる。大名家へ出すと、縁が広がって威光が少し上がる
+  function adoptOut(index, target = 'daimyo') {
     const heir = state.heirs[index];
-    if (!heir || !window.confirm(`${heir.name}を他家へ養子に出しますか？（若君ではなくなる）`)) return;
-    const house = pick(brideKind('daimyo').houses);
+    const branch = branchById(target);
+    const where = branch ? branch.house : '他家';
+    if (!heir || !window.confirm(`${heir.name}を${where}へ養子に出しますか？（若君ではなくなる）`)) {
+      render();
+      return;
+    }
     state.heirs.splice(index, 1);
-    person(heir.personId).note = `${house}の養子となる。`;
-    applyEffects({ ikou: 2, ryo: -CONFIG.ADOPT_OUT_COST }, { label: '養子の支度' });
-    addLog(`若君・${heir.name}を${house}へ養子に出した。`);
+    if (branch) {
+      const before = bloodKaku(branch);
+      branch.blood = projectedBlood(branch, heir);
+      if (heir.skill) branch.skill = heir.skill;
+      branch.adopted = { name: heir.name, year: state.year };
+      person(heir.personId).note = `${branch.house}の養子となる。`;
+      applyEffects({ ryo: -CONFIG.BRANCH_ADOPT_COST }, { label: '養子の支度' });
+      addLog(`若君・${heir.name}を${branch.house}へ養子に出した（血筋 格${before}→${bloodKaku(branch)}）。`);
+    } else {
+      const house = pick(brideKind('daimyo').houses);
+      person(heir.personId).note = `${house}の養子となる。`;
+      applyEffects({ ikou: 2, ryo: -CONFIG.ADOPT_OUT_COST }, { label: '養子の支度' });
+      addLog(`若君・${heir.name}を${house}へ養子に出した。`);
+    }
     commit();
+  }
+
+  // ─────────────────────────────── 御三家と御三卿
+
+  // 分家をつくる。kind: 'sanke'（御三家）/ 'kyo'（御三卿）。blood は数（三つの能力とも同じ値）か { seimu, bui, jintoku }
+  function makeBranch(def, kind, blood, year) {
+    const b = typeof blood === 'number' ? { seimu: blood, bui: blood, jintoku: blood } : { ...blood };
+    return { id: def.id, house: def.house, kind, blood: b, skill: null, head: def.founder, gen: 1, since: year, adopted: null };
+  }
+
+  function branchById(id) {
+    return state.branches.find((b) => b.id === id) || null;
+  }
+
+  // 血筋の格（政務・武威・人徳の血筋の合計を、四捨五入したもの）
+  function bloodKaku(b) {
+    return Math.round(kakuOf(b.blood));
+  }
+
+  // 家風などの決まり（cards.js の branches）。御三卿には家風がない
+  function branchDef(id) {
+    return DATA.branches.find((d) => d.id === id) || null;
+  }
+
+  function sanke() {
+    return state.branches.filter((b) => b.kind === 'sanke');
+  }
+
+  // 若君が大人になったときの能力の見込み（15歳まで、素質に応じて自然に伸びるぶんを足す）
+  function expectedAdult(heir) {
+    const grow = heir.stars ? starInfo(heir.stars).grow : 0.5;
+    const extra = heir.age < CONFIG.ADULT_AGE ? Math.round(((CONFIG.ADULT_AGE - heir.age) * grow) / 3) : 0;
+    const out = {};
+    for (const k of ['seimu', 'bui', 'jintoku']) out[k] = clamp(heir.stats[k] + extra, 1, CONFIG.ABILITY_MAX);
+    return out;
+  }
+
+  // 若君を養子に入れたあとの血筋（能力ごとに、高いほうが残る）
+  function projectedBlood(branch, heir) {
+    const e = expectedAdult(heir);
+    const out = {};
+    for (const k of ['seimu', 'bui', 'jintoku']) out[k] = Math.max(branch.blood[k], e[k]);
+    return out;
+  }
+
+  // 突出している御三家（ほかの二家の平均より MEDDLE_GAP 以上、格が高い家）。なければ null
+  function strongBranch() {
+    const list = sanke();
+    if (list.length < 3) return null;
+    for (const b of list) {
+      const others = list.filter((x) => x !== b);
+      const avg = others.reduce((sum, x) => sum + kakuOf(x.blood), 0) / others.length;
+      if (kakuOf(b.blood) - avg >= CONFIG.MEDDLE_GAP) return b;
+    }
+    return null;
+  }
+
+  // 三家がそろって強く、釣り合っているか（互いに牽制して、威光が毎年+1）
+  function branchesBalanced() {
+    const k = sanke().map((b) => kakuOf(b.blood));
+    return k.length === 3 && Math.min(...k) >= CONFIG.BALANCE_MIN && Math.max(...k) - Math.min(...k) <= CONFIG.BALANCE_SPREAD;
+  }
+
+  // 毎年：血筋は平凡に近づき、当主はときどき代替わりする
+  function ageBranches() {
+    for (const b of state.branches) {
+      for (const k of ['seimu', 'bui', 'jintoku']) {
+        b.blood[k] = Math.round((b.blood[k] + (CONFIG.BLOOD_BASE - b.blood[k]) * CONFIG.BLOOD_DECAY) * 100) / 100;
+      }
+      if (state.year - b.since >= 12 && Math.random() < CONFIG.HEAD_CHANGE) changeHead(b);
+    }
+  }
+
+  function changeHead(b) {
+    const def = branchDef(b.id);
+    b.gen += 1;
+    b.since = state.year;
+    b.head = (def && def.heads[b.gen - 1]) || `${pick(GIVEN)}${pick(GIVEN)}`;
+  }
+
+  // 分家から迎える跡継ぎの候補。能力は血筋のまわりに少しばらつき、家風に合う性格と得意を持ちやすい
+  function branchCandidate(b) {
+    const def = branchDef(b.id);
+    const bias = (def && def.bias) || {};
+    const stat = (k) => clamp(Math.round(b.blood[k]) + rand(-2, 2) + (bias[k] || 0), 1, CONFIG.ABILITY_MAX);
+    return {
+      name: `${b.house}の若殿`, house: b.house, branchId: b.id, age: rand(18, 34),
+      trait: def && Math.random() < 0.6 ? def.trait : pick(TRAITS),
+      skill: b.skill && Math.random() < 0.5 ? b.skill : rollSkill(null),
+      stats: { seimu: stat('seimu'), bui: stat('bui'), jintoku: stat('jintoku'), kenko: rand(7, 14) },
+    };
+  }
+
+  // 制度「御三卿」：将軍の子らに三家を立てさせる。血筋は本家（いまの将軍）に近い
+  function foundKyo() {
+    const s = state.shogun;
+    for (const def of DATA.kyo) {
+      if (branchById(def.id)) continue;
+      state.branches.push(makeBranch(def, 'kyo', { ...s.stats }, state.year));
+      addPerson({ name: def.founder, born: state.year - clamp(s.age - 18, 3, 15), parentId: s.personId, house: def.house, note: `${def.house}の祖。` });
+    }
+    addLog('田安・一橋・清水の御三卿が立った。本家に近い血筋の分家が、跡継ぎの備えとなる。');
   }
 
   function makeShogunName() {
@@ -859,12 +992,13 @@
     const nengu = Math.round(f.kokudaka * 0.25 * (0.7 + state.gauges.minshin / 400) * (0.9 + s.stats.seimu / 100)
       * (1 + (kanjo - 10) * 0.015) * (hasInstitution('kanjo') ? 1.08 : 1));
     const mine = Math.round(f.mine);
-    // 商いは時代とともに大きくなる（交易の上がりは年々増える）
-    const trade = Math.round(f.trade * (1 + (state.year - CONFIG.START_YEAR) / 250));
-    const costRate = 1 - (kanjo - 10) * 0.01 - (hasInstitution('kanjo') ? 0.05 : 0);
+    // 商いは時代とともに大きくなる（交易の上がりは年々増える）。尾張家の華美な家風なら、さらに15%
+    const trade = Math.round(f.trade * (1 + (state.year - CONFIG.START_YEAR) / 250) * (s.house === 'owari' ? 1.15 : 1));
+    // 紀伊家の倹約の家風なら、経費が5%減る
+    const costRate = 1 - (kanjo - 10) * 0.01 - (hasInstitution('kanjo') ? 0.05 : 0) - (s.house === 'kii' ? 0.05 : 0);
     const hatamoto = Math.round(60 * inflation * costRate);
     const salaries = state.retainers.reduce((sum, r) => sum + (r.post ? r.salary : Math.ceil(r.salary / 2)), 0);
-    const ooku = Math.round(ookuBase() * inflation * costRate);
+    const ooku = Math.round(ookuBase() * inflation * costRate * (s.house === 'owari' ? 1.3 : 1));
     const court = Math.round(5 * inflation * costRate);
     const upkeep = state.institutions.reduce((sum, id) => sum + (institution(id)?.upkeep || 0), 0);
     const interest = Math.round(f.debt * CONFIG.INTEREST);
@@ -922,6 +1056,7 @@
   function fillNames(text) {
     return text.replace(/\{(\w+)\}/g, (all, key) => {
       if (key === 'shogun') return state.shogun.name;
+      if (key === 'branch') return (strongBranch() || { house: '御三家のひとつ' }).house;
       const post = POSTS.find((p) => p.id === key);
       if (!post) return all;
       const h = holder(key);
@@ -930,8 +1065,8 @@
   }
 
   function drawCard() {
-    // cards.js の when(s) は s.shogunate と s.heirs を見る
-    const view = { ...state, shogunate: state.gauges };
+    // cards.js の when(s) は s.shogunate や s.heirs、s.strongBranch などを見る
+    const view = { ...state, shogunate: state.gauges, strongBranch: strongBranch() };
     const usable = (card, useCooldown) => {
       if (card.minYear && state.year < card.minYear) return false;
       if (card.when && !card.when(view)) return false;
@@ -1032,6 +1167,17 @@
         f.debt -= v;
         v = -v;
         unit = '万両';
+      } else if (key === 'branchCurb' || key === 'branchLift') {
+        // 突出した御三家の血筋を下げる／ほかの二家の血筋を上げる（能力ごとに v ずつ）
+        const strong = strongBranch();
+        if (!strong) continue;
+        const targets = key === 'branchCurb' ? [strong] : sanke().filter((b) => b !== strong);
+        const d = key === 'branchCurb' ? -v : v;
+        for (const b of targets) {
+          for (const k of ['seimu', 'bui', 'jintoku']) b.blood[k] = clamp(b.blood[k] + d, 1, CONFIG.ABILITY_MAX);
+        }
+        changes.push({ label: key === 'branchCurb' ? `${strong.house}の血筋の格` : 'ほかの二家の血筋の格', delta: d * 3 });
+        continue;
       } else {
         continue;
       }
@@ -1137,6 +1283,7 @@
     state.institutions.push(id);
     person(state.shogun.personId).insts.push(inst.name);
     applyInstitutionOn(id);
+    if (id === 'gosankyo') foundKyo();
     addLog(`制度「${inst.name}」を整えた。この制度は代をまたいで残る。`);
     checkSynergies();
     commit();
@@ -1160,6 +1307,8 @@
       institutions: state.institutions.length, synergies: state.synergies.length,
       postsAll: (min) => POSTS.every((p) => holderValue(p.id) >= min),
       heirs: state.heirs, retainers: state.retainers,
+      sankeMinKaku: Math.min(...sanke().map(bloodKaku)),
+      shipsWon: (state.ships && state.ships.won) || [],
     };
     const earned = [];
     for (const h of DATA.honors) {
@@ -1207,12 +1356,21 @@
       minshin: Math.floor(s.stats.jintoku / 5) - 2 + postBonus('machi') + postBonus('jisha', 8),
       chotei: postBonus('shoshidai') + (state.gauges.chotei > 60 ? -1 : 0),
     };
+    // 分家から迎えた将軍の家風。尾張は民心、水戸は朝廷と実績（朝廷が強すぎると威光がかすむ）
+    if (s.house === 'owari') drift.minshin += 1;
+    if (s.house === 'mito') {
+      drift.chotei += 1;
+      if (state.gauges.chotei > 70) drift.ikou -= 1;
+    }
+    // 御三家がそろって強く釣り合っていれば、互いに牽制して幕府の重しになる
+    if (branchesBalanced()) drift.ikou += 1;
     // 満ち足りた状態は長続きしない（慢心）
     for (const key of Object.keys(drift)) {
       if (state.gauges[key] > 80) drift[key] -= 2;
     }
     applyEffects(drift);
-    state.jisseki += 1 + (s.stats.seimu >= 12 ? 1 : 0) + (postValue('roju') >= 14 ? 1 : 0);
+    state.jisseki += 1 + (s.stats.seimu >= 12 ? 1 : 0) + (postValue('roju') >= 14 ? 1 : 0) + (s.house === 'mito' ? 1 : 0);
+    ageBranches();
 
     closeBooks();
 
@@ -1367,22 +1525,17 @@
     const s = state.shogun;
     closeReign(reason === 'retire' ? '隠居して大御所となる。' : `${s.age}歳で没する。`);
 
-    let mode = 'heirs';
-    let candidates = state.heirs.map((h) => ({ ...h }));
+    // 本家の若君に加えて、御三家・御三卿からも候補が出る（若君がいれば、さしおいて迎えると威光が下がる）
+    const heirs = state.heirs.map((h) => ({ ...h }));
+    let candidates = heirs.concat(state.branches.map(branchCandidate));
+    let mode = heirs.length > 0 ? 'heirs' : 'gosanke';
     if (candidates.length === 0) {
-      if (hasInstitution('gosanke')) {
-        mode = 'gosanke';
-        candidates = GOSANKE.map((g) => ({
-          name: `${g.house}の若殿`, house: g.house, age: rand(18, 34), trait: pick(TRAITS), skill: rollSkill(null),
-          stats: { seimu: rand(6, 12), bui: rand(6, 12), jintoku: rand(6, 12), kenko: rand(7, 14) },
-        }));
-      } else {
-        mode = 'dispute';
-        candidates = [{
-          name: '一門の若者', house: '一門', age: rand(16, 30), trait: pick(TRAITS),
-          stats: { seimu: rand(3, 8), bui: rand(3, 8), jintoku: rand(3, 8), kenko: rand(5, 12) },
-        }];
-      }
+      // 分家もない（ふつうは起きない）
+      mode = 'dispute';
+      candidates = [{
+        name: '一門の若者', house: '一門', age: rand(16, 30), trait: pick(TRAITS),
+        stats: { seimu: rand(3, 8), bui: rand(3, 8), jintoku: rand(3, 8), kenko: rand(5, 12) },
+      }];
     }
     state.succession = { reason, mode, candidates };
     state.phase = 'succession';
@@ -1393,6 +1546,7 @@
     const c = candidates[index];
     const prev = state.shogun;
     const name = makeShogunName();
+    const branch = branchById(c.branchId);
 
     // 家系図に記す。御三家から迎えた人は、その家の祖の下につなぐ
     let p;
@@ -1415,15 +1569,24 @@
       personId: p.id, name, gen: prev.gen + 1, age: c.age, startYear: state.year, trait: c.trait,
       health: clamp(c.stats.kenko * 5, 20, 100),
       stats: { ...p.start }, stress: 0, skill: c.skill || null,
+      house: branch ? branch.id : null,   // 分家から迎えた将軍は、その家の家風を持ち込む
     };
     // 新しい将軍の格に応じて、登用の候補が集まり直す
     state.candidates = makeCandidates();
 
     const from = c.house ? `${c.house}から迎えられた` : `若君・${c.name}が`;
     addLog(`${from}${name}が、第${state.shogun.gen}代将軍となった。`);
-    if (mode === 'gosanke') {
+    if (branch) {
+      // よい若者を出した分家は、そのぶん血筋が薄まり、当主も代わる
+      for (const k of ['seimu', 'bui', 'jintoku']) branch.blood[k] = Math.round((branch.blood[k] + CONFIG.BLOOD_BASE) / 2);
+      changeHead(branch);
+    }
+    if (branch && mode === 'heirs') {
+      applyEffects({ ikou: -CONFIG.BYPASS_IKOU });
+      addLog(`本家の若君をさしおいて、${branch.house}から将軍を迎えた。大名たちは本家の行く末をささやき合っている。`);
+    } else if (mode === 'gosanke') {
       applyEffects({ ikou: -3 });
-      addLog('本家の血は絶えたが、御三家が幕府をつないだ。');
+      addLog(`本家の血は絶えたが、${branch ? branch.house : '分家'}が幕府をつないだ。`);
     } else if (mode === 'dispute') {
       applyEffects({ ikou: -15, minshin: -5 });
       addLog('跡継ぎをめぐって争いが起き、幕府の威光は大きく揺らいだ。');
@@ -1556,6 +1719,17 @@
     return el('p', { class: 'iy-skill' }, [
       el('span', { class: 'iy-skill__name', text: `特技「${sk.name}」` }),
       ` ${sk.desc}${note}`,
+    ]);
+  }
+
+  // 分家から迎えた将軍の家風の説明（本家の将軍なら何も出さない）
+  function kafuLine(houseId) {
+    const b = branchById(houseId);
+    if (!b) return null;
+    const def = branchDef(houseId);
+    return el('p', { class: 'iy-skill' }, [
+      el('span', { class: 'iy-skill__name', text: def ? `家風「${def.kafu}」` : '御三卿の出' }),
+      ` ${b.house}から迎えた将軍。${def ? def.desc : '家風はない。'}`,
     ]);
   }
 
@@ -1847,7 +2021,18 @@
       canTeach ? el('div', { class: 'iy-teach' }, Object.keys(TEACH_LABELS).map((stat) => el('button', {
         type: 'button', text: TEACH_LABELS[stat], disabled: taught, onclick: () => teach(index, stat),
       }))) : null,
-      el('button', { type: 'button', class: 'iy-heir__adopt', text: `他家へ養子に出す（支度金 約${Math.abs(scaledCost(-CONFIG.ADOPT_OUT_COST))}万両・威光+2）`, onclick: () => adoptOut(index) }),
+      // 養子に出す先。御三家・御三卿へ出すと、その家の血筋が若君の見込みまで上がる
+      el('select', {
+        class: 'iy-heir__adopt', 'aria-label': `${heir.name}を養子に出す先`,
+        onchange: (e) => adoptOut(index, e.target.value),
+      }, [
+        el('option', { value: '', text: '養子に出す…（若君の枠が空く）', selected: true, disabled: true }),
+        ...state.branches.map((b) => el('option', {
+          value: b.id,
+          text: `${b.house}へ（血筋 格${bloodKaku(b)}→${Math.round(kakuOf(projectedBlood(b, heir)))}・支度金 約${Math.abs(scaledCost(-CONFIG.BRANCH_ADOPT_COST))}万両）`,
+        })),
+        el('option', { value: 'daimyo', text: `大名家へ（威光+2・支度金 約${Math.abs(scaledCost(-CONFIG.ADOPT_OUT_COST))}万両）` }),
+      ]),
     ]);
   }
 
@@ -1983,30 +2168,38 @@
   function viewSuccession() {
     const { reason, mode, candidates } = state.succession;
     const intro = {
-      heirs: '次の将軍を選ぶ。',
-      gosanke: '本家に跡継ぎがいない。御三家から次の将軍を迎える。',
+      heirs: `次の将軍を選ぶ。本家の若君のほか、御三家・御三卿からも迎えられる（若君をさしおくと、威光が${CONFIG.BYPASS_IKOU}下がる）。`,
+      gosanke: '本家に跡継ぎがいない。御三家・御三卿から次の将軍を迎える。',
       dispute: '跡継ぎがいない。一門の中から、争いの末に一人が担ぎ出された。',
     }[mode];
-    const list = el('div', { class: 'iy-options' });
-    candidates.forEach((c, i) => {
+    const option = (c) => {
+      const i = candidates.indexOf(c);
       const warn = c.age < CONFIG.ADULT_AGE ? '　幼い将軍になる（威光が下がる）' : '';
       const sk = skillById(c.skill);
-      list.append(el('button', { type: 'button', class: 'iy-option iy-option--person', onclick: () => crown(i) }, [
+      const def = branchDef(c.branchId);
+      const kafu = c.branchId ? (def ? `家風「${def.kafu}」：${def.desc}` : '御三卿（家風はない）') : '';
+      return el('button', { type: 'button', class: 'iy-option iy-option--person', onclick: () => crown(i) }, [
         faceOf({ ...c, id: i + 3 }),
         el('span', { class: 'iy-option__text' }, [
           el('strong', { text: `${c.name}（${c.age}歳・${c.trait}）格${kakuOf(c.stats)}` }),
           c.stars ? el('span', { class: 'iy-stars', text: `${starText(c.stars)} ${starInfo(c.stars).label}` }) : null,
           el('span', { text: Object.keys(ABILITY_LABELS).map((k) => `${ABILITY_LABELS[k]}${c.stats[k]}`).join('　') + warn }),
           sk ? el('span', { class: 'iy-skill__name', text: `特技「${sk.name}」${sk.desc}` }) : null,
+          kafu ? el('span', { text: kafu }) : null,
         ]),
-      ]));
-    });
+      ]);
+    };
+    const heirs = candidates.filter((c) => !c.branchId && !c.house);
+    const others = candidates.filter((c) => c.branchId || c.house);
     return [
       el('p', { class: 'iy-year', text: `${state.year}年` }),
       el('h2', { text: reason === 'retire' ? '将軍職を譲る' : '将軍、世を去る' }),
       sceneArt(reason === 'retire' ? 'hall' : 'sickbed'),
       el('p', { text: intro }),
-      list,
+      heirs.length ? el('h3', { text: '本家の若君' }) : null,
+      heirs.length ? el('div', { class: 'iy-options' }, heirs.map(option)) : null,
+      others.length ? el('h3', { text: '御三家・御三卿から迎える' }) : null,
+      others.length ? el('div', { class: 'iy-options' }, others.map(option)) : null,
     ];
   }
 
@@ -2077,6 +2270,39 @@
 
   // ───── 家系図
 
+  // 御三家・御三卿の一覧（当主・家風・血筋）
+  function branchPanel() {
+    const strong = strongBranch();
+    const status = strong
+      ? `${strong.house}が突出している（ほかの二家の平均より格が${CONFIG.MEDDLE_GAP}以上高い）。政に口を出してくることがある。`
+      : branchesBalanced()
+        ? `三家がそろって強く、釣り合っている。互いに牽制して、威光が毎年+1。`
+        : `三家がそろって格${CONFIG.BALANCE_MIN}以上で、差が${CONFIG.BALANCE_SPREAD}以内なら、互いに牽制して威光が毎年+1。一家だけ強すぎると、政に口を出してくる。`;
+    // 一覧は長いので、たたんでおく（見出しに各家の血筋の格だけ出す）
+    const box = el('details', { class: 'iy-branches' });
+    box.append(el('summary', { text: state.branches.map((b) => `${b.house} 格${bloodKaku(b)}`).join('・') }));
+    box.append(
+      el('p', { class: 'iy-hint', text: '本家に若君がいないときや、若君より良い者がいるとき、ここから将軍を迎えられる。血筋（候補の能力の目安）は代を重ねると平凡に近づくが、本家の若君を養子に出すと強くなる。' }),
+      ...state.branches.map((b) => {
+        const def = branchDef(b.id);
+        return el('div', { class: 'iy-heir' }, [
+          el('div', { class: 'iy-heir__head' }, [
+            art(ART.retainer(b.house.charCodeAt(0) + b.gen * 3), 'iy-face iy-face--small'),
+            el('p', { class: 'iy-heir__name' }, [
+              el('strong', { text: b.house }), `（当主：${b.head}・${b.gen}代）`,
+              el('span', { class: 'iy-kaku', text: `血筋 格${bloodKaku(b)}` }),
+            ]),
+          ]),
+          el('p', { class: 'iy-retainer__stats' }, ['seimu', 'bui', 'jintoku'].map((k) => el('span', { text: `${ABILITY_LABELS[k]}${Math.round(b.blood[k])}` }))),
+          el('p', { class: 'iy-hint', text: def ? `家風「${def.kafu}」：${def.desc}` : '御三卿。家風はなく、政に口を出さない。' }),
+          skillTag(b.skill, '（この家の候補が受け継ぐことがある）'),
+          b.adopted ? el('p', { class: 'iy-hint', text: `本家から迎えた養子：${b.adopted.name}（${b.adopted.year}年）` }) : null,
+        ]);
+      }),
+    );
+    return panel('御三家と御三卿', [el('p', { class: strong ? 'iy-warn' : 'iy-hint', text: status }), box]);
+  }
+
   function renderFamily() {
     if (!person(ui.person)) ui.person = state.shogun.personId;
     const selected = person(ui.person);
@@ -2102,6 +2328,7 @@
     };
 
     $('tab-family').replaceChildren(
+      branchPanel(),
       panel('家系図', [
         el('p', { class: 'iy-hint', text: '名前を押すと、その人の記録が上に出る。太枠は将軍になった人。' }),
         detailOf(selected),
@@ -2312,6 +2539,7 @@
         el('p', { class: 'iy-kaku-line' }, [el('strong', { text: `将軍の格 ${k}` }), '（政務・武威・人徳の合計）']),
         el('p', { class: 'iy-hint', text: `格が高いほど、登用の候補が多く、腕の立つ者が集まる（候補は格${steps}）。格${CONFIG.RENOWN_KAKU}以上なら、名のある人物がまれに仕官を願い出る。` }),
         skillTag(s.skill),
+        kafuLine(s.house),
         el('p', { class: (s.stress || 0) >= 60 ? 'iy-warn' : 'iy-hint', text: `気苦労 ${s.stress || 0} / 100（60を超えると体を壊しはじめる。好みに合う裁きや、鷹狩り・湯治で晴れる）` }),
       ]),
       panel('役職', [
@@ -2505,6 +2733,7 @@
     teach, teachCost, establish, institutionStatus, repay, retire, canRetire,
     shogunKaku, kakuOf, wants, raise,
     marry, declineMarriage, addConcubine, removeConcubine, marryDaughter, adoptOut, birthChance, ookuBase,
+    projectedBlood, strongBranch, branchesBalanced, bloodKaku,
   };
 
   $('title-art').innerHTML = ART.scene('heaven');

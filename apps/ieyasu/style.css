@@ -1179,6 +1179,21 @@ body.iy-coaching .iy-raise {
   gap: 0.4rem;
 }
 
+.iy-panel select.iy-heir__adopt {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+/* ─── 御三家と御三卿 */
+.iy-branches summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--color-link);
+  padding: 0.25rem 0 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .iy-panel .iy-matches button {
   text-align: left;
   font-size: 0.85rem;
