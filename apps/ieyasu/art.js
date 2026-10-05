@@ -5,6 +5,7 @@
 //   IEYASU_ART.ieyasu('worry')      … 家康（神さま姿）の顔。'calm' / 'worry' / 'angry'
 //   IEYASU_ART.shogun('華美')        … 将軍の顔。性格で着物の色が変わる
 //   IEYASU_ART.child('慎重')         … 若君の顔
+//   IEYASU_ART.iemitsu()             … 霊体の家光の顔（チュートリアルとガイドの案内役）
 //   IEYASU_ART.retainer(3)           … 家臣の顔。数字で着物の色や顔つきが変わる
 window.IEYASU_ART = (() => {
   'use strict';
@@ -260,6 +261,11 @@ window.IEYASU_ART = (() => {
     heaven: ['日光の山と雲の上の家康', () => sky('#f7e3b0', C.paper) + sun(160, 60, 34, C.gold2) + mountains(130, '#9fb0a5', [[0, 20], [60, 0], [120, 26], [200, 4], [260, 24], [320, 10]])
       + ground(130, C.green2) + kasumi(10, 108, 120, C.white, 0.9) + kasumi(190, 116, 120, C.white, 0.9) + ghost(160, 84, 2)],
 
+    descend: ['江戸城へ降りる家康', () => sky('#2a3350', '#c9b98a') + sun(250, 30, 12, C.paper)
+      + `<path d="M150,0 L110,160 L210,160 L170,0 Z" fill="${C.gold2}" opacity="0.25"/>`
+      + mountains(124, '#5a6070') + ground(124, '#4a5a40') + castle(160, 128, 1.2)
+      + ghost(160, 48, 1.4) + ghost(206, 64, 0.8) + kasumi(30, 90, 90, C.white, 0.6) + kasumi(210, 100, 90, C.white, 0.6)],
+
     shrine: ['東照宮', () => sky('#e9d9b8', C.paper) + mountains(116, '#b9b39a') + ground(116, C.green2)
       + pine(40, 130, 1.2) + pine(286, 132, 1.2) + shrine(160, 118, 1.3) + torii(160, 150, 0.9) + kasumi(16, 30, 100) + kasumi(210, 22, 90)],
 
@@ -412,6 +418,18 @@ window.IEYASU_ART = (() => {
       <rect x="20" y="19" width="24" height="5" rx="2" fill="${C.ink}"/>`, `将軍（${trait}）`);
   }
 
+  // 霊体の家光（チュートリアルとガイドの案内役）。光の輪と霞をまとう
+  function iemitsu() {
+    return portrait(`<rect width="64" height="64" rx="10" fill="#efe0f0"/>
+      <circle cx="32" cy="28" r="24" fill="${C.gold2}" opacity="0.45"/>
+      <path d="M6,64 L10,46 Q32,38 54,46 L58,64 Z" fill="${C.purple}" opacity="0.9"/>
+      <path d="M24,44 L32,56 L40,44" stroke="${C.white}" stroke-width="2" fill="none"/>${aoi(20, 54, 3.5, C.gold)}${aoi(44, 54, 3.5, C.gold)}
+      ${face(32, 30, 13, 'calm')}
+      <path d="M21,22 Q22,4 36,4 Q42,8 40,20 Z" fill="${C.ink}"/>
+      <rect x="20" y="19" width="24" height="5" rx="2" fill="${C.ink}"/>
+      ${kasumi(2, 56, 22, C.white, 0.9)}${kasumi(40, 58, 22, C.white, 0.9)}`, '家光（霊体）');
+  }
+
   function child(trait) {
     const color = TRAIT_COLORS[trait] || C.blue;
     return portrait(`<rect width="64" height="64" rx="10" fill="#f3ead6"/>
@@ -435,5 +453,5 @@ window.IEYASU_ART = (() => {
       <rect x="30" y="11" width="4" height="6" fill="${C.ink}"/>`, '家臣');
   }
 
-  return { scene, ieyasu, shogun, child, retainer, sceneNames: Object.keys(SCENES) };
+  return { scene, ieyasu, iemitsu, shogun, child, retainer, sceneNames: Object.keys(SCENES) };
 })();

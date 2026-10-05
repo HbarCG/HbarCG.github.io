@@ -266,14 +266,29 @@
     return state.family.find((p) => p.id === id);
   }
 
+  // 家光が若くして天に昇り、権現様（プレイヤー）が霊体となって江戸城に降りるところから本編が始まる
   function startMain() {
     state.year = CONFIG.START_YEAR;
     state.phase = 'event';
     state.ledger = { year: state.year, items: [] };
-    addLog('家光が倒れた。東照宮で力を得た権現様は、自ら幕府の舵を取ることにした。');
+
+    // 家光の忘れ形見（家光の子として家系図に記す）
     const heir = makeHeir('竹千代');
+    closeReign('33歳で病に倒れ、天に昇る。霊体となって権現様に付き従う。');
+    addLog('家光が天に昇った。権現様は東照宮の力で霊体となり、江戸城に降りた。');
+
+    // 将軍は家光の異母弟・保科正之が継ぐ
+    const hidetada = state.family.find((p) => p.name === '秀忠');
+    const masayuki = addPerson({ name: '正之', born: 1611, parentId: hidetada.id, house: '保科家', trait: '慎重',
+      gen: 4, from: state.year, start: { seimu: 14, bui: 9, jintoku: 13 } });
+    state.usedNames.push('正之');
+    state.shogun = {
+      personId: masayuki.id, name: '正之', gen: 4, age: 26, health: 70, startYear: state.year, trait: '慎重',
+      stats: { ...masayuki.start },
+    };
+    addLog('家光の異母弟・保科正之が、第4代将軍となった。');
     state.heirs.push(heir);
-    addLog(`若君・${heir.name}が生まれた。家光は床の中で涙を流して喜んだ。`);
+    addLog(`家光の忘れ形見、若君・${heir.name}が生まれた。`);
     for (const id of state.institutions) applyInstitutionOn(id);
     drawCard();
   }
@@ -954,6 +969,14 @@
     ]);
   }
 
+  // 霊体の家光のせりふ（チュートリアルとガイドの案内役）
+  function iemitsuSays(children) {
+    return el('div', { class: 'iy-speech iy-speech--iemitsu' }, [
+      art(ART.iemitsu(), 'iy-speech__face'),
+      el('div', { class: 'iy-speech__body' }, [].concat(children)),
+    ]);
+  }
+
   function ieyasuMood() {
     const tight = state.fin.debt > debtLimit() * 0.7 || state.fin.cash < 20;
     return tight || Object.values(state.gauges).some((v) => v <= 25) ? 'worry' : 'calm';
@@ -1276,7 +1299,7 @@
       el('h2', { text: '倒幕' }),
       sceneArt('fall'),
       el('p', { text: `徳川の幕府は、開府から${years}年で幕を閉じた。最後の将軍は、第${state.shogun.gen}代・${state.shogun.name}。` }),
-      ieyasuSays(el('p', { class: 'iy-voice', text: '日光の山の上で、権現様は長いため息をついた。……次こそは。' }), 'worry'),
+      ieyasuSays(el('p', { class: 'iy-voice', text: '霊体の権現様は長いため息をつき、家光とともに日光の山へ帰っていった。……次こそは。' }), 'worry'),
       el('p', { class: 'iy-note', text: `これまでの最長記録：${Math.max(years, loadBest())}年（史実の幕府は約265年）。家系図と財務の記録は、このまま見られる。` }),
       el('button', { type: 'button', class: 'iy-primary', text: 'もう一度、最初から', onclick: restart }),
     ];
@@ -1550,7 +1573,7 @@
         el('button', { type: 'button', class: 'iy-dialog__close', 'aria-label': 'ガイドを閉じる', text: '×', onclick: closeGuide }),
       ]),
       el('div', { class: 'iy-dialog__body' }, [
-        ieyasuSays(el('p', { class: 'iy-voice', text: '「わからぬことがあれば、ここを読め。項目を押すと開く。」' })),
+        iemitsuSays(el('p', { class: 'iy-voice', text: '「権現様、おわかりにならぬことがあれば、こちらをご覧くだされ。項目を押すと開きまする。」' })),
         ...sections,
         playing ? el('button', {
           type: 'button', class: 'iy-secondary', text: 'チュートリアルをもう一度見る',
@@ -1568,7 +1591,7 @@
     else dialog.removeAttribute('open');
   }
 
-  // ───── チュートリアル（初回だけ。家康が画面の各部分を順に案内する）
+  // ───── チュートリアル（初回だけ。霊体の家光が画面の各部分を順に案内する）
 
   function startTutorial() {
     if (state.phase === 'prologue') return;
@@ -1615,7 +1638,7 @@
     coach.replaceChildren(
       el('div', { class: 'iy-coach__dim' }),
       el('div', { class: `iy-coach__card${atTop ? ' iy-coach__card--top' : ''}`, role: 'dialog', 'aria-label': 'チュートリアル' }, [
-        ieyasuSays(el('p', { class: 'iy-voice', text: step.text })),
+        iemitsuSays(el('p', { class: 'iy-voice', text: step.text })),
         el('div', { class: 'iy-coach__nav' }, [
           el('span', { class: 'iy-muted', text: `${ui.coach + 1} / ${steps.length}` }),
           el('button', { type: 'button', class: 'iy-coach__skip', text: 'とばす', onclick: endTutorial }),
