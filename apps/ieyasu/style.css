@@ -977,3 +977,88 @@ body.iy-coaching .iy-raise {
   color: #fff;
   font-weight: 600;
 }
+
+/* ─── 吹き出しの話し手（顔と名前） */
+.iy-speech__who {
+  flex: 0 0 auto;
+  display: grid;
+  justify-items: center;
+  gap: 0.15rem;
+  width: 56px;
+}
+
+.iy-speech__name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  line-height: 1.2;
+}
+
+.iy-speech--iemitsu .iy-speech__body {
+  background: color-mix(in srgb, #6b4a7a 10%, var(--color-bg));
+}
+
+.iy-progress {
+  margin: 0 !important;
+  text-align: right;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.iy-panel .iy-back {
+  display: block;
+  margin: 0.75rem auto 0;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  text-decoration: underline;
+}
+
+/* ─── 決算報告・組み合わせ・栄誉 */
+.iy-report-notes {
+  margin: 0 0 1rem;
+  padding-left: 1.2rem;
+  font-size: 0.88rem;
+  line-height: 1.7;
+}
+
+.iy-honor-line {
+  margin: 0 0 1rem !important;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, #d4a63a 18%, var(--color-bg));
+  font-weight: 600;
+}
+
+.iy-synergies,
+.iy-honors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.iy-synergies li,
+.iy-honors li {
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.iy-synergy--got,
+.iy-honor--now,
+.iy-honor--ever {
+  color: var(--color-text) !important;
+}
+
+.iy-synergy--got strong,
+.iy-honor--now strong {
+  color: #b5852a;
+}
+
+.iy-panel .iy-option--locked {
+  opacity: 0.55;
+  border-style: dashed;
+}

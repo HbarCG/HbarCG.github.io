@@ -7,7 +7,8 @@
 //   borrow: 商人から借りる額（万両）。現金と借入が同じだけ増える
 //   rice: 蔵米（万両ぶん） / kokudaka: 天領の石高（万石） / mine: 金銀山の産出（万両/年）
 //   trade: 運上金・交易の収入（万両/年） / ooku: 大奥の費え（万両/年）
-//   jisseki: 実績（制度を整えるのに使う） / health: 将軍の健康
+//   jisseki: 実績（制度を整えるのに使う） / health: 将軍の健康 / stress: 将軍の気苦労
+//   recruit: 1 … 有能な登用の候補が1人現れる / debtCut: 借入を帳消しにする額（万両）
 //   heir: { seimu: 2 } など … いちばん年上の若君の能力
 //
 // ■ 選択肢（options）に書けるもの
@@ -16,6 +17,7 @@
 //   grow:  将軍が乗り気で取り組んだとき伸びる能力（seimu 政務 / bui 武威 / jintoku 人徳）
 //   check: { stat: 'seimu', dc: 11 } … 成否が将軍（と担当の役職）の能力で決まる。失敗時は fail / failText
 //   invest: true … 出費を「投資」として扱う（キャッシュフロー表の投資の欄に入り、資産になる）
+//   flag: 'name' … 選んだことを印として残す。数年後の「続きの出来事」の条件に使う
 //   text:  結果の文章
 //
 // ■ カードに書けるもの
@@ -23,9 +25,17 @@
 //   minYear: この年以降に出る / when: 出る条件（関数） / weight: 出やすさ（標準1）
 //   kind: 'famine'（飢饉）や 'foreign'（異国）。対応する制度があると悪い効果が半分になる
 //   once: true … 一度しか出ない
+//   tone: 'good' / 'bad' … 良い出来事・厳しい出来事。厳しい出来事が続くと良い出来事が来やすくなる
+//   followUp: true … 過去の選択の続き（出やすい）。clears: 'name' で、その印を消す
+//   文中の {roju} {kanjo} {machi} {ometsuke} {shoshidai} {jisha} は、その役職の家臣の名前に、{shogun} は将軍の名前になる
 
 window.IEYASU_DATA = {
   // ─────────────────────────────── プロローグ（史実パート）
+  // text はせりふの一覧。1つずつ「次へ」で送る。
+  //   文字列 … 家康のせりふ（地の文も家康の語り）
+  //   { who: 'iemitsu', text: '…' } … 霊体の家光のせりふ
+  //   { mood: 'angry', text: '…' } … 家康の表情を変えたいとき（calm / worry / angry）
+  // choices の text は、選んだ直後に家康が言う一言。
   prologue: [
     {
       year: 1616,
@@ -33,8 +43,10 @@ window.IEYASU_DATA = {
       mood: 'worry',
       scene: 'sickbed',
       text: [
-        '元和二年、駿府城。天下を平らげて十余年、わしの命もいよいよ尽きようとしておる。',
-        '七十五年。よう生きた。……生きたが、どうにも落ち着かぬ。わしが死んだあと、この幕府は本当に続くのか。',
+        '元和二年、駿府城。天下を平らげて十余年。',
+        'わしの命も、いよいよ尽きようとしておる。',
+        '七十五年。よう生きた。……生きたが、どうにも落ち着かぬ。',
+        'わしが死んだあと、この幕府は本当に続くのか。',
       ],
     },
     {
@@ -42,13 +54,14 @@ window.IEYASU_DATA = {
       title: '最後の布石',
       scene: 'castle',
       text: [
-        '死ぬ前に、ひとつだけ布石を打っておこう。何もかもは無理じゃ。いちばん大事なものをひとつ選ぶ。',
+        '死ぬ前に、ひとつだけ布石を打っておこう。',
+        '何もかもは無理じゃ。いちばん大事なものを、ひとつ選ぶ。',
       ],
       choices: [
         {
           label: '御三家を固める',
           institution: 'gosanke',
-          text: '尾張・紀伊・水戸。本家に跡継ぎが絶えたとき、ここから迎えればよい。保険は地味じゃが、効く。',
+          text: '尾張・紀伊・水戸。本家に跡継ぎが絶えたら、ここから迎えればよい。保険は地味じゃが、効く。',
         },
         {
           label: '金山・銀山を幕府が握る',
@@ -60,6 +73,35 @@ window.IEYASU_DATA = {
           institution: 'konin',
           text: '孫娘の和子を帝のもとへ。力で押さえるより、身内になってしまうほうが揉めぬ。',
         },
+        // ここから下は「遺訓」。栄誉を unlock の数だけ集めると選べるようになる
+        {
+          label: '家臣団を鍛え上げる',
+          unlock: 2,
+          bonus: 'retainers',
+          desc: '本編の始まりで、役職に就いている家臣の得意な能力が3ずつ上がっている。',
+          text: '国は人なり。よい家臣を残しておけば、子や孫が困ることはない。',
+        },
+        {
+          label: '金蔵を満たしておく',
+          unlock: 4,
+          bonus: 'treasury',
+          desc: '本編の始まりで、金蔵の現金が150万両多い。',
+          text: '金は使えばなくなる。じゃから、使わずに置いておくのじゃ。……わしはケチではない。',
+        },
+        {
+          label: '孫の代まで教えを遺す',
+          unlock: 6,
+          bonus: 'heir',
+          desc: '本編の始まりで、若君・竹千代の能力がすべて3ずつ高い。',
+          text: '跡継ぎの育て方を、書き残しておこう。読むのは、まだ生まれてもおらぬ子じゃが。',
+        },
+        {
+          label: '天下普請で田を広げる',
+          unlock: 8,
+          bonus: 'kokudaka',
+          desc: '本編の始まりで、天領の石高が60万石多い。',
+          text: '大名どもの金で、堤を築き、田を開かせる。わしの懐は痛まぬ。',
+        },
       ],
     },
     {
@@ -67,8 +109,10 @@ window.IEYASU_DATA = {
       title: '東照大権現',
       scene: 'heaven',
       text: [
-        '……気がつくと、日光の山の上におった。なんと、わしは神として祀られたらしい。東照大権現。仰々しい名じゃ。',
-        '体はない。声も届かぬ。できるのは見ていることだけ。息子の秀忠は真面目じゃが、慎重がすぎる。見ていて肩がこる。肩はないが。',
+        '……気がつくと、日光の山の上におった。',
+        'なんと、わしは神として祀られたらしい。東照大権現。仰々しい名じゃ。',
+        '体はない。声も届かぬ。できるのは、見ていることだけ。',
+        { mood: 'worry', text: '息子の秀忠は真面目じゃが、慎重がすぎる。見ていて肩がこる。……肩はないが。' },
       ],
     },
     {
@@ -77,7 +121,8 @@ window.IEYASU_DATA = {
       scene: 'hall',
       text: [
         '秀忠が退き、孫の家光が三代将軍となった。',
-        'こやつは妙にわしを慕っておる。なにかにつけて「権現様」と手を合わせに来る。……悪い気はせぬ。',
+        'こやつは妙にわしを慕っておる。なにかにつけて「権現様」と手を合わせに来る。',
+        '……悪い気はせぬ。',
       ],
     },
     {
@@ -85,20 +130,25 @@ window.IEYASU_DATA = {
       title: '東照宮、完成',
       scene: 'shrine',
       text: [
-        '寛永十三年。家光が日光の社を建て直した。金箔、極彩色、見上げるほどの彫り物。……やりすぎじゃ。わしは質素が好きなのじゃ。',
-        'だが、参拝の者たちの祈りが流れ込んでくるにつれて、体の奥から力がみなぎってきた。体はないが。',
+        '寛永十三年。家光が日光の社を建て直した。',
+        '金箔、極彩色、見上げるほどの彫り物。',
+        { mood: 'worry', text: '……やりすぎじゃ。わしは質素が好きなのじゃ。' },
+        'だが、参拝の者たちの祈りが流れ込んでくるにつれて、体の奥から力がみなぎってきた。',
+        '……体はないが。',
       ],
     },
     {
       year: 1637,
       title: '雲の上の家光',
-      mood: 'worry',
       scene: 'heaven',
       text: [
         '翌年の春。雲の上で、見覚えのある顔に出くわした。',
-        '「権現様……面目ございませぬ。病には勝てませなんだ」',
-        '「それにしても妙ですな。史実どおりなら、私は四十八まで生きて、息子の家綱に跡を譲るはずでしたのに。どうも、この世はどこかで筋書きが狂うたようで……」',
-        'シジツ？ 何の話じゃ。……いや、それどころではない。おぬしがここにおるということは、幕府はどうなる。世継ぎもまだおらぬというのに！',
+        { who: 'iemitsu', text: '権現様……面目ございませぬ。病には勝てませなんだ。' },
+        { who: 'iemitsu', text: 'それにしても妙ですな。史実どおりなら、私は四十八まで生きて、息子の家綱に跡を譲るはずでしたのに。' },
+        { who: 'iemitsu', text: 'どうも、この世はどこかで筋書きが狂うたようで……。' },
+        { mood: 'worry', text: 'シジツ？ 何の話じゃ。' },
+        { mood: 'angry', text: '……いや、それどころではない。おぬしがここにおるということは、幕府はどうなる。' },
+        { mood: 'angry', text: '世継ぎも、まだおらぬというのに！' },
       ],
     },
     {
@@ -107,9 +157,13 @@ window.IEYASU_DATA = {
       mood: 'worry',
       scene: 'descend',
       text: [
-        'のんびり見物しておる場合ではない。いても立ってもおられず、気がつけば、わしは霊体となって江戸城に降りておった。東照宮の力が、ここまで運んでくれたらしい。',
-        '城では、家光の異母弟・保科正之が新しい将軍に立てられておった。堅物じゃが、信の置ける男じゃ。家光の側室が身ごもっておったのが、せめてもの救いよ。',
-        '「権現様、それがしもお供いたします」……家光までついてきおった。じゃが、体もない霊のわしらに、いったい何ができるというのか。',
+        'のんびり見物しておる場合ではない。',
+        'いても立ってもおられず、気がつけば、わしは霊体となって江戸城に降りておった。東照宮の力が、ここまで運んでくれたらしい。',
+        '城では、家光の異母弟・保科正之が新しい将軍に立てられておった。堅物じゃが、信の置ける男じゃ。',
+        '家光の側室が身ごもっておったのが、せめてもの救いよ。',
+        { who: 'iemitsu', text: '権現様、それがしもお供いたします。' },
+        '……家光までついてきおった。',
+        'じゃが、体もない霊のわしらに、いったい何ができるというのか。',
       ],
     },
   ],
@@ -136,12 +190,13 @@ window.IEYASU_DATA = {
   cards: [
     {
       id: 'castle-repair',
+      tone: 'bad',
       scene: 'castle',
       title: '無断の城普請',
       text: '西国の大名が、届け出もなく城の石垣を積み直しているという。',
       ieyasu: '福島の一件を思い出すのう。甘く見れば、ほかの大名もまねをする。',
       options: [
-        { label: '改易する', tag: '豪胆', grow: 'bui', check: { stat: 'bui', dc: 10 },
+        { label: '改易する', tag: '豪胆', grow: 'bui', check: { stat: 'bui', dc: 10 }, flag: 'kaieki',
           effects: { ikou: 8, minshin: -2 }, text: '大名は国を取り上げられた。諸国の大名は震え上がった。',
           fail: { ikou: -6, minshin: -3 }, failText: '家臣団が城に立てこもり、鎮めるのに手間取った。幕府の威光に傷がついた。' },
         { label: '叱りつけて済ませる', tag: '寛大', grow: 'jintoku',
@@ -152,6 +207,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'famine-sign',
+      tone: 'bad',
       scene: 'famine',
       title: '凶作の兆し',
       kind: 'famine',
@@ -185,7 +241,7 @@ window.IEYASU_DATA = {
       id: 'court-rank',
       scene: 'court',
       title: '朝廷の官位',
-      text: '朝廷が、幕府に相談なく大名に官位を授けようとしている。',
+      text: '{shoshidai}によれば、朝廷が幕府に相談なく、大名に官位を授けようとしているという。',
       ieyasu: '朝廷は敵ではない。だが、大名と朝廷が直に結びつくのは、いちばん危うい。',
       options: [
         { label: '厳しく抗議する', tag: '豪胆', grow: 'bui',
@@ -198,9 +254,10 @@ window.IEYASU_DATA = {
     },
     {
       id: 'edo-fire',
+      tone: 'bad',
       scene: 'fire',
       title: '江戸の大火',
-      text: '江戸の町が三日三晩燃え続けた。焼け出された者があふれている。',
+      text: '江戸の町が三日三晩燃え続けた。焼け出された者があふれている。{machi}が、急ぎ指図を仰いできた。',
       ieyasu: '江戸は燃える町じゃ。燃えたあとにどう建て直すかで、将軍の器が知れる。',
       options: [
         { label: '町人に再建の金を出す', tag: '寛大', grow: 'jintoku',
@@ -231,6 +288,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'ronin',
+      tone: 'bad',
       scene: 'ronin',
       title: '浪人の不満',
       text: '取りつぶされた家の浪人たちが江戸に集まり、不穏な噂が立っている。',
@@ -247,6 +305,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'mine-decline',
+      tone: 'bad',
       scene: 'mine',
       title: '金山の衰え',
       text: '佐渡の金の出が年々細っている。このままでは幕府の蔵が持たない。',
@@ -265,7 +324,7 @@ window.IEYASU_DATA = {
       id: 'roju-feud',
       scene: 'hall',
       title: '老中の争い',
-      text: '二人の老中が政の方針をめぐって激しく対立し、城中が二つに割れている。',
+      text: '{roju}と、もう一人の老中が、政の方針をめぐって激しく対立している。城中が二つに割れた。',
       ieyasu: '家臣の争いを放っておくのがいちばんいかん。だが、どちらかを切れば、恨みが残る。',
       options: [
         { label: '一方を罷免する', tag: '豪胆', grow: 'bui',
@@ -279,6 +338,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'tozama-marriage',
+      tone: 'bad',
       scene: 'palanquin',
       title: '外様の縁組',
       text: '有力な外様大名同士が、幕府の許しを得ずに縁組をまとめようとしている。',
@@ -294,6 +354,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'good-harvest',
+      tone: 'good',
       scene: 'harvest',
       title: '豊作',
       text: '今年は天候に恵まれ、どの国も大豊作だ。',
@@ -316,7 +377,7 @@ window.IEYASU_DATA = {
       options: [
         { label: '大名に手伝わせる', tag: '豪胆', grow: 'bui',
           effects: { ikou: 3, minshin: 3, kokudaka: 4 }, text: '大名たちが人足を出し、堤が築かれた。大名の懐は痛んだ。' },
-        { label: '幕府の金で築く', tag: '寛大', grow: 'jintoku', invest: true,
+        { label: '幕府の金で築く', tag: '寛大', grow: 'jintoku', invest: true, flag: 'levee',
           effects: { ryo: -40, kokudaka: 15, minshin: 5, jisseki: 2 }, text: '立派な堤が完成し、水につかっていた田がよみがえった。「公方様の堤」と呼ばれている。' },
         { label: '後回しにする', tag: '倹約', grow: 'seimu',
           effects: { minshin: -4, ryo: 5 }, text: '今年は持ちこたえた。来年はわからない。' },
@@ -324,6 +385,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'ikki',
+      tone: 'bad',
       scene: 'ikki',
       title: '一揆',
       text: '重い年貢に耐えかねた百姓たちが、代官所に押し寄せた。',
@@ -340,21 +402,23 @@ window.IEYASU_DATA = {
     },
     {
       id: 'shogun-ill',
+      tone: 'bad',
       scene: 'sickbed',
       title: '将軍の不調',
       text: '将軍が近ごろ、ひどく疲れた顔をしている。政務の詰めすぎだと侍医は言う。',
       ieyasu: '体を壊しては、何もかも終わりじゃ。わしは薬を自分で調合しておった。',
       options: [
         { label: 'しばらく静養する', tag: '慎重', grow: 'jintoku',
-          effects: { health: 10, ikou: -3 }, text: '将軍は顔色を取り戻した。そのあいだ、政は少し滞った。' },
+          effects: { health: 10, stress: -15, ikou: -3 }, text: '将軍は顔色を取り戻した。そのあいだ、政は少し滞った。' },
         { label: 'かまわず政務を続ける', tag: '豪胆', grow: 'seimu',
-          effects: { health: -8, jisseki: 2 }, text: '仕事ははかどった。将軍の咳が、少し増えた。' },
+          effects: { health: -8, stress: 8, jisseki: 2 }, text: '仕事ははかどった。将軍の咳が、少し増えた。' },
         { label: '名医を呼び寄せる', tag: '華美', grow: 'jintoku',
-          effects: { health: 8, ryo: -25 }, text: '高名な医者の薬はよく効いた。値段もよく効いた。' },
+          effects: { health: 8, stress: -5, ryo: -25 }, text: '高名な医者の薬はよく効いた。値段もよく効いた。' },
       ],
     },
     {
       id: 'court-poor',
+      tone: 'bad',
       scene: 'court',
       title: '朝廷の窮乏',
       text: '御所の修繕もままならないほど、朝廷の暮らし向きが苦しいらしい。',
@@ -386,6 +450,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'earthquake',
+      tone: 'bad',
       scene: 'earthquake',
       title: '大地震',
       text: '関東を大きな地震が襲った。城の石垣も崩れ、町は混乱している。',
@@ -407,7 +472,7 @@ window.IEYASU_DATA = {
       text: '大坂の豪商が、幕府に大金を貸してもよいと申し出てきた。',
       ieyasu: '商人の力が、刀より強くなる日が来るのかもしれぬ。',
       options: [
-        { label: '借りる', tag: '豪胆', grow: 'seimu',
+        { label: '借りる', tag: '豪胆', grow: 'seimu', flag: 'merchantDebt',
           effects: { borrow: 60, ikou: -4 }, text: '蔵は潤った。だが、借りた金には利息がつく。商人に頭が上がらなくなった。' },
         { label: '代わりに運上金を課す', tag: '倹約', grow: 'seimu',
           effects: { trade: 4, minshin: -2 }, text: '商人たちは渋い顔で、毎年の運上金を納めることになった。' },
@@ -448,9 +513,10 @@ window.IEYASU_DATA = {
     },
     {
       id: 'kanjo-fraud',
+      tone: 'bad',
       scene: 'money',
       title: '勘定方の不正',
-      text: '幕府の金を扱う役人が、帳簿をごまかして私腹を肥やしていたことがわかった。',
+      text: '{kanjo}の配下で、幕府の金を扱う役人が帳簿をごまかし、私腹を肥やしていたことがわかった。',
       ieyasu: '一人の不正は、仕組みの穴を教えてくれる。穴を塞がねば、また誰かが落ちる。',
       options: [
         { label: '厳罰に処す', tag: '豪胆', grow: 'bui',
@@ -472,7 +538,7 @@ window.IEYASU_DATA = {
           effects: { ooku: -4, ikou: -2 }, text: '大奥は縮小され、毎年の費えが減った。奥向きからの風当たりが強い。' },
         { label: 'そのままにする', tag: '寛大', grow: 'jintoku',
           effects: { minshin: 1 }, text: '城中は和やかだ。費えはこれまでどおり、毎年かかる。' },
-        { label: '華やかさを競わせる', tag: '華美', grow: 'bui',
+        { label: '華やかさを競わせる', tag: '華美', grow: 'bui', flag: 'ookuLavish',
           effects: { ooku: 4, chotei: 3, ikou: 2 }, text: '大奥の華やかさは京にまで聞こえた。毎年の費用もまた、聞こえた。' },
       ],
     },
@@ -484,15 +550,16 @@ window.IEYASU_DATA = {
       ieyasu: '鷹狩りはよいぞ。体も鍛えられるし、領地の様子も見える。わしも大好きじゃった。',
       options: [
         { label: '盛大に出かける', tag: '華美', grow: 'bui',
-          effects: { health: 5, ryo: -15, minshin: -2, ikou: 2 }, text: '将軍は大きな獲物を仕留めて上機嫌だ。' },
+          effects: { health: 5, stress: -12, ryo: -15, minshin: -2, ikou: 2 }, text: '将軍は大きな獲物を仕留めて上機嫌だ。' },
         { label: '村の様子を見ながら回る', tag: '寛大', grow: 'jintoku',
-          effects: { health: 4, minshin: 3 }, text: '将軍は村の暮らしを自分の目で見た。得るものが多かったようだ。' },
+          effects: { health: 4, stress: -6, minshin: 3 }, text: '将軍は村の暮らしを自分の目で見た。得るものが多かったようだ。' },
         { label: '取りやめる', tag: '倹約', grow: 'seimu',
-          effects: { health: -2, ryo: 5 }, text: '将軍は城にこもって書類と向き合った。' },
+          effects: { health: -2, stress: 4, ryo: 5 }, text: '将軍は城にこもって書類と向き合った。' },
       ],
     },
     {
       id: 'scholar',
+      tone: 'good',
       scene: 'study',
       title: '学問の流行',
       text: '儒学が武士のあいだで流行している。学問を幕府として後押しすべきか。',
@@ -508,6 +575,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'epidemic',
+      tone: 'bad',
       scene: 'sickbed',
       title: '疫病',
       text: '江戸で疱瘡がはやり、子どもたちが次々と倒れている。',
@@ -523,6 +591,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'loyal-retainer',
+      tone: 'good',
       scene: 'hall',
       title: '直言の家臣',
       text: '若い家臣が、将軍の政を面と向かって批判する書状を差し出してきた。',
@@ -538,6 +607,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'heir-sick',
+      tone: 'bad',
       scene: 'sickbed',
       title: '若君の病',
       when: (s) => s.heirs.some((h) => h.age < 15),
@@ -554,6 +624,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'daimyo-debt',
+      tone: 'bad',
       scene: 'money',
       title: '大名の借金',
       text: '多くの大名が商人からの借金に苦しみ、幕府に救いを求めてきた。',
@@ -569,6 +640,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'new-fields',
+      tone: 'good',
       scene: 'harvest',
       title: '新田開発の願い',
       text: '代官から、荒れ野を切り開いて田にしたいという願いが上がってきた。元手はかかるが、うまくいけば年貢が増える。',
@@ -600,6 +672,303 @@ window.IEYASU_DATA = {
       ],
     },
 
+    // ───────── 良い出来事（厳しい年が続いたあとに来やすい）
+    {
+      id: 'envoy',
+      scene: 'palanquin',
+      tone: 'good',
+      title: '琉球からの使節',
+      text: '琉球の王が、将軍の代替わりを祝う使節を江戸へ送ってきた。行列を見ようと、沿道に人があふれている。',
+      ieyasu: '遠くの国が頭を下げに来る。これほど将軍の威光を見せつける好機はないぞ。',
+      options: [
+        { label: '盛大にもてなす', tag: '華美', grow: 'bui',
+          effects: { ryo: -30, ikou: 6, chotei: 2 }, text: '豪華な饗応に、使節も江戸の町人も目を見張った。' },
+        { label: '礼を尽くして、簡素に', tag: '倹約', grow: 'jintoku',
+          effects: { ryo: -10, ikou: 3 }, text: '質素だが心のこもった応対に、使節は深く頭を下げた。' },
+        { label: '交易の話を持ちかける', tag: '豪胆', grow: 'seimu', check: { stat: 'seimu', dc: 11 },
+          effects: { trade: 3, ikou: 1 }, text: '琉球を通じて、南の品が入ってくることになった。',
+          fail: { ikou: -2 }, failText: '祝いの席で商いの話とは、と使節は鼻白んだ。' },
+      ],
+    },
+    {
+      id: 'hot-spring',
+      scene: 'road',
+      tone: 'good',
+      when: (s) => (s.shogun.stress || 0) >= 30,
+      title: '湯治のすすめ',
+      text: '侍医が、将軍に湯治を勧めてきた。近ごろの気苦労が、顔に出ているという。',
+      ieyasu: '働きづめでは、よい裁きもできぬ。休むのも務めのうちじゃ。',
+      options: [
+        { label: '箱根の湯へ出かける', tag: '寛大', grow: 'jintoku',
+          effects: { ryo: -15, stress: -25, health: 6 }, text: '将軍は湯につかり、久しぶりに心から笑った。' },
+        { label: '江戸城に湯を運ばせる', tag: '華美', grow: 'bui',
+          effects: { ryo: -25, stress: -20, health: 4 }, text: '樽詰めの湯が、早馬で城に運ばれてきた。……贅沢じゃ。' },
+        { label: '政務が先と、我慢させる', tag: '倹約', grow: 'seimu',
+          effects: { stress: 6, jisseki: 1 }, text: '将軍は黙って書類に向かった。眉間のしわが、また深くなった。' },
+      ],
+    },
+    {
+      id: 'festival',
+      scene: 'harvest',
+      tone: 'good',
+      title: '天下祭',
+      text: '神田と山王の祭りが近い。町人たちは、山車を江戸城の中まで引き入れたいと願い出ている。',
+      ieyasu: '民が浮かれるのは、世が治まっておる証じゃ。少しくらいは許してやれ。',
+      options: [
+        { label: '城内に山車を迎える', tag: '華美', grow: 'jintoku',
+          effects: { ryo: -10, minshin: 8, ikou: 1 }, text: '将軍が山車を見物し、江戸じゅうが沸き立った。' },
+        { label: '町人に任せる', tag: '寛大', grow: 'jintoku',
+          effects: { minshin: 4, trade: 1 }, text: '祭りは町人の手で盛り上がり、商いもにぎわった。' },
+        { label: '質素にさせる', tag: '倹約', grow: 'seimu',
+          effects: { ryo: 5, minshin: -3 }, text: '祭りは小ぢんまりと終わった。町人たちは少し不満げだ。' },
+      ],
+    },
+    {
+      id: 'talent',
+      scene: 'study',
+      tone: 'good',
+      title: '若き俊才の噂',
+      text: '旗本の次男坊に、学問も算盤も抜きん出た若者がいるという噂が、{roju}の耳に入った。',
+      ieyasu: '人は宝じゃ。よい者がおれば、身分にこだわらず取り立てよ。',
+      options: [
+        { label: 'すぐに召し出す', tag: '豪胆', grow: 'bui',
+          effects: { recruit: 1 }, text: '若者が城に呼ばれた。登用の候補に加わっている。' },
+        { label: '試験をして見極める', tag: '慎重', grow: 'seimu',
+          effects: { recruit: 1, ryo: -5, jisseki: 1 }, text: '若者は試験に見事に通った。登用の候補に加わっている。' },
+        { label: '家柄を重んじて見送る', tag: '倹約', grow: 'seimu',
+          effects: { ikou: 1 }, text: '若者は、どこかの大名に仕官したらしい。' },
+      ],
+    },
+
+    // ───────── いろいろな出来事（繰り返しを減らすために追加）
+    {
+      id: 'counterfeit',
+      scene: 'money',
+      tone: 'bad',
+      title: '贋金',
+      text: '江戸で贋の小判が出回っている。{machi}によれば、出どころは大坂らしい。',
+      ieyasu: '金の値打ちが疑われたら、幕府の値打ちも疑われる。放ってはおけぬ。',
+      options: [
+        { label: '厳しく取り締まる', tag: '豪胆', grow: 'bui', check: { stat: 'bui', dc: 11 },
+          effects: { ikou: 4, minshin: -2 }, text: '贋金づくりの一味が捕らえられ、市中は落ち着いた。',
+          fail: { ikou: -3, trade: -2 }, failText: '一味は逃げ、贋金を恐れた商人たちが取引を渋りはじめた。' },
+        { label: '両替商に見分けさせる', tag: '慎重', grow: 'seimu',
+          effects: { ryo: -10, trade: 1, jisseki: 1 }, text: '両替商が目を光らせ、贋金はしだいに姿を消した。' },
+        { label: '騒ぎ立てずに様子を見る', tag: '寛大', grow: 'jintoku',
+          effects: { trade: -3, minshin: -2 }, text: '噂は広がり、人々は小判を疑うようになった。' },
+      ],
+    },
+    {
+      id: 'pilgrimage',
+      scene: 'road',
+      tone: 'good',
+      title: 'お伊勢参りの大流行',
+      text: '「一生に一度はお伊勢さん」と、奉公人も百姓も、仕事を放り出して伊勢へ向かっている。街道は人であふれた。',
+      ieyasu: '民が旅に出られるのは、世が穏やかな証じゃ。じゃが、田畑が空になるのは困る。',
+      options: [
+        { label: '関所をゆるめて通す', tag: '寛大', grow: 'jintoku',
+          effects: { minshin: 6, trade: 2, ikou: -1 }, text: '街道の宿場は大にぎわい。茶屋も旅籠も笑いが止まらない。' },
+        { label: '手形のない者は通さない', tag: '慎重', grow: 'bui',
+          effects: { ikou: 2, minshin: -3 }, text: '関所に人があふれ、追い返された者たちが不満をこぼした。' },
+        { label: '街道沿いから運上金を取る', tag: '倹約', grow: 'seimu',
+          effects: { trade: 3, minshin: 1 }, text: '宿場の上がりの一部が、幕府の蔵に入るようになった。' },
+      ],
+    },
+    {
+      id: 'hatamoto-debt',
+      scene: 'hall',
+      tone: 'bad',
+      minYear: 1670,
+      title: '旗本の困窮',
+      text: '物の値が上がるのに俸禄は米のまま。多くの旗本が札差からの借金で首が回らなくなっている。',
+      ieyasu: '旗本は幕府の骨じゃ。骨が細れば、いざという時に立てぬ。',
+      options: [
+        { label: '借金を帳消しにさせる（棄捐令）', tag: '豪胆', grow: 'bui',
+          effects: { ikou: 4, trade: -4, minshin: -2 }, text: '旗本たちは救われた。札差たちは大損をして、金を貸し渋るようになった。' },
+        { label: '幕府から手当てを出す', tag: '寛大', grow: 'jintoku',
+          effects: { ryo: -40, ikou: 3 }, text: '旗本たちは一息ついた。幕府の蔵は軽くなった。' },
+        { label: '質素倹約を説く', tag: '倹約', grow: 'seimu',
+          effects: { ikou: -3, ooku: -1 }, text: '城中から質素の号令が出た。旗本たちの顔は暗い。' },
+      ],
+    },
+    {
+      id: 'comet',
+      scene: 'comet',
+      title: 'ほうき星',
+      text: '夜空に長い尾を引くほうき星が現れた。「凶事の前ぶれだ」と、江戸の町は大騒ぎになっている。',
+      ieyasu: '星が政をするわけではない。じゃが、民の不安は政が受け止めねばならぬ。',
+      options: [
+        { label: '寺社に祈祷させる', tag: '華美', grow: 'jintoku',
+          effects: { ryo: -10, minshin: 4 }, text: '寺社の鐘が鳴り響き、人々は少し落ち着いた。' },
+        { label: '天文方に説かせる', tag: '慎重', grow: 'seimu',
+          effects: { jisseki: 2, minshin: 1 }, text: '「星にはめぐりがある」と瓦版が書き立て、騒ぎは収まった。' },
+        { label: '捨て置く', tag: '豪胆', grow: 'bui',
+          effects: { minshin: -3 }, text: 'しばらくして、ほうき星は消えた。噂だけが長く残った。' },
+      ],
+    },
+    {
+      id: 'kaga-gift',
+      scene: 'palanquin',
+      tone: 'good',
+      title: '加賀からの献上',
+      text: '百万石の加賀の大名が、見事な工芸品と金子を将軍に献上してきた。忠義の証だという。',
+      ieyasu: '大きな大名ほど、こうして腹の内を見せたがる。受け方ひとつで、敵にも味方にもなる。',
+      options: [
+        { label: 'ありがたく受け取る', tag: '倹約', grow: 'seimu',
+          effects: { ryo: 25, ikou: 2 }, text: '献上の金子が蔵に納められた。' },
+        { label: '倍の返礼をする', tag: '華美', grow: 'jintoku',
+          effects: { ryo: -15, ikou: 5, chotei: 1 }, text: '将軍の気前のよさは、諸大名の語り草になった。' },
+        { label: '受け取りを辞退する', tag: '慎重', grow: 'bui',
+          effects: { ikou: 1, minshin: 1 }, text: '加賀の大名は恐れ入って引き下がった。……何か企んでいたのかもしれぬ。' },
+      ],
+    },
+    {
+      id: 'kabuki',
+      scene: 'banquet',
+      title: '芝居小屋の流行',
+      text: '江戸の芝居小屋が連日の大入りだ。派手な衣装と色恋の筋書きに、武士までが入り浸っているという。',
+      ieyasu: '楽しみのない世は息が詰まる。じゃが、武士がうつつを抜かすのはいただけぬ。',
+      options: [
+        { label: '武士の出入りを禁じる', tag: '慎重', grow: 'bui',
+          effects: { ikou: 3, minshin: -2 }, text: '武士は芝居小屋から姿を消した。こっそり変装して通う者もいるらしい。' },
+        { label: '好きにさせる', tag: '寛大', grow: 'jintoku',
+          effects: { minshin: 5, ikou: -2 }, text: '町はますますにぎわった。' },
+        { label: '芝居小屋に運上金を課す', tag: '倹約', grow: 'seimu',
+          effects: { trade: 3, minshin: -1 }, text: '芝居小屋は渋々、上がりの一部を納めることになった。' },
+      ],
+    },
+    {
+      id: 'heir-rivalry',
+      scene: 'study',
+      when: (s) => s.heirs.filter((h) => h.age >= 8).length >= 2,
+      title: '若君たちの張り合い',
+      text: '若君たちが、武芸の稽古でも学問でも、ことごとく張り合っている。家臣たちも、どちらにつくかでざわついている。',
+      ieyasu: '兄弟の争いは、家を割る。わしは信康のことを、今も忘れておらぬ。',
+      options: [
+        { label: '長幼の序を言い聞かせる', tag: '慎重', grow: 'jintoku',
+          effects: { ikou: 2 }, text: '若君たちは渋々、互いに頭を下げた。家臣たちのざわつきも収まった。' },
+        { label: 'とことん競わせる', tag: '豪胆', grow: 'bui',
+          effects: { heir: { seimu: 2, bui: 2 }, ikou: -2 }, text: '若君たちは見違えるほど腕を上げた。家臣の間には溝が残った。' },
+        { label: '別々の師につけて引き離す', tag: '倹約', grow: 'seimu',
+          effects: { ryo: -10, heir: { jintoku: 1 } }, text: '若君たちは顔を合わせる機会が減り、張り合いも静まった。' },
+      ],
+    },
+    {
+      id: 'dutch-medicine',
+      scene: 'ship',
+      minYear: 1760,
+      title: '蘭方医の進言',
+      text: '長崎で西洋の医術を学んだ医者が、疱瘡を防ぐ新しい術を広めたいと願い出てきた。',
+      ieyasu: '異国の術か……。わしも薬には目がなかった。効くものなら、出どころは問わぬ。',
+      options: [
+        { label: '幕府として広める', tag: '豪胆', grow: 'seimu', check: { stat: 'seimu', dc: 12 },
+          effects: { ryo: -20, minshin: 6, chotei: -2, heir: { kenko: 2 } }, text: '疱瘡で命を落とす子が目に見えて減った。',
+          fail: { ryo: -20, minshin: -3 }, failText: '「異国の妖術だ」と噂が立ち、誰も受けようとしなかった。' },
+        { label: '若君にだけ試させる', tag: '慎重', grow: 'jintoku',
+          effects: { ryo: -5, heir: { kenko: 3 } }, text: '若君は丈夫に育ちそうだ。' },
+        { label: '古くからの医術を守る', tag: '倹約', grow: 'bui',
+          effects: { chotei: 2 }, text: '進言は退けられた。医者は肩を落として長崎へ帰った。' },
+      ],
+    },
+
+    // ───────── 過去の選択の続き（印がついてから数年後に来る）
+    {
+      id: 'merchant-collect',
+      scene: 'money',
+      tone: 'bad',
+      followUp: true,
+      clears: 'merchantDebt',
+      when: (s) => s.flags.merchantDebt && s.year - s.flags.merchantDebt >= 6,
+      title: '豪商の取り立て',
+      text: 'かつて幕府に大金を貸した大坂の豪商が、そろそろ返してほしいと、にこやかに申し出てきた。',
+      ieyasu: 'あの笑みはこれじゃったか。借りた金は、いつか必ず返す時が来る。',
+      options: [
+        { label: '耳をそろえて返す', tag: '慎重', grow: 'seimu',
+          effects: { borrow: -60, ikou: 2 }, text: '借りた金をきれいに返した。豪商は深々と頭を下げた。' },
+        { label: '利子を払って先延ばしにする', tag: '寛大', grow: 'jintoku',
+          effects: { ryo: -15, ikou: -2 }, text: '豪商は渋々うなずいた。借金はまだ残っている。' },
+        { label: '踏み倒す', tag: '豪胆', grow: 'bui',
+          effects: { debtCut: 60, trade: -4, minshin: -3, ikou: -3 }, text: '借金は帳消しになった。だが、商人たちは幕府を信用しなくなった。' },
+      ],
+    },
+    {
+      id: 'kaieki-ronin',
+      scene: 'ronin',
+      tone: 'bad',
+      followUp: true,
+      clears: 'kaieki',
+      when: (s) => s.flags.kaieki && s.year - s.flags.kaieki >= 3,
+      title: '改易の恨み',
+      text: 'かつて取り潰した大名家の旧臣たちが、江戸に集まって不穏な動きを見せている。{machi}が警戒を強めている。',
+      ieyasu: '潰した家の者は、恨みを忘れぬ。あのとき、わかっておったはずじゃ。',
+      options: [
+        { label: '先手を打って捕らえる', tag: '豪胆', grow: 'bui', check: { stat: 'bui', dc: 11 },
+          effects: { ikou: 3, minshin: -3 }, text: '首謀者たちは一網打尽になった。',
+          fail: { ikou: -6, minshin: -3 }, failText: '取り逃がした者たちが騒ぎを起こし、江戸の町が混乱した。' },
+        { label: '再仕官を世話する', tag: '寛大', grow: 'jintoku',
+          effects: { ryo: -20, minshin: 2, recruit: 1 }, text: '旧臣たちは矛を収めた。中には、なかなかの切れ者もいる。' },
+        { label: '見張りを増やす', tag: '慎重', grow: 'seimu',
+          effects: { ryo: -10, ikou: 1 }, text: '旧臣たちは散り散りになった。恨みは、まだくすぶっている。' },
+      ],
+    },
+    {
+      id: 'levee-thanks',
+      scene: 'harvest',
+      tone: 'good',
+      followUp: true,
+      clears: 'levee',
+      when: (s) => s.flags.levee && s.year - s.flags.levee >= 5,
+      title: '堤の恵み',
+      text: '数年前に幕府の金で築いた堤のおかげで、今年の大雨でも村は無事だった。百姓たちが礼を言いに来ている。',
+      ieyasu: '普請は、すぐには見返りがない。じゃが、こうして返ってくる。',
+      options: [
+        { label: '年貢を上乗せしてもらう', tag: '倹約', grow: 'seimu',
+          effects: { ryo: 30, minshin: -2 }, text: '百姓たちは喜んで年貢を納めた。少しだけ、顔が引きつっていた。' },
+        { label: '村に祭りを許す', tag: '寛大', grow: 'jintoku',
+          effects: { minshin: 6 }, text: '堤の上で、盛大な祭りが開かれた。' },
+        { label: 'さらに新田を広げる', tag: '豪胆', grow: 'seimu', invest: true,
+          effects: { ryo: -20, kokudaka: 10 }, text: '堤の内側に、新しい田が広がった。' },
+      ],
+    },
+    {
+      id: 'ooku-power',
+      scene: 'banquet',
+      tone: 'bad',
+      followUp: true,
+      clears: 'ookuLavish',
+      when: (s) => s.flags.ookuLavish && s.year - s.flags.ookuLavish >= 4,
+      title: '大奥の権勢',
+      text: '華やかさを競ううちに力をつけた大奥が、老中の人事にまで口を出しはじめた。',
+      ieyasu: '奥が表の政に口を出すようになっては、おしまいじゃ。',
+      options: [
+        { label: '締めつける', tag: '倹約', grow: 'seimu',
+          effects: { ooku: -5, stress: 6, ikou: 2 }, text: '大奥の費えは削られた。将軍は奥で肩身の狭い思いをしている。' },
+        { label: '言い分を聞いてやる', tag: '寛大', grow: 'jintoku',
+          effects: { ooku: 2, chotei: 1, stress: -5 }, text: '大奥は満足した。費えはまた増えた。' },
+        { label: '好きにさせる', tag: '華美', grow: 'bui',
+          effects: { ooku: 3, stress: -10, ikou: -3 }, text: '将軍は奥では上機嫌だ。表では、老中たちがため息をついている。' },
+      ],
+    },
+    {
+      id: 'foreign-goods',
+      scene: 'ship',
+      tone: 'good',
+      followUp: true,
+      clears: 'opened',
+      when: (s) => s.flags.opened && s.year - s.flags.opened >= 3,
+      title: '異国渡りの流行',
+      text: '国を開いてから、異国の品が江戸で大流行している。ガラスの器、時計、毛織物。町はその話で持ちきりだ。',
+      ieyasu: '時計か。わしも一つ持っておった。あれはよいものじゃ。',
+      options: [
+        { label: '運上金を取る', tag: '倹約', grow: 'seimu',
+          effects: { trade: 5, minshin: -1 }, text: '異国の品に税がかけられた。蔵がうるおう。' },
+        { label: '自由に売らせる', tag: '寛大', grow: 'jintoku',
+          effects: { minshin: 5, trade: 2 }, text: '町人たちは新しい品を楽しんでいる。' },
+        { label: '贅沢として禁じる', tag: '慎重', grow: 'bui',
+          effects: { ikou: 2, trade: -4 }, text: '異国の品は店先から消えた。裏では高値で出回っている。' },
+      ],
+    },
+
     // ───────── 年が進むと来る大きな試練
     {
       id: 'great-famine',
@@ -627,7 +996,7 @@ window.IEYASU_DATA = {
       minYear: 1660,
       trial: true,
       when: (s) => s.shogunate.ikou < 50,
-      text: '西国の大名たちが密かに使者を行き来させ、何かを企んでいるらしい。',
+      text: '{ometsuke}から報せが届いた。西国の大名たちが密かに使者を行き来させ、何かを企んでいるらしい。',
       ieyasu: '関ヶ原を思い出す。あのとき、わしは西に勝った。今度は、守る側じゃ。',
       options: [
         { label: '先手を打って国替えを命じる', tag: '豪胆', grow: 'bui', check: { stat: 'bui', dc: 13 },
@@ -650,7 +1019,7 @@ window.IEYASU_DATA = {
       text: '見たこともない大きな黒い船が湾に現れ、国を開けと迫ってきた。大砲がこちらを向いている。',
       ieyasu: '……来たか。いつか来ると思っておった。三浦按針から聞いた海の向こうの話を、もっと真剣に聞いておくべきじゃった。',
       options: [
-        { label: '国を開いて交易する', tag: '豪胆', grow: 'seimu', check: { stat: 'seimu', dc: 14 },
+        { label: '国を開いて交易する', tag: '豪胆', grow: 'seimu', check: { stat: 'seimu', dc: 14 }, flag: 'opened',
           effects: { trade: 10, chotei: -6, ikou: -2 }, text: '幕府は異国と約定を結んだ。新しい品と考えが、どっと流れ込んできた。',
           fail: { ryo: -30, chotei: -12, ikou: -10 }, failText: '不利な約定を結ばされた。「幕府は弱腰だ」と、朝廷も大名も声を上げた。' },
         { label: '打ち払う', tag: '倹約', grow: 'bui', check: { stat: 'bui', dc: 15 },
@@ -681,45 +1050,107 @@ window.IEYASU_DATA = {
     },
   ],
 
+  // ─────────────────────────────── 制度の組み合わせの妙
+  // needs の制度がすべてそろうと生まれる。on はそろったときに一度だけ、yearly は毎年の効果。
+  // hint はそろう前に見せる手がかり。
+  synergies: [
+    { id: 'komedokoro', name: '米どころ', needs: ['shinden', 'kakoimai'], on: { kokudaka: 12 },
+      desc: '新田と蔵が噛み合い、天領の石高がさらに12万石増えた。', hint: '田を広げる制度と、米を蓄える制度' },
+    { id: 'koueki', name: '交易の要', needs: ['nagasaki', 'kanjo'], on: { trade: 4 },
+      desc: '交易の上がりが帳簿でしっかり押さえられ、運上金・交易の収入が年4万両増えた。', hint: '交易を見張る制度と、金を管理する制度' },
+    { id: 'taihei', name: '太平の礎', needs: ['sankin', 'terauke'], yearly: { ikou: 1, minshin: 1 },
+      desc: '大名と民の双方を押さえた。毎年、威光+1、民心+1。', hint: '大名を抑える制度と、民を把握する制度' },
+    { id: 'bunchi', name: '文治の世', needs: ['gakumon', 'meyasu'], yearly: { jisseki: 1 },
+      desc: '学問と民の声が政を磨く。毎年、実績+1。', hint: '学問の制度と、民の声を聞く制度' },
+    { id: 'kobu', name: '公武の和', needs: ['konin', 'shasan'], yearly: { chotei: 2 },
+      desc: '朝廷と東照宮の両方を重んじる姿勢が評判を呼ぶ。毎年、朝廷+2。', hint: '朝廷と縁を結ぶ制度と、東照宮に参る制度' },
+  ],
+
+  // ─────────────────────────────── 栄誉
+  // 一度得た栄誉は周回をまたいで残り、プロローグの「最後の布石」で新しい遺訓が選べるようになる。
+  // check(v) の v には years（開府からの年数）、gen（将軍の代）、shogun、fin、gauges、
+  // institutions（制度の数）、synergies（組み合わせの数）、postsAll(n)（全役職の腕がn以上か）が入る。
+  honors: [
+    { id: 'taihei100', name: '百年の泰平', desc: '開府から100年続いた。', check: (v) => v.years >= 100 },
+    { id: 'taihei200', name: '二百年の泰平', desc: '開府から200年続いた。', check: (v) => v.years >= 200 },
+    { id: 'beyond', name: '史実を超えて', desc: '開府から266年続いた（史実の幕府より長い）。', check: (v) => v.years >= 266 },
+    { id: 'meikun', name: '名君', desc: '能力のどれかが18以上の将軍が現れた。', check: (v) => Object.values(v.shogun.stats).some((x) => x >= 18) },
+    { id: 'kura', name: '千両箱の山', desc: '金蔵の現金が2000万両を超えた。', check: (v) => v.fin.cash >= 2000 },
+    { id: 'nodebt', name: '無借金経営', desc: '開府から120年以上たって、借入が0。', check: (v) => v.years >= 120 && v.fin.debt === 0 },
+    { id: 'tekizai', name: '適材適所', desc: '6つの役職すべてに、腕14以上の家臣をそろえた。', check: (v) => v.postsAll(14) },
+    { id: 'seido', name: '制度の達人', desc: '制度を10以上整えた。', check: (v) => v.institutions >= 10 },
+    { id: 'myou', name: '組み合わせの妙', desc: '制度の組み合わせを3つ生んだ。', check: (v) => v.synergies >= 3 },
+    { id: 'tenka', name: '十代将軍', desc: '第10代将軍までつないだ。', check: (v) => v.gen >= 10 },
+  ],
+
   // ─────────────────────────────── 初回のチュートリアル
   // 案内役は霊体の家光。プレイヤー（家康＝権現様）に話しかける。
   // target: 光らせる場所（CSSセレクタ）。省くと画面の真ん中で話すだけ。
   // tab: その手順を見せる前に開くメニュー
   tutorial: [
     {
-      text: '権現様、お気づきになりましたか。どうやら、霊体の権現様がお決めになったことが、そのまま幕府の政となるようでございます。……なぜかは、私にもとんとわかりませぬが。',
+      text: [
+        '権現様、お気づきになりましたか。',
+        'どうやら、霊体の権現様がお決めになったことが、そのまま幕府の政となるようでございます。',
+        '……なぜかは、私にもとんとわかりませぬが。',
+      ],
     },
     {
-      text: 'ならば、権現様に采配をふるっていただくほかありませぬ。久しぶりの幕府の切り盛り、勝手がわからぬのも無理はございませぬ。この家光が、ひととおりご案内いたします。',
+      text: [
+        'ならば、権現様に采配をふるっていただくほかありませぬ。',
+        '久しぶりの幕府の切り盛り、勝手がわからぬのも無理はございませぬ。この家光が、ひととおりご案内いたします。',
+      ],
     },
     {
       target: '#topbar',
-      text: 'いちばん上の帯が、いまの幕府のありさまにございます。威光・民心・朝廷の三つと、金蔵の現金、商人からの借入。どれかが0になるか、借入が上限を超えると「倒幕の危機」となりまする。',
+      text: [
+        'いちばん上の帯が、いまの幕府のありさまにございます。威光・民心・朝廷の三つと、金蔵の現金、商人からの借入。',
+        'どれかが0になるか、借入が上限を超えると「倒幕の危機」となりまする。',
+      ],
     },
     {
       target: '#stage .iy-options',
       tab: 'seimu',
-      text: '毎年ひとつ、出来事が起こります。どう応じるかは権現様がお決めくだされ。費用や成否の見込みも添えてございます。「将軍の好み」に合うお裁きなら、将軍は乗り気で取り組み、育ってまいります。',
+      text: [
+        '毎年ひとつ、出来事が起こります。どう応じるかは、権現様がお決めくだされ。費用や成否の見込みも添えてございます。',
+        '「将軍の好み」に合うお裁きなら、将軍は乗り気で取り組み、育ってまいります。',
+      ],
     },
     {
       target: '#tabbar',
-      text: '下の帯がお役目の一覧にございます。出来事を片づけたら「政務の間」で若君の教育や制度の整備を。「年を越す」を押せば、一年の決算となります。',
+      text: [
+        '下の帯が、お役目の一覧にございます。',
+        '出来事を片づけたら「政務の間」で若君の教育や制度の整備を。「年を越す」を押せば、一年の決算となります。',
+      ],
     },
     {
       target: '#tabbar [data-tab="finance"]',
-      text: '「財務」では、金の出入り（キャッシュフロー計算書）と蔵の中身（バランスシート）が見られます。年貢は石高で決まりますが、物価は年々上がるもの。……東照宮を建てすぎた私が申すのも何ですが、稼ぐ力を育てねば、いずれ赤字になりまする。',
+      text: [
+        '「財務」では、金の出入り（キャッシュフロー計算書）と蔵の中身（バランスシート）が見られます。',
+        '年貢は石高で決まりますが、物価は年々上がるもの。稼ぐ力を育てねば、いずれ赤字になりまする。',
+        '……東照宮を建てすぎた私が申すのも、何ですが。',
+      ],
     },
     {
       target: '#tabbar [data-tab="org"]',
-      text: '「組織」では、老中や勘定奉行などの役職に家臣を就けます。私の頃の信綱も、いずれは老いて辞めてゆきましょう。空席ができると赤い印がつきますゆえ、お見落としなきよう。',
+      text: [
+        '「組織」では、老中や勘定奉行などの役職に家臣を就けます。',
+        '私の頃の信綱も、いずれは老いて辞めてゆきましょう。空席ができると赤い印がつきますゆえ、お見落としなきよう。',
+      ],
     },
     {
       target: '#tabbar [data-tab="family"]',
-      text: '「家系図」では、歴代の将軍や若君の能力と働きぶりをたどれます。私の子、竹千代のことも、どうかよしなに。跡継ぎを育てて代をつなぐことこそ、肝要にございます。',
+      text: [
+        '「家系図」では、歴代の将軍や若君の能力と働きぶりをたどれます。',
+        '私の子、竹千代のことも、どうかよしなに。跡継ぎを育てて代をつなぐことこそ、肝要にございます。',
+      ],
     },
     {
       target: '#guide-button',
-      text: 'お迷いの折は、この「ガイド」をいつでもお開きくだされ。私もおそばに控えております。では権現様、ご采配を。',
+      text: [
+        'お迷いの折は、この「ガイド」をいつでもお開きくだされ。私もおそばに控えております。',
+        'では権現様、ご采配を。',
+      ],
     },
   ],
 
@@ -801,6 +1232,44 @@ window.IEYASU_DATA = {
         '威光・民心・朝廷のどれかが0になるか、借入が上限を超えると「倒幕の危機」になる。',
         '3年のうちに、威光・民心・朝廷をすべて10より上にし、借入を上限以下に戻せば危機を脱する。戻せなければゲームオーバー。',
         '年が進むほど、大飢饉・大名連合・黒船などの大きな試練が来やすくなる。',
+      ],
+    },
+    {
+      title: '一年の決算',
+      body: [
+        '「年を越す」と、その年の決算報告が出る。営業の収支（年貢と経費の差）、現金と純資産の増減、威光・民心・朝廷の変化、その年の出来事がまとまっている。',
+        '営業の収支が赤字なら、稼ぐ力が足りていない合図。投資や経費の見直しを考えよう。',
+      ],
+    },
+    {
+      title: '将軍の気苦労',
+      body: [
+        '将軍の好みに合わない裁きを押しつけると、気苦労がたまる（好みに合う裁きなら減る）。毎年少しずつ自然にも晴れる。',
+        '気苦労が60を超えると体を壊しはじめ、85を超えると城中にも苛立ちが広がって威光が下がる。',
+        '鷹狩りや湯治の出来事で晴らせる。数字だけで裁くか、将軍の機嫌もとるか、が悩みどころ。',
+      ],
+    },
+    {
+      title: '出来事の波と、選択の続き',
+      body: [
+        '厳しい出来事が続いたあとは、良い出来事が来やすくなる。逆に穏やかな年が続くと、試練が来やすくなる。',
+        '一部の選択は、数年後に「続きの出来事」として返ってくる。豪商から借りた金は取り立てに来るし、改易した家の旧臣は恨みを忘れない。',
+        '出来事の文中には、いまその役職に就いている家臣の名前が出る。',
+      ],
+    },
+    {
+      title: '組み合わせの妙',
+      body: [
+        '特定の制度がそろうと、隠れた効果が生まれる。政務の間に、全部でいくつあるかと手がかりが出ている。',
+        'そろうまでは名前は伏せられている。手がかりから、どの制度の組み合わせかを推し量ろう。',
+      ],
+    },
+    {
+      title: '栄誉と遺訓',
+      body: [
+        '「百年の泰平」「名君」「適材適所」などの栄誉がある。一度得た栄誉は、ゲームオーバーになっても消えない。',
+        '栄誉が増えると、プロローグの「最後の布石」で、新しい遺訓（家臣団を鍛える、金蔵を満たすなど）が選べるようになる。倒れても、次の幕府は少し強くなる。',
+        '記録のメニューで、栄誉の一覧と達成状況が見られる。',
       ],
     },
     {
