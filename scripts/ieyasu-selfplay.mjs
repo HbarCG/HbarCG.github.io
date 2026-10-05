@@ -109,6 +109,10 @@ const POLICIES = {
         .reverse()
         .forEach((c) => { if (s.retainers.length < 10) dev.hire(c.i); });
       fillPosts(g);
+      // 不満を漏らしている役職の家臣は、金に余裕があれば加増して引き留める
+      for (const r of [...s.retainers]) {
+        if (r.unhappy && r.post && s.fin.cash > 100) dev.raise(r.id);
+      }
       // 若君の教育（いちばん低い能力を伸ばす）
       s.heirs.forEach((h, i) => {
         if (h.age >= dev.CONFIG.TEACH_AGE_LIMIT || s.fin.cash < dev.teachCost() + 60) return;
@@ -141,7 +145,9 @@ const POLICIES = {
 function playOne(seed, policy, fuseki) {
   const g = createGame(seed);
   const { dev, data } = g;
-  const counts = { succession: {}, shogunKaku: [] };
+  const counts = { succession: {}, shogunKaku: [], warned: 0, left: 0, candidates: [], raises: 0 };
+  // 決算報告の「その年の出来事」から数える
+  const NOTE_PATTERNS = { warned: /不満を漏らしている/, left: /見切りをつけて去った/ };
 
   // プロローグの「最後の布石」
   const base = data.prologue.find((p) => p.choices).choices.filter((c) => !c.unlock);
@@ -164,7 +170,16 @@ function playOne(seed, policy, fuseki) {
       s.result = null;
     } else if (s.phase === "manage") {
       policy.manage(g);
-      if (dev.state.phase === "manage") dev.endYear();
+      if (dev.state.phase === "manage") {
+        dev.endYear();
+        const report = dev.state.report;
+        if (report) {
+          for (const note of report.notes) {
+            for (const [key, re] of Object.entries(NOTE_PATTERNS)) if (re.test(note)) counts[key] += 1;
+          }
+          if (dev.state.nextPhase !== "succession") counts.candidates.push(dev.state.candidates.length);
+        }
+      }
     } else if (s.phase === "report") {
       dev.closeReport();
     } else if (s.phase === "succession") {
@@ -195,6 +210,11 @@ function playOne(seed, policy, fuseki) {
     shogunKaku: counts.shogunKaku,
     heirsBorn: s.family.filter((p) => p.childName).length,
     honors: s.honors.length,
+    warned: counts.warned,
+    left: counts.left,
+    raises: s.retainers.reduce((sum, r) => sum + (r.raises || 0), 0),
+    candidates: avg(counts.candidates),
+    renowned: (s.renownSeen || []).length,
   };
 }
 
@@ -236,6 +256,11 @@ function main() {
   console.log(`将軍の代: 平均 ${avg(results.map((r) => r.gen)).toFixed(1)}　就任時の能力の合計: 平均 ${avg(results.flatMap((r) => r.shogunKaku)).toFixed(1)}`);
   console.log(`代替わりの形: ${Object.entries(succ).map(([m, k]) => `${SUCC_LABELS[m] || m} ${pct(k, succTotal)}`).join(" / ")}`);
   console.log(`生まれた若君: 1回あたり平均 ${avg(results.map((r) => r.heirsBorn)).toFixed(1)}人　栄誉: 平均 ${avg(results.map((r) => r.honors)).toFixed(1)}`);
+  if (results.some((r) => r.candidates)) {
+    const per100 = (key) => (avg(results.map((r) => (r[key] / Math.max(1, r.years)) * 100))).toFixed(1);
+    console.log(`登用の候補: 毎年平均 ${avg(results.map((r) => r.candidates)).toFixed(2)}人　名のある人物: 1回あたり平均 ${avg(results.map((r) => r.renowned)).toFixed(1)}人`);
+    console.log(`家臣の不満: 100年あたり 不満 ${per100("warned")}回 / 去った ${per100("left")}人　最後に残った家臣の加増: 平均 ${avg(results.map((r) => r.raises)).toFixed(1)}回`);
+  }
   console.log(`（${((Date.now() - started) / 1000).toFixed(1)}秒）`);
 }
 

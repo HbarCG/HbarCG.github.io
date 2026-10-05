@@ -463,7 +463,15 @@
 }
 
 .iy-topbar__money {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 0.9em;
   font-variant-numeric: tabular-nums;
+}
+
+.iy-topbar__money .iy-kaku {
+  margin-left: auto;
 }
 
 .iy-topbar .iy-crisis {
@@ -1061,4 +1069,56 @@ body.iy-coaching .iy-raise {
 .iy-panel .iy-option--locked {
   opacity: 0.55;
   border-style: dashed;
+}
+
+/* ─── 将軍の格・特技・家臣の去就 */
+.iy-kaku {
+  display: inline-block;
+  margin-left: 0.4em;
+  padding: 0 0.45em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-link) 12%, var(--color-bg));
+  color: var(--color-link);
+  font-weight: 600;
+  font-size: 0.9em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.iy-kaku-line {
+  margin: 0 0 0.25rem;
+}
+
+.iy-skill {
+  margin: 0.25rem 0 0.6rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, #d4a63a 14%, var(--color-bg));
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.iy-skill__name {
+  color: #a87c22;
+  font-weight: 700;
+}
+
+.iy-loyalty {
+  margin-top: 0.15rem;
+  font-size: 0.82rem;
+}
+
+.iy-loyalty p {
+  margin: 0;
+}
+
+.iy-panel .iy-loyalty button {
+  margin-top: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.82rem;
+}
+
+.iy-renowned {
+  font-size: 0.82rem;
+  color: #a87c22;
 }

@@ -24,7 +24,15 @@
     LOAN_STEP: 20,          // 財務画面で1回に借りる・返す額（万両）
     RICE_STEP: 20,          // 財務画面で1回に売る蔵米（万両ぶん）
     MAX_RETAINERS: 12,
-    CANDIDATES: 2,          // 毎年あらわれる登用の候補
+    // 将軍の格（政務・武威・人徳の合計）しだいで、毎年あらわれる登用の候補の数が決まる。[この格から, 人数]
+    CANDIDATE_STEPS: [[0, 1], [24, 2], [40, 3], [52, 4]],
+    WANTS_RATE: 2,          // 家臣は、自分の腕（いちばん高い能力）のこの倍の格を将軍に求める
+    RAISE_RATE: 0.5,        // 加増1回で、俸禄がもとの額のこの割合ぶん増える
+    RAISE_WANTS: 6,         // 加増1回で、家臣の求める格がこれだけ下がる
+    RENOWN_KAKU: 40,        // 将軍の格がこれ以上なら、名のある人物がまれに登用の候補に現れる
+    RENOWN_CHANCE: 0.005,   // 格が RENOWN_KAKU−2 を1上回るごとに、名のある人物が現れる見込みが増える（格50で年6%）
+    SKILL_CHANCE: 0.08,     // 若君や御三家の若殿に、特技がたまたまつく見込み
+    SKILL_INHERIT: 0.3,     // 親の特技を受け継ぐ見込み
     BOOKS_KEPT: 30,         // 決算を何年ぶん残すか
     STRESS_EAGER: -6,       // 将軍の好みに合う裁きをすると、気苦労が減る
     STRESS_RELUCTANT: 6,    // 好みに合わない裁きをすると、気苦労がたまる
@@ -158,7 +166,9 @@
     saved.tension = saved.tension || 0;
     saved.synergies = saved.synergies || [];
     saved.honors = saved.honors || [];
+    saved.renownSeen = saved.renownSeen || [];
     if (saved.shogun && saved.shogun.stress === undefined) saved.shogun.stress = 0;
+    if (saved.shogun && saved.shogun.skill === undefined) saved.shogun.skill = null;
     return saved;
   }
 
@@ -254,6 +264,7 @@
       tension: 0,       // 厳しい出来事が続いた度合い。高いほど良い出来事が来やすい
       synergies: [],    // そろった制度の組み合わせ
       honors: [],       // この周回で得た栄誉
+      renownSeen: [],   // 登用の候補に現れた、名のある人物の名前
       legacy: null,     // 最後の布石で選んだ遺訓（制度でないもの）
       report: null,     // 一年の決算報告
       nextPhase: null,  // 決算報告のあとに進む場面
@@ -275,7 +286,7 @@
 
     state.shogun = {
       personId: iemitsu.id, name: '家光', gen: 3, age: 33, health: 35, startYear: 1623, trait: '華美',
-      stats: { seimu: 9, bui: 8, jintoku: 7 }, stress: 0,
+      stats: { seimu: 9, bui: 8, jintoku: 7 }, stress: 0, skill: null,
     };
 
     // 家光の時代の家臣たち
@@ -288,7 +299,7 @@
     for (const post of ['kanjo', 'machi', 'ometsuke', 'jisha']) {
       const r = makeRetainer();
       r.stats[POSTS.find((p) => p.id === post).stat] = rand(9, 13);
-      r.salary = salaryOf(r.stats);
+      r.salary = payOf(r);
       r.post = post;
       state.retainers.push(r);
     }
@@ -317,14 +328,14 @@
     closeReign('33歳で病に倒れ、天に昇る。霊体となって権現様に付き従う。');
     addLog('家光が天に昇った。権現様は東照宮の力で霊体となり、江戸城に降りた。');
 
-    // 将軍は家光の異母弟・保科正之が継ぐ
+    // 将軍は家光の異母弟・保科正之が継ぐ。人を育てるのがうまい（特技「名伯楽」）
     const hidetada = state.family.find((p) => p.name === '秀忠');
     const masayuki = addPerson({ name: '正之', born: 1611, parentId: hidetada.id, house: '保科家', trait: '慎重',
-      gen: 4, from: state.year, start: { seimu: 14, bui: 9, jintoku: 13 } });
+      gen: 4, from: state.year, start: { seimu: 14, bui: 9, jintoku: 13 }, skill: 'hakuraku' });
     state.usedNames.push('正之');
     state.shogun = {
       personId: masayuki.id, name: '正之', gen: 4, age: 26, health: 70, startYear: state.year, trait: '慎重',
-      stats: { ...masayuki.start }, stress: 0,
+      stats: { ...masayuki.start }, stress: 0, skill: 'hakuraku',
     };
     addLog('家光の異母弟・保科正之が、第4代将軍となった。');
     state.heirs.push(heir);
@@ -343,7 +354,7 @@
         if (!r.post) continue;
         const stat = POSTS.find((p) => p.id === r.post).stat;
         r.stats[stat] = clamp(r.stats[stat] + 3, 1, CONFIG.ABILITY_MAX);
-        r.salary = salaryOf(r.stats);
+        r.salary = payOf(r);
       }
       addLog('遺訓により、家臣たちはよく鍛えられていた。');
     } else if (bonus === 'treasury') {
@@ -363,6 +374,32 @@
     return { gauges: { ...state.gauges }, cash: Math.round(state.fin.cash), debt: Math.round(state.fin.debt), net: Math.round(netAssets()) };
   }
 
+  // ─────────────────────────────── 将軍の格と特技
+
+  // 格は、政務・武威・人徳の合計（将軍・若君・跡継ぎの候補で同じ数え方）
+  function kakuOf(stats) {
+    return stats.seimu + stats.bui + stats.jintoku;
+  }
+
+  function shogunKaku() {
+    return kakuOf(state.shogun.stats);
+  }
+
+  function skillById(id) {
+    return DATA.skills.find((s) => s.id === id) || null;
+  }
+
+  // 働くのは、いまの将軍の特技だけ
+  function hasSkill(id) {
+    return state.shogun.skill === id;
+  }
+
+  // 生まれた子や御三家の若殿の特技。親の特技を受け継ぐか、たまたま新しくつく
+  function rollSkill(parentSkill) {
+    if (parentSkill && Math.random() < CONFIG.SKILL_INHERIT) return parentSkill;
+    return Math.random() < CONFIG.SKILL_CHANCE ? pick(DATA.skills).id : null;
+  }
+
   // ─────────────────────────────── 若君と将軍
 
   function makeHeir(name) {
@@ -371,12 +408,14 @@
     const used = state.heirs.map((h) => h.name);
     const heirName = name || pick(CHILD_NAMES.filter((n) => !used.includes(n)));
     const trait = Math.random() < 0.5 ? state.shogun.trait : pick(TRAITS);
-    const p = addPerson({ name: heirName, childName: heirName, born: state.year, parentId: state.shogun.personId, trait });
+    const skill = rollSkill(state.shogun.skill);
+    const p = addPerson({ name: heirName, childName: heirName, born: state.year, parentId: state.shogun.personId, trait, skill });
     return {
       personId: p.id,
       name: heirName,
       age: 0,
       trait,
+      skill,
       stats: {
         seimu: inherit(parent.seimu),
         bui: inherit(parent.bui),
@@ -405,10 +444,23 @@
     return Math.max(1, Math.round(sum / 12));
   }
 
+  // 実際に払う俸禄。加増するたびに、もとの額の RAISE_RATE ぶん増える
+  function payOf(r) {
+    return Math.max(1, Math.round(salaryOf(r.stats) * (1 + CONFIG.RAISE_RATE * (r.raises || 0))));
+  }
+
+  // 家臣が将軍に求める格（腕の WANTS_RATE 倍）。加増や将軍の特技「人たらし」で下がる
+  function wants(r) {
+    const best = Math.max(...Object.values(r.stats));
+    const eased = (r.raises || 0) + (hasSkill('hitotarashi') ? 1 : 0);
+    return best * CONFIG.WANTS_RATE - eased * CONFIG.RAISE_WANTS;
+  }
+
+  // seed.lift … 得意な能力の上乗せ / seed.cap … 能力の上限（将軍の格に見合わない腕の者は来ない）
   function makeRetainer(seed = {}) {
     let name = seed.name;
     if (!name) {
-      const used = new Set(state.retainers.map((r) => r.name).concat(state.candidates.map((c) => c.name)));
+      const used = new Set(state.retainers.map((r) => r.name).concat(state.candidates.map((c) => c.name), DATA.renowned.map((p) => p.name)));
       do {
         name = `${pick(SURNAMES)}${pick(GIVEN)}${pick(GIVEN)}`;
       } while (used.has(name) || name[name.length - 1] === name[name.length - 2]);
@@ -416,25 +468,61 @@
     const stats = seed.stats || { seimu: rand(3, 10), sanyo: rand(3, 10), bui: rand(3, 10), jinbo: rand(3, 10) };
     if (!seed.stats) {
       const strong = pick(Object.keys(stats));
-      stats[strong] = clamp(stats[strong] + rand(3, 8), 1, CONFIG.ABILITY_MAX);
+      stats[strong] = clamp(stats[strong] + Math.max(1, rand(3, 8) + (seed.lift || 0)), 1, CONFIG.ABILITY_MAX);
+      if (seed.cap) for (const k of Object.keys(stats)) stats[k] = Math.min(stats[k], seed.cap);
     }
     const id = nextId();
     return { id, name, age: seed.age || rand(22, 40), stats, salary: salaryOf(stats), post: seed.post || null, seed: id * 7 + name.length };
   }
 
+  // 将軍の格に応じた、毎年の登用の候補の数
+  function candidateCount() {
+    const k = shogunKaku();
+    const base = CONFIG.CANDIDATE_STEPS.filter(([min]) => k >= min).pop()[1];
+    return base + (hasSkill('mekiki') ? 1 : 0);
+  }
+
+  // 格が高いほど、腕の立つ者が集まる。格に見合わないほどの腕の者は、はじめから来ない
   function makeCandidates() {
-    return Array.from({ length: CONFIG.CANDIDATES }, () => makeRetainer({ age: rand(20, 34) }));
+    const k = shogunKaku();
+    const lift = clamp(Math.floor((k - 30) / 6), -2, 4);
+    const eased = hasSkill('hitotarashi') ? CONFIG.RAISE_WANTS : 0;
+    const cap = clamp(Math.floor((k + eased) / CONFIG.WANTS_RATE), 6, CONFIG.ABILITY_MAX);
+    const list = Array.from({ length: candidateCount() }, () => makeRetainer({ age: rand(20, 34), lift, cap }));
+    const renowned = renownedCandidate();
+    if (renowned) list.unshift(renowned);
+    return list;
+  }
+
+  // 名のある人物（その年だけ現れる。1回の幕府で1人1度まで）
+  function renownedCandidate() {
+    const k = shogunKaku();
+    if (k < CONFIG.RENOWN_KAKU) return null;
+    if (Math.random() >= (k - CONFIG.RENOWN_KAKU + 2) * CONFIG.RENOWN_CHANCE) return null;
+    const pool = DATA.renowned.filter((p) => state.year >= p.minYear && !state.renownSeen.includes(p.name));
+    if (pool.length === 0) return null;
+    const p = pick(pool);
+    state.renownSeen.push(p.name);
+    const r = makeRetainer({ name: p.name, age: p.age, stats: { ...p.stats } });
+    r.renowned = p.desc;
+    return r;
   }
 
   function holder(postId) {
     return state.retainers.find((r) => r.post === postId) || null;
   }
 
-  // 役職の働きぶり。空席なら 4 として扱う（空席は損）
-  function postValue(postId) {
+  // 役職に就いている家臣の腕。空席なら 4 として扱う（空席は損）
+  function holderValue(postId) {
     const h = holder(postId);
     const post = POSTS.find((p) => p.id === postId);
     return h ? h.stats[post.stat] : 4;
+  }
+
+  // 役職の働きぶり。将軍の特技が効く役職は、そのぶん上乗せする
+  function postValue(postId) {
+    const sk = skillById(state.shogun.skill);
+    return holderValue(postId) + (sk && sk.post === postId ? sk.bonus : 0);
   }
 
   function postBonus(postId, div = 4) {
@@ -478,6 +566,39 @@
     state.retainers = state.retainers.filter((x) => x.id !== id);
     addLog(`${r.name}に暇を出した。`);
     commit();
+  }
+
+  // 加増。俸禄が上がるかわりに、家臣が求める格が下がる（格の足りない将軍でも、金でつなぎとめられる）
+  function raise(id) {
+    const r = state.retainers.find((x) => x.id === id);
+    if (!r) return;
+    r.raises = (r.raises || 0) + 1;
+    r.salary = payOf(r);
+    if (wants(r) <= shogunKaku()) r.unhappy = null;
+    addLog(`${r.name}を加増した（俸禄 年${r.salary}万両・求める格${wants(r)}）。`);
+    commit();
+  }
+
+  // 「老中の」のように、役職名を前につける（控えの家臣なら空）
+  function postOf(r) {
+    return r.post ? `${POSTS.find((p) => p.id === r.post).name}の` : '';
+  }
+
+  // 年の暮れの去就。求める格に将軍が届かなければ不満を漏らし、次の暮れにも届かなければ去る
+  function checkLoyalty(notes) {
+    const k = shogunKaku();
+    for (const r of [...state.retainers]) {
+      const w = wants(r);
+      if (w <= k) {
+        r.unhappy = null;
+      } else if (r.unhappy) {
+        state.retainers = state.retainers.filter((x) => x !== r);
+        notes.push(`${postOf(r)}${r.name}は、将軍の格に見切りをつけて去った（求める格${w}・将軍の格${k}）。`);
+      } else {
+        r.unhappy = state.year;
+        notes.push(`${postOf(r)}${r.name}が不満を漏らしている（求める格${w}・将軍の格${k}）。次の暮れまでに格が届かなければ去る。組織の画面で加増すれば引き留められる。`);
+      }
+    }
   }
 
   function vacancies() {
@@ -717,7 +838,7 @@
           const r = makeRetainer({ age: rand(20, 28) });
           const strong = Object.keys(r.stats).reduce((a, b) => (r.stats[b] > r.stats[a] ? b : a));
           r.stats[strong] = clamp(r.stats[strong] + 4, 1, CONFIG.ABILITY_MAX);
-          r.salary = salaryOf(r.stats);
+          r.salary = payOf(r);
           state.candidates.push(r);
         }
         unit = '人';
@@ -794,7 +915,7 @@
     const cost = teachCost();
     state.fin.cash -= cost;
     book('op', '若君の教育費', -cost);
-    const gain = 2 + (hasInstitution('gakumon') ? 1 : 0);
+    const gain = 2 + (hasInstitution('gakumon') ? 1 : 0) + (hasSkill('gakumonzuki') ? 1 : 0);
     heir.stats[stat] = clamp(heir.stats[stat] + gain, 1, CONFIG.ABILITY_MAX);
     heir.taughtYear = state.year;
     addLog(`若君・${heir.name}に${TEACH_LABELS[stat]}の師をつけた（${ABILITY_LABELS[stat]}+${gain}、${cost}万両）。`);
@@ -852,7 +973,7 @@
     const view = {
       years: bakufuYears(), gen: state.shogun.gen, shogun: state.shogun, fin: state.fin, gauges: state.gauges,
       institutions: state.institutions.length, synergies: state.synergies.length,
-      postsAll: (min) => POSTS.every((p) => postValue(p.id) >= min),
+      postsAll: (min) => POSTS.every((p) => holderValue(p.id) >= min),
     };
     const earned = [];
     for (const h of DATA.honors) {
@@ -909,21 +1030,20 @@
 
     closeBooks();
 
-    // 家臣が歳をとる。腕は役目の中で磨かれ、老いれば職を辞す
+    // 家臣が歳をとる。腕は役目の中で磨かれ（将軍が「名伯楽」なら2倍伸びやすい）、老いれば職を辞す
+    const growChance = hasSkill('hakuraku') ? 0.6 : 0.3;
     for (const r of [...state.retainers]) {
       r.age += 1;
-      if (r.post && r.age < 45 && Math.random() < 0.3) {
+      if (r.post && r.age < 45 && Math.random() < growChance) {
         const stat = POSTS.find((p) => p.id === r.post).stat;
         r.stats[stat] = clamp(r.stats[stat] + 1, 1, CONFIG.ABILITY_MAX);
-        r.salary = salaryOf(r.stats);
+        r.salary = payOf(r);
       }
       if (r.age > 58 && Math.random() < (r.age - 58) * 0.05) {
         state.retainers = state.retainers.filter((x) => x !== r);
-        const post = r.post ? `${POSTS.find((p) => p.id === r.post).name}の` : '';
-        notes.push(`${post}${r.name}が老いて職を辞した（${r.age}歳）。`);
+        notes.push(`${postOf(r)}${r.name}が老いて職を辞した（${r.age}歳）。`);
       }
     }
-    state.candidates = makeCandidates();
 
     // 若君が育つ
     for (const heir of state.heirs) {
@@ -934,10 +1054,11 @@
       }
     }
 
-    // 将軍が歳をとる。気苦労がたまっていると体を壊し、城中にも苛立ちが広がる
+    // 将軍が歳をとる（「頑健」なら衰えは半分）。気苦労がたまっていると体を壊し、城中にも苛立ちが広がる
     s.age += 1;
-    if (s.age >= 60) s.health -= 4;
-    else if (s.age >= 40) s.health -= 2;
+    const wear = hasSkill('ganken') ? 0.5 : 1;
+    if (s.age >= 60) s.health -= 4 * wear;
+    else if (s.age >= 40) s.health -= 2 * wear;
     s.stress = clamp((s.stress || 0) - CONFIG.STRESS_DECAY, 0, 100);
     if (s.stress >= 85) {
       s.health -= 6;
@@ -950,6 +1071,12 @@
     s.health = clamp(s.health, 0, 100);
     const deathChance = 0.005 + Math.max(0, 40 - s.health) * 0.008 + Math.max(0, s.age - 60) * 0.02;
     const died = Math.random() < deathChance;
+
+    // 家臣の去就と、来年の登用の候補（将軍が亡くなった年は、次の将軍が決まってから）
+    if (!died) {
+      checkLoyalty(notes);
+      state.candidates = makeCandidates();
+    }
 
     // 若君の誕生
     if (!died && s.age >= 16 && s.age <= 55 && state.heirs.length < CONFIG.MAX_HEIRS
@@ -1044,7 +1171,7 @@
       if (hasInstitution('gosanke')) {
         mode = 'gosanke';
         candidates = GOSANKE.map((g) => ({
-          name: `${g.house}の若殿`, house: g.house, age: rand(18, 34), trait: pick(TRAITS),
+          name: `${g.house}の若殿`, house: g.house, age: rand(18, 34), trait: pick(TRAITS), skill: rollSkill(null),
           stats: { seimu: rand(6, 12), bui: rand(6, 12), jintoku: rand(6, 12), kenko: rand(7, 14) },
         }));
       } else {
@@ -1077,6 +1204,7 @@
     p.gen = prev.gen + 1;
     p.from = state.year;
     p.start = { seimu: c.stats.seimu, bui: c.stats.bui, jintoku: c.stats.jintoku };
+    p.skill = c.skill || null;
     for (const h of state.heirs) {
       if (h.personId !== c.personId) person(h.personId).note = '一門として家を出る。';
     }
@@ -1084,8 +1212,10 @@
     state.shogun = {
       personId: p.id, name, gen: prev.gen + 1, age: c.age, startYear: state.year, trait: c.trait,
       health: clamp(c.stats.kenko * 5, 20, 100),
-      stats: { ...p.start }, stress: 0,
+      stats: { ...p.start }, stress: 0, skill: c.skill || null,
     };
+    // 新しい将軍の格に応じて、登用の候補が集まり直す
+    state.candidates = makeCandidates();
 
     const from = c.house ? `${c.house}から迎えられた` : `若君・${c.name}が`;
     addLog(`${from}${name}が、第${state.shogun.gen}代将軍となった。`);
@@ -1214,6 +1344,16 @@
     }));
   }
 
+  // 特技の札。いまの将軍の特技でなければ「将軍になると働く」と添える
+  function skillTag(id, working = true) {
+    const sk = skillById(id);
+    if (!sk) return null;
+    return el('p', { class: 'iy-skill' }, [
+      el('span', { class: 'iy-skill__name', text: `特技「${sk.name}」` }),
+      ` ${sk.desc}${working ? '' : '（将軍になると働く）'}`,
+    ]);
+  }
+
   function changeList(changes) {
     if (changes.length === 0) return null;
     return el('ul', { class: 'iy-changes' }, changes.map((c) =>
@@ -1269,9 +1409,10 @@
       ]),
       el('div', { class: 'iy-topbar__gauges' }, gauges),
       el('p', { class: 'iy-topbar__money' }, [
-        `現金 ${money(f.cash)}万両　`,
+        el('span', { text: `現金 ${money(f.cash)}万両` }),
         el('span', { class: overLimit ? 'iy-warn' : '', text: `借入 ${money(f.debt)}/${money(debtLimit())}` }),
-        `　実績 ${state.jisseki}`,
+        el('span', { text: `実績 ${state.jisseki}` }),
+        el('span', { class: 'iy-kaku', id: 'kaku', title: '将軍の格（政務・武威・人徳の合計）', text: `格${shogunKaku()}` }),
       ]),
       state.crisis
         ? el('p', { class: 'iy-crisis', role: 'alert', text: `倒幕の危機：あと${state.crisis.years}年で立て直せ（威光・民心・朝廷を${CONFIG.CRISIS_SAFE}より上、借入を上限以下に）` })
@@ -1280,7 +1421,10 @@
   }
 
   function renderTabbar() {
-    const alerts = { org: vacancies().length > 0, seimu: ['event', 'succession'].includes(state.phase) };
+    const alerts = {
+      org: vacancies().length > 0 || state.retainers.some((r) => r.unhappy),
+      seimu: ['event', 'succession'].includes(state.phase),
+    };
     $('tabbar').replaceChildren(...TABS.map((t) => el('button', {
       type: 'button',
       class: `iy-tab${ui.tab === t.id ? ' iy-tab--active' : ''}`,
@@ -1444,9 +1588,13 @@
     return el('div', { class: 'iy-heir' }, [
       el('div', { class: 'iy-heir__head' }, [
         faceOf(heir),
-        el('p', { class: 'iy-heir__name' }, [el('strong', { text: heir.name }), `（${heir.age}歳・${heir.trait}）`]),
+        el('p', { class: 'iy-heir__name' }, [
+          el('strong', { text: heir.name }), `（${heir.age}歳・${heir.trait}）`,
+          el('span', { class: 'iy-kaku', text: `格${kakuOf(heir.stats)}` }),
+        ]),
       ]),
       statBars(heir.stats, ABILITY_LABELS),
+      skillTag(heir.skill, false),
       canTeach
         ? el('p', { class: 'iy-hint', text: taught ? '今年はもう師をつけた。' : `師をつける（教育費 ${teachCost()}万両・1年に1回）` })
         : el('p', { class: 'iy-hint', text: '成人したので、教育は終わった。' }),
@@ -1504,8 +1652,14 @@
         : [el('strong', { text: '？？？' }), `　${syn.hint}`]);
     })));
 
+    const unhappy = state.retainers.filter((r) => r.unhappy);
     if (vacancies().length > 0) {
       nodes.push(el('p', { class: 'iy-warn-box', text: `空いている役職があります（${vacancies().map((p) => p.name).join('・')}）。空席のままだと、その役目の働きが落ちる。` }));
+    }
+    if (unhappy.length > 0) {
+      nodes.push(el('p', { class: 'iy-warn-box', text: `不満を漏らしている家臣がいます（${unhappy.map((r) => r.name).join('・')}）。将軍の格が求める格に届かなければ、この暮れに去る。加増すれば引き留められる。` }));
+    }
+    if (vacancies().length > 0 || unhappy.length > 0) {
       nodes.push(el('button', { type: 'button', class: 'iy-secondary', text: '組織を開く', onclick: () => { ui.tab = 'org'; render(); scrollToGame(); } }));
     }
     nodes.push(el('button', { type: 'button', class: 'iy-primary', text: '年を越す（決算）', onclick: endYear }));
@@ -1522,11 +1676,13 @@
     const list = el('div', { class: 'iy-options' });
     candidates.forEach((c, i) => {
       const warn = c.age < CONFIG.ADULT_AGE ? '　幼い将軍になる（威光が下がる）' : '';
+      const sk = skillById(c.skill);
       list.append(el('button', { type: 'button', class: 'iy-option iy-option--person', onclick: () => crown(i) }, [
         faceOf({ ...c, id: i + 3 }),
         el('span', { class: 'iy-option__text' }, [
-          el('strong', { text: `${c.name}（${c.age}歳・${c.trait}）` }),
+          el('strong', { text: `${c.name}（${c.age}歳・${c.trait}）格${kakuOf(c.stats)}` }),
           el('span', { text: Object.keys(ABILITY_LABELS).map((k) => `${ABILITY_LABELS[k]}${c.stats[k]}`).join('　') + warn }),
+          sk ? el('span', { class: 'iy-skill__name', text: `特技「${sk.name}」${sk.desc}` }) : null,
         ]),
       ]));
     });
@@ -1637,22 +1793,24 @@
         ]),
       ]),
     ];
+    nodes.push(skillTag(p.skill, Boolean(p.gen)));
     if (p.gen) {
       nodes.push(el('p', { class: 'iy-hint', text: `在位：${p.from}〜${p.to || '在位中'}年（${(p.to || state.year) - p.from}年）` }));
       if (isCurrent) {
         nodes.push(el('h3', { text: '今の能力（かっこ内は就任時からの伸び）' }));
         nodes.push(statBars(state.shogun.stats, { seimu: '政務', bui: '武威', jintoku: '人徳' }, p.start));
-        nodes.push(el('p', { class: 'iy-hint', text: `${state.shogun.age}歳・健康${state.shogun.health}` }));
+        nodes.push(el('p', { class: 'iy-hint', text: `格${shogunKaku()}（就任時${kakuOf(p.start)}）・${state.shogun.age}歳・健康${state.shogun.health}` }));
       } else if (p.end) {
         nodes.push(el('h3', { text: '退任時の能力（かっこ内は就任時からの伸び）' }));
         nodes.push(statBars(p.end, { seimu: '政務', bui: '武威', jintoku: '人徳' }, p.start));
+        nodes.push(el('p', { class: 'iy-hint', text: `退任時の格${kakuOf(p.end)}（就任時${kakuOf(p.start)}）` }));
       }
       if (p.insts.length) nodes.push(el('p', { class: 'iy-hint', text: `整えた制度：${p.insts.join('、')}` }));
       if (p.endGauges) {
         nodes.push(el('p', { class: 'iy-hint', text: `退任時の幕府：${Object.entries(STATE_LABELS).map(([k, l]) => `${l}${p.endGauges[k]}`).join('　')}　純資産 ${money(p.endNet)}万両` }));
       }
     } else if (heir) {
-      nodes.push(el('h3', { text: '若君の能力' }));
+      nodes.push(el('h3', { text: `若君の能力（格${kakuOf(heir.stats)}）` }));
       nodes.push(statBars(heir.stats, ABILITY_LABELS));
     }
     if (p.note) nodes.push(el('p', { class: 'iy-note', text: p.note }));
@@ -1746,12 +1904,31 @@
       el('span', { class: k === highlight ? 'iy-strong' : '', text: `${l}${r.stats[k]}` })));
   }
 
-  function retainerRow(r, button) {
+  // 家臣が将軍に求める格。足りなければ警告と、加増のボタンを出す（召し抱える前の候補には、ボタンは出さない）
+  function loyaltyLine(r, canRaise) {
+    const k = shogunKaku();
+    const w = wants(r);
+    if (w <= k) return el('p', { class: 'iy-loyalty iy-muted', text: `求める格${w}` });
+    const next = Math.max(1, Math.round(salaryOf(r.stats) * (1 + CONFIG.RAISE_RATE * ((r.raises || 0) + 1))));
+    const text = !canRaise ? `求める格${w}：将軍の格${k}では足りない（召し抱えると、暮れに不満を漏らす）`
+      : r.unhappy ? `不満：求める格${w}・将軍の格${k}。この暮れに去る`
+        : `求める格${w}：将軍の格${k}では足りない。暮れに不満を漏らす`;
+    return el('div', { class: 'iy-loyalty' }, [
+      el('p', { class: 'iy-warn', text }),
+      canRaise ? el('button', {
+        type: 'button', text: `加増する（俸禄${r.salary}→${next}万両・求める格−${CONFIG.RAISE_WANTS}）`, onclick: () => raise(r.id),
+      }) : null,
+    ]);
+  }
+
+  function retainerRow(r, button, canRaise) {
     return el('div', { class: 'iy-retainer iy-retainer--row' }, [
       retainerFace(r, true),
       el('div', {}, [
+        r.renowned ? el('p', { class: 'iy-renowned' }, [el('strong', { text: '名のある人物' }), ` ${r.renowned}`]) : null,
         el('p', { class: 'iy-retainer__name', text: `${r.name}（${r.age}歳・俸禄${r.salary}万両）` }),
         retainerStats(r),
+        loyaltyLine(r, canRaise),
       ]),
       button,
     ]);
@@ -1761,6 +1938,8 @@
     const s = state.shogun;
     const over = state.phase === 'over';
     const salaries = state.retainers.reduce((sum, r) => sum + (r.post ? r.salary : Math.ceil(r.salary / 2)), 0);
+    const k = shogunKaku();
+    const steps = CONFIG.CANDIDATE_STEPS.slice(1).map(([min, n]) => `${min}以上で${n}人`).join('、');
 
     const posts = POSTS.map((post) => {
       const h = holder(post.id);
@@ -1780,6 +1959,7 @@
           ? el('div', { class: 'iy-retainer' }, [retainerFace(h, true), el('div', {}, [
             el('p', { class: 'iy-retainer__name', text: `${h.name}（${h.age}歳・俸禄${h.salary}万両）` }),
             retainerStats(h, post.stat),
+            loyaltyLine(h, !over),
           ])])
           : el('p', { class: 'iy-warn', text: '空席' }),
         select,
@@ -1794,22 +1974,26 @@
           el('p', {}, [el('strong', { text: `第${s.gen}代 ${s.name}` }), `（${s.age}歳・${s.trait}・健康${s.health}）`]),
         ]),
         statBars(s.stats, { seimu: '政務', bui: '武威', jintoku: '人徳' }),
+        el('p', { class: 'iy-kaku-line' }, [el('strong', { text: `将軍の格 ${k}` }), '（政務・武威・人徳の合計）']),
+        el('p', { class: 'iy-hint', text: `格が高いほど、登用の候補が多く、腕の立つ者が集まる（候補は格${steps}）。格${CONFIG.RENOWN_KAKU}以上なら、名のある人物がまれに仕官を願い出る。` }),
+        skillTag(s.skill),
         el('p', { class: (s.stress || 0) >= 60 ? 'iy-warn' : 'iy-hint', text: `気苦労 ${s.stress || 0} / 100（60を超えると体を壊しはじめる。好みに合う裁きや、鷹狩り・湯治で晴れる）` }),
       ]),
       panel('役職', [
         el('p', { class: 'iy-hint', text: `家臣 ${state.retainers.length}人・俸禄の合計 年${salaries}万両（控えの家臣は半額）` }),
+        el('p', { class: 'iy-hint', text: `家臣は、自分の腕（いちばん高い能力）の${CONFIG.WANTS_RATE}倍の格を将軍に求める。足りないと暮れに不満を漏らし、次の暮れにも足りなければ去る。加増すれば、俸禄が上がるかわりに求める格が下がる。` }),
         vacancies().length && reserve.length && !over
           ? el('button', { type: 'button', class: 'iy-secondary', text: '空席に、いちばん向いている控えの家臣を就ける', onclick: autoAssign })
           : null,
         ...posts,
       ]),
       panel('控えの家臣', reserve.length
-        ? reserve.map((r) => retainerRow(r, el('button', { type: 'button', text: '暇を出す', disabled: over, onclick: () => dismiss(r.id) })))
+        ? reserve.map((r) => retainerRow(r, el('button', { type: 'button', text: '暇を出す', disabled: over, onclick: () => dismiss(r.id) }), !over))
         : [el('p', { class: 'iy-hint', text: '控えの家臣はいない。' })]),
-      panel('登用の候補（今年）', state.candidates.length
+      panel(`登用の候補（今年・将軍の格${k}）`, state.candidates.length
         ? state.candidates.map((c, i) => retainerRow(c, el('button', {
           type: 'button', text: '召し抱える', disabled: state.retainers.length >= CONFIG.MAX_RETAINERS || over, onclick: () => hire(i),
-        })))
+        }), false))
         : [el('p', { class: 'iy-hint', text: '今年の候補はもういない。来年また現れる。' })]),
     );
   }
@@ -1984,6 +2168,7 @@
     CONFIG, POSTS,
     startMain, choose, endYear, closeReport, crown, hire, autoAssign,
     teach, teachCost, establish, institutionStatus, repay, retire, canRetire,
+    shogunKaku, kakuOf, wants, raise,
   };
 
   $('title-art').innerHTML = ART.scene('heaven');
