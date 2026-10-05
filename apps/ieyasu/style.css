@@ -977,3 +977,40 @@ body.iy-coaching .iy-raise {
   color: #fff;
   font-weight: 600;
 }
+
+/* ─── 吹き出しの話し手（顔と名前） */
+.iy-speech__who {
+  flex: 0 0 auto;
+  display: grid;
+  justify-items: center;
+  gap: 0.15rem;
+  width: 56px;
+}
+
+.iy-speech__name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  line-height: 1.2;
+}
+
+.iy-speech--iemitsu .iy-speech__body {
+  background: color-mix(in srgb, #6b4a7a 10%, var(--color-bg));
+}
+
+.iy-progress {
+  margin: 0 !important;
+  text-align: right;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.iy-panel .iy-back {
+  display: block;
+  margin: 0.75rem auto 0;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  text-decoration: underline;
+}

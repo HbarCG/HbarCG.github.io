@@ -77,7 +77,7 @@
 
   let state = null;
   // 画面だけの状態（保存しない）。coach はチュートリアルの何番目を見せているか
-  const ui = { tab: 'seimu', person: null, bookYear: 'now', coach: null };
+  const ui = { tab: 'seimu', person: null, bookYear: 'now', coach: null, coachLine: 0 };
 
   // ─────────────────────────────── 小さな道具
 
@@ -197,6 +197,7 @@
       version: SAVE_VERSION,
       phase: 'prologue',
       prologueStep: 0,
+      prologueLine: 0,
       prologueNote: null,
       year: 1616,
       nextId: 0,
@@ -962,19 +963,37 @@
     return art(ART.scene(name), 'iy-scene');
   }
 
-  function ieyasuSays(children, mood = 'calm') {
-    return el('div', { class: 'iy-speech' }, [
-      art(ART.ieyasu(mood), 'iy-speech__face'),
+  // 話し手ごとの顔と名前
+  const SPEAKERS = {
+    ieyasu: { name: '家康', face: (mood) => ART.ieyasu(mood) },
+    iemitsu: { name: '家光', face: () => ART.iemitsu() },
+  };
+
+  // 吹き出し。顔の下に話し手の名前を出す
+  function says(who, children, mood = 'calm') {
+    const speaker = SPEAKERS[who];
+    return el('div', { class: `iy-speech iy-speech--${who}` }, [
+      el('div', { class: 'iy-speech__who' }, [
+        art(speaker.face(mood), 'iy-speech__face'),
+        el('span', { class: 'iy-speech__name', text: speaker.name }),
+      ]),
       el('div', { class: 'iy-speech__body' }, [].concat(children)),
     ]);
   }
 
+  function ieyasuSays(children, mood = 'calm') {
+    return says('ieyasu', children, mood);
+  }
+
   // 霊体の家光のせりふ（チュートリアルとガイドの案内役）
   function iemitsuSays(children) {
-    return el('div', { class: 'iy-speech iy-speech--iemitsu' }, [
-      art(ART.iemitsu(), 'iy-speech__face'),
-      el('div', { class: 'iy-speech__body' }, [].concat(children)),
-    ]);
+    return says('iemitsu', children);
+  }
+
+  // cards.js のせりふ（文字列か { who, mood, text }）をそろえる
+  function lineOf(line, defaultMood) {
+    if (typeof line === 'string') return { who: 'ieyasu', mood: defaultMood || 'calm', text: line };
+    return { who: line.who || 'ieyasu', mood: line.mood || defaultMood || 'calm', text: line.text };
   }
 
   function ieyasuMood() {
@@ -994,10 +1013,6 @@
 
   function retainerFace(r, small) {
     return art(ART.retainer(r.seed), `iy-face${small ? ' iy-face--small' : ''}`);
-  }
-
-  function paragraphs(lines) {
-    return [].concat(lines).map((line) => el('p', { text: line }));
   }
 
   function statBars(stats, labels, compare) {
@@ -1103,16 +1118,45 @@
     $('stage').replaceChildren(...[].concat(views[state.phase]()).filter(Boolean));
   }
 
+  // プロローグは、せりふを1つずつ「次へ」で送る（prologueLine が何番目か）
   function viewPrologue() {
     const step = DATA.prologue[state.prologueStep];
-    const isLast = state.prologueStep === DATA.prologue.length - 1;
+    const isLastStep = state.prologueStep === DATA.prologue.length - 1;
+    const lines = step.text.map((l) => lineOf(l, step.mood));
+    const index = Math.min(state.prologueLine || 0, lines.length - 1);
+    const atEnd = index === lines.length - 1;
     const nodes = [
       el('p', { class: 'iy-year', text: `${step.year}年` }),
       el('h2', { text: step.title }),
       sceneArt(step.scene),
-      ieyasuSays(el('div', { class: 'iy-voice' }, paragraphs(step.text)), step.mood),
     ];
-    if (step.choices) {
+
+    const nextStep = () => {
+      state.prologueNote = null;
+      state.prologueLine = 0;
+      if (isLastStep) startMain();
+      else state.prologueStep += 1;
+      commit();
+      if (isLastStep && !tutorialDone()) startTutorial();
+    };
+
+    // 布石を選んだ直後の、家康の一言
+    if (state.prologueNote) {
+      nodes.push(ieyasuSays(el('p', { class: 'iy-voice', text: state.prologueNote })));
+      nodes.push(el('button', { type: 'button', class: 'iy-primary', text: '次へ', onclick: nextStep }));
+      return nodes;
+    }
+
+    const line = lines[index];
+    nodes.push(says(line.who, el('p', { class: 'iy-voice', text: line.text }), line.mood));
+    nodes.push(el('p', { class: 'iy-progress', text: `${index + 1} / ${lines.length}` }));
+
+    if (!atEnd) {
+      nodes.push(el('button', {
+        type: 'button', class: 'iy-primary', text: '次へ',
+        onclick: () => { state.prologueLine = index + 1; commit(); },
+      }));
+    } else if (step.choices) {
       const list = el('div', { class: 'iy-options' });
       step.choices.forEach((choice) => {
         list.append(el('button', {
@@ -1120,7 +1164,6 @@
           onclick: () => {
             state.institutions.push(choice.institution);
             addLog(`家康、最後の布石として「${institution(choice.institution).name}」を残す。`);
-            state.prologueStep += 1;
             state.prologueNote = choice.text;
             commit();
           },
@@ -1128,16 +1171,12 @@
       });
       nodes.push(list);
     } else {
-      if (state.prologueNote) nodes.splice(3, 0, el('p', { class: 'iy-note', text: state.prologueNote }));
+      nodes.push(el('button', { type: 'button', class: 'iy-primary', text: isLastStep ? '幕府の経営を始める' : '次へ', onclick: nextStep }));
+    }
+    if (index > 0) {
       nodes.push(el('button', {
-        type: 'button', class: 'iy-primary', text: isLast ? '幕府の経営を始める' : '次へ',
-        onclick: () => {
-          state.prologueNote = null;
-          if (isLast) startMain();
-          else state.prologueStep += 1;
-          commit();
-          if (isLast && !tutorialDone()) startTutorial();
-        },
+        type: 'button', class: 'iy-back', text: '← ひとつ戻る',
+        onclick: () => { state.prologueLine = index - 1; commit(); },
       }));
     }
     return nodes;
@@ -1596,6 +1635,7 @@
   function startTutorial() {
     if (state.phase === 'prologue') return;
     ui.coach = 0;
+    ui.coachLine = 0;
     ui.tab = 'seimu';
     render();
     showCoach();
@@ -1631,25 +1671,32 @@
     // 光らせた場所と重ならないように、説明の札を上か下に置く
     const rect = target ? target.getBoundingClientRect() : null;
     const atTop = rect && rect.top + rect.height / 2 > window.innerHeight / 2;
-    const isLast = ui.coach === steps.length - 1;
+    const lines = [].concat(step.text);
+    const lineIndex = Math.min(ui.coachLine || 0, lines.length - 1);
+    const isLast = ui.coach === steps.length - 1 && lineIndex === lines.length - 1;
+    const forward = () => {
+      if (lineIndex < lines.length - 1) ui.coachLine = lineIndex + 1;
+      else if (isLast) { endTutorial(); return; }
+      else { ui.coach += 1; ui.coachLine = 0; }
+      showCoach();
+    };
+    const back = () => {
+      if (lineIndex > 0) ui.coachLine = lineIndex - 1;
+      else { ui.coach -= 1; ui.coachLine = [].concat(steps[ui.coach].text).length - 1; }
+      showCoach();
+    };
     const coach = $('coach');
     coach.hidden = false;
     document.body.classList.add('iy-coaching');
     coach.replaceChildren(
       el('div', { class: 'iy-coach__dim' }),
       el('div', { class: `iy-coach__card${atTop ? ' iy-coach__card--top' : ''}`, role: 'dialog', 'aria-label': 'チュートリアル' }, [
-        iemitsuSays(el('p', { class: 'iy-voice', text: step.text })),
+        iemitsuSays(el('p', { class: 'iy-voice', text: lines[lineIndex] })),
         el('div', { class: 'iy-coach__nav' }, [
           el('span', { class: 'iy-muted', text: `${ui.coach + 1} / ${steps.length}` }),
           el('button', { type: 'button', class: 'iy-coach__skip', text: 'とばす', onclick: endTutorial }),
-          ui.coach > 0 ? el('button', { type: 'button', text: '戻る', onclick: () => { ui.coach -= 1; showCoach(); } }) : null,
-          el('button', {
-            type: 'button', class: 'iy-coach__next', text: isLast ? '始める' : '次へ',
-            onclick: () => {
-              if (isLast) endTutorial();
-              else { ui.coach += 1; showCoach(); }
-            },
-          }),
+          ui.coach > 0 || lineIndex > 0 ? el('button', { type: 'button', text: '戻る', onclick: back }) : null,
+          el('button', { type: 'button', class: 'iy-coach__next', text: isLast ? '始める' : '次へ', onclick: forward }),
         ]),
       ]),
     );
