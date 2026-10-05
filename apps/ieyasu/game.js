@@ -26,6 +26,9 @@
     MAX_RETAINERS: 12,
     CANDIDATES: 2,          // 毎年あらわれる登用の候補
     BOOKS_KEPT: 30,         // 決算を何年ぶん残すか
+    STRESS_EAGER: -6,       // 将軍の好みに合う裁きをすると、気苦労が減る
+    STRESS_RELUCTANT: 6,    // 好みに合わない裁きをすると、気苦労がたまる
+    STRESS_DECAY: 2,        // 毎年、自然に減る気苦労
   };
 
   const STATE_LABELS = { ikou: '威光', minshin: '民心', chotei: '朝廷' };
@@ -36,7 +39,7 @@
     ryo: ['現金', '万両'], borrow: ['借入', '万両'], rice: ['蔵米', '万両'], kokudaka: ['天領の石高', '万石'],
     mine: ['金銀山の産出', '万両/年'], trade: ['運上金・交易', '万両/年'], ooku: ['大奥の費え', '万両/年'],
   };
-  const OTHER_LABELS = { jisseki: '実績', health: '将軍の健康' };
+  const OTHER_LABELS = { jisseki: '実績', health: '将軍の健康', stress: '将軍の気苦労', recruit: '登用の候補', debtCut: '借入の帳消し' };
   const TRAITS = ['慎重', '豪胆', '寛大', '倹約', '華美'];
   const CHILD_NAMES = ['竹千代', '長松', '徳松', '亀松', '鶴松', '国松', '万寿丸', '虎松', '福松', '松千代'];
   // 本編はオリジナルの歴史なので、実在の将軍とは違う名前にする
@@ -73,6 +76,7 @@
   const SAVE_KEY = 'ieyasu-save';
   const BEST_KEY = 'ieyasu-best';
   const TUTORIAL_KEY = 'ieyasu-tutorial-done';
+  const HONORS_KEY = 'ieyasu-honors';   // これまでの周回で得た栄誉（周回をまたいで残る）
   const SAVE_VERSION = 2;
 
   let state = null;
@@ -148,10 +152,20 @@
     }
   }
 
+  // あとから増えた項目を、古い保存データにも足しておく
+  function migrate(saved) {
+    saved.flags = saved.flags || {};
+    saved.tension = saved.tension || 0;
+    saved.synergies = saved.synergies || [];
+    saved.honors = saved.honors || [];
+    if (saved.shogun && saved.shogun.stress === undefined) saved.shogun.stress = 0;
+    return saved;
+  }
+
   function load() {
     try {
       const saved = JSON.parse(localStorage.getItem(SAVE_KEY));
-      if (saved && saved.version === SAVE_VERSION) return saved;
+      if (saved && saved.version === SAVE_VERSION) return migrate(saved);
     } catch (e) {
       // 壊れた保存データや古い形式は捨てて、はじめからにする
     }
@@ -169,6 +183,23 @@
   function saveBest(years) {
     try {
       if (years > loadBest()) localStorage.setItem(BEST_KEY, String(years));
+    } catch (e) {
+      // 記録できなくてもゲームは続けられる
+    }
+  }
+
+  function loadHonors() {
+    try {
+      return JSON.parse(localStorage.getItem(HONORS_KEY)) || [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveHonor(id) {
+    try {
+      const all = loadHonors();
+      if (!all.includes(id)) localStorage.setItem(HONORS_KEY, JSON.stringify(all.concat(id)));
     } catch (e) {
       // 記録できなくてもゲームは続けられる
     }
@@ -219,6 +250,14 @@
       books: [],
       family: [],
       log: [],
+      flags: {},        // 過去の選択の印（数年後の出来事につながる）。値は印をつけた年
+      tension: 0,       // 厳しい出来事が続いた度合い。高いほど良い出来事が来やすい
+      synergies: [],    // そろった制度の組み合わせ
+      honors: [],       // この周回で得た栄誉
+      legacy: null,     // 最後の布石で選んだ遺訓（制度でないもの）
+      report: null,     // 一年の決算報告
+      nextPhase: null,  // 決算報告のあとに進む場面
+      yearStart: null,  // 年のはじめの状態（決算報告で増減を出すため）
     };
 
     // 家系図（史実の部分）
@@ -236,7 +275,7 @@
 
     state.shogun = {
       personId: iemitsu.id, name: '家光', gen: 3, age: 33, health: 35, startYear: 1623, trait: '華美',
-      stats: { seimu: 9, bui: 8, jintoku: 7 },
+      stats: { seimu: 9, bui: 8, jintoku: 7 }, stress: 0,
     };
 
     // 家光の時代の家臣たち
@@ -285,13 +324,43 @@
     state.usedNames.push('正之');
     state.shogun = {
       personId: masayuki.id, name: '正之', gen: 4, age: 26, health: 70, startYear: state.year, trait: '慎重',
-      stats: { ...masayuki.start },
+      stats: { ...masayuki.start }, stress: 0,
     };
     addLog('家光の異母弟・保科正之が、第4代将軍となった。');
     state.heirs.push(heir);
     addLog(`家光の忘れ形見、若君・${heir.name}が生まれた。`);
+    applyLegacy(heir);
     for (const id of state.institutions) applyInstitutionOn(id);
+    state.yearStart = snapshot();
     drawCard();
+  }
+
+  // 最後の布石で、制度ではなく「遺訓」を選んだときの効果
+  function applyLegacy(heir) {
+    const bonus = state.legacy;
+    if (bonus === 'retainers') {
+      for (const r of state.retainers) {
+        if (!r.post) continue;
+        const stat = POSTS.find((p) => p.id === r.post).stat;
+        r.stats[stat] = clamp(r.stats[stat] + 3, 1, CONFIG.ABILITY_MAX);
+        r.salary = salaryOf(r.stats);
+      }
+      addLog('遺訓により、家臣たちはよく鍛えられていた。');
+    } else if (bonus === 'treasury') {
+      state.fin.cash += 150;
+      addLog('遺訓により、金蔵には150万両が蓄えられていた。');
+    } else if (bonus === 'heir') {
+      for (const k of Object.keys(heir.stats)) heir.stats[k] = clamp(heir.stats[k] + 3, 1, CONFIG.ABILITY_MAX);
+      addLog('遺訓により、若君の養育の手はずが整っていた。');
+    } else if (bonus === 'kokudaka') {
+      state.fin.kokudaka += 60;
+      addLog('遺訓により、天下普請で天領の田が広がっていた。');
+    }
+  }
+
+  // 年のはじめの状態を覚えておく
+  function snapshot() {
+    return { gauges: { ...state.gauges }, cash: Math.round(state.fin.cash), debt: Math.round(state.fin.debt), net: Math.round(netAssets()) };
   }
 
   // ─────────────────────────────── 若君と将軍
@@ -533,9 +602,25 @@
     return DATA.cards.find((c) => c.id === id);
   }
 
+  // 出来事の出やすさ。厳しい出来事が続いたあとは良い出来事が、穏やかな年が続けば厳しい出来事が来やすい
   function cardWeight(card) {
     if (card.trial) return 0.5 + (state.year - card.minYear) / 50;
-    return card.weight || 1;
+    let w = card.weight || 1;
+    if (card.followUp) w *= 3;
+    if (card.tone === 'good') w *= 1 + state.tension * 0.8;
+    if (card.tone === 'bad') w /= 1 + state.tension * 0.5;
+    return w;
+  }
+
+  // 出来事の文中の {roju} などを、いまの役職の家臣の名前に置き換える
+  function fillNames(text) {
+    return text.replace(/\{(\w+)\}/g, (all, key) => {
+      if (key === 'shogun') return state.shogun.name;
+      const post = POSTS.find((p) => p.id === key);
+      if (!post) return all;
+      const h = holder(key);
+      return h ? `${post.name}・${h.name}` : `${post.name}（空席）`;
+    });
   }
 
   function drawCard() {
@@ -624,6 +709,23 @@
         state.jisseki = Math.max(0, state.jisseki + v);
       } else if (key === 'health') {
         state.shogun.health = clamp(state.shogun.health + v, 0, 100);
+      } else if (key === 'stress') {
+        state.shogun.stress = clamp((state.shogun.stress || 0) + v, 0, 100);
+      } else if (key === 'recruit') {
+        // 腕の立つ若者が、登用の候補に加わる
+        for (let i = 0; i < v; i++) {
+          const r = makeRetainer({ age: rand(20, 28) });
+          const strong = Object.keys(r.stats).reduce((a, b) => (r.stats[b] > r.stats[a] ? b : a));
+          r.stats[strong] = clamp(r.stats[strong] + 4, 1, CONFIG.ABILITY_MAX);
+          r.salary = salaryOf(r.stats);
+          state.candidates.push(r);
+        }
+        unit = '人';
+      } else if (key === 'debtCut') {
+        v = Math.min(v, Math.round(f.debt));
+        f.debt -= v;
+        v = -v;
+        unit = '万両';
       } else {
         continue;
       }
@@ -642,19 +744,35 @@
     const changes = applyEffects(success ? option.effects : option.fail,
       { kind: card.kind, invest: option.invest, label: card.title });
 
-    // 将軍の好みに合う判断なら、将軍は乗り気で取り組み、経験を積んで育つ
-    const eager = option.tag === state.shogun.trait;
+    // 将軍の好みに合う裁きなら、将軍は乗り気で取り組み、経験を積んで育ち、気苦労も減る。
+    // 合わない裁きを押しつけると、気苦労がたまる
+    const sh = state.shogun;
+    const eager = option.tag === sh.trait;
     let growth = null;
-    if (eager && option.grow && state.shogun.stats[option.grow] < CONFIG.ABILITY_MAX) {
-      state.shogun.stats[option.grow] += 1;
-      growth = `将軍は乗り気で取り組み、${ABILITY_LABELS[option.grow]}が1上がった。`;
+    if (eager) {
+      sh.stress = clamp((sh.stress || 0) + CONFIG.STRESS_EAGER, 0, 100);
+      if (option.grow && sh.stats[option.grow] < CONFIG.ABILITY_MAX) {
+        sh.stats[option.grow] += 1;
+        growth = `将軍は乗り気で取り組み、${ABILITY_LABELS[option.grow]}が1上がった。気苦労も少し晴れた。`;
+      }
+    } else if (option.tag) {
+      sh.stress = clamp((sh.stress || 0) + CONFIG.STRESS_RELUCTANT, 0, 100);
+      growth = `${sh.trait}な将軍は渋々従った（気苦労+${CONFIG.STRESS_RELUCTANT}、いま${sh.stress}）。`;
     }
+
+    // 選択の印（数年後の出来事につながる）
+    if (option.flag) state.flags[option.flag] = state.year;
+    if (card.clears) delete state.flags[card.clears];
+    // 緊張と緩和
+    if (card.tone === 'bad' || card.trial) state.tension = Math.min(4, state.tension + 1);
+    else if (card.tone === 'good') state.tension = 0;
+    else state.tension = Math.max(0, state.tension - 1);
 
     state.seen[card.id] = state.year;
     state.result = {
       title: card.title,
       choice: option.label,
-      text: success ? option.text : option.failText,
+      text: fillNames(success ? option.text : option.failText),
       failed: !success,
       changes,
       growth,
@@ -714,7 +832,37 @@
     person(state.shogun.personId).insts.push(inst.name);
     applyInstitutionOn(id);
     addLog(`制度「${inst.name}」を整えた。この制度は代をまたいで残る。`);
+    checkSynergies();
     commit();
+  }
+
+  // 制度の組み合わせがそろったら、隠れた効果が生まれる
+  function checkSynergies() {
+    for (const syn of DATA.synergies) {
+      if (state.synergies.includes(syn.id)) continue;
+      if (!syn.needs.every((id) => hasInstitution(id))) continue;
+      state.synergies.push(syn.id);
+      if (syn.on) applyEffects(syn.on);
+      addLog(`組み合わせの妙「${syn.name}」が生まれた。${syn.desc}`);
+    }
+  }
+
+  // 栄誉。この周回で初めて得たものを返す
+  function checkHonors() {
+    const view = {
+      years: bakufuYears(), gen: state.shogun.gen, shogun: state.shogun, fin: state.fin, gauges: state.gauges,
+      institutions: state.institutions.length, synergies: state.synergies.length,
+      postsAll: (min) => POSTS.every((p) => postValue(p.id) >= min),
+    };
+    const earned = [];
+    for (const h of DATA.honors) {
+      if (state.honors.includes(h.id) || !h.check(view)) continue;
+      state.honors.push(h.id);
+      saveHonor(h.id);
+      earned.push(h);
+      addLog(`栄誉「${h.name}」を得た。${h.desc}`);
+    }
+    return earned;
   }
 
   function canRetire() {
@@ -735,9 +883,13 @@
     const s = state.shogun;
     const notes = [];
 
-    // 制度の効果（毎年）
+    // 制度と、制度の組み合わせの効果（毎年）
     for (const id of state.institutions) {
       const yearly = institution(id)?.yearly;
+      if (yearly) applyEffects(yearly);
+    }
+    for (const id of state.synergies) {
+      const yearly = DATA.synergies.find((x) => x.id === id)?.yearly;
       if (yearly) applyEffects(yearly);
     }
 
@@ -782,10 +934,19 @@
       }
     }
 
-    // 将軍が歳をとる
+    // 将軍が歳をとる。気苦労がたまっていると体を壊し、城中にも苛立ちが広がる
     s.age += 1;
     if (s.age >= 60) s.health -= 4;
     else if (s.age >= 40) s.health -= 2;
+    s.stress = clamp((s.stress || 0) - CONFIG.STRESS_DECAY, 0, 100);
+    if (s.stress >= 85) {
+      s.health -= 6;
+      applyEffects({ ikou: -2 });
+      notes.push(`将軍・${s.name}の気苦労が限界に近い。体を壊し、城中にも苛立ちが広がっている。`);
+    } else if (s.stress >= 60) {
+      s.health -= 3;
+      notes.push(`将軍・${s.name}は気苦労がたまり、顔色がすぐれない。`);
+    }
     s.health = clamp(s.health, 0, 100);
     const deathChance = 0.005 + Math.max(0, 40 - s.health) * 0.008 + Math.max(0, s.age - 60) * 0.02;
     const died = Math.random() < deathChance;
@@ -822,6 +983,20 @@
     }
 
     notes.forEach(addLog);
+    const honors = checkHonors();
+
+    // 一年の決算報告をつくる
+    const closed = state.books[0];
+    const start = state.yearStart || snapshot();
+    state.report = {
+      year: state.year,
+      op: closed.op, inv: closed.inv, fin: closed.fin, cash: closed.cash, debt: closed.debt,
+      netChange: closed.net - start.net,
+      gauges: Object.keys(STATE_LABELS).map((k) => ({ key: k, before: start.gauges[k], after: state.gauges[k] })),
+      notes: notes.concat(died ? [`将軍・${s.name}が${s.age}歳で世を去った。`] : []),
+      honors: honors.map((h) => h.name),
+    };
+
     state.year += 1;
     state.ledger = { year: state.year, items: [] };
     ui.bookYear = String(state.year - 1);
@@ -833,6 +1008,16 @@
       state.phase = 'event';
       drawCard();
     }
+    state.yearStart = snapshot();
+    state.nextPhase = state.phase;
+    state.phase = 'report';
+    commit();
+  }
+
+  function closeReport() {
+    state.phase = state.nextPhase || 'event';
+    state.nextPhase = null;
+    state.report = null;
     commit();
   }
 
@@ -899,7 +1084,7 @@
     state.shogun = {
       personId: p.id, name, gen: prev.gen + 1, age: c.age, startYear: state.year, trait: c.trait,
       health: clamp(c.stats.kenko * 5, 20, 100),
-      stats: { ...p.start },
+      stats: { ...p.start }, stress: 0,
     };
 
     const from = c.house ? `${c.house}から迎えられた` : `若君・${c.name}が`;
@@ -929,6 +1114,7 @@
     closeReign('倒幕により、幕府とともに倒れる。');
     addLog(`倒幕。徳川幕府は${bakufuYears()}年で幕を閉じた。`);
     saveBest(bakufuYears());
+    checkHonors();
     commit();
   }
 
@@ -1113,7 +1299,7 @@
   function renderSeimu() {
     const views = {
       prologue: viewPrologue, event: viewEvent, result: viewResult,
-      manage: viewManage, succession: viewSuccession, over: viewOver,
+      manage: viewManage, succession: viewSuccession, over: viewOver, report: viewReport,
     };
     $('stage').replaceChildren(...[].concat(views[state.phase]()).filter(Boolean));
   }
@@ -1157,17 +1343,26 @@
         onclick: () => { state.prologueLine = index + 1; commit(); },
       }));
     } else if (step.choices) {
+      // 栄誉を集めると、新しい布石（遺訓）が選べるようになる
+      const honorCount = loadHonors().length;
       const list = el('div', { class: 'iy-options' });
       step.choices.forEach((choice) => {
+        const locked = (choice.unlock || 0) > honorCount;
+        const desc = choice.desc || institution(choice.institution).desc;
         list.append(el('button', {
-          type: 'button', class: 'iy-option',
+          type: 'button', class: `iy-option${locked ? ' iy-option--locked' : ''}`, disabled: locked,
           onclick: () => {
-            state.institutions.push(choice.institution);
-            addLog(`家康、最後の布石として「${institution(choice.institution).name}」を残す。`);
+            if (choice.institution) state.institutions.push(choice.institution);
+            if (choice.bonus) state.legacy = choice.bonus;
+            addLog(`家康、最後の布石として「${choice.label}」を残す。`);
             state.prologueNote = choice.text;
             commit();
           },
-        }, [el('strong', { text: choice.label }), el('span', { class: 'iy-option__hint', text: institution(choice.institution).desc })]));
+        }, [
+          choice.unlock ? el('span', { class: 'iy-option__how', text: locked ? `遺訓（栄誉をあと${choice.unlock - honorCount}つ集めると選べる）` : '遺訓（栄誉で解禁）' }) : null,
+          el('strong', { text: choice.label }),
+          el('span', { class: 'iy-option__hint', text: desc }),
+        ]));
       });
       nodes.push(list);
     } else {
@@ -1212,11 +1407,14 @@
       el('p', { class: 'iy-year', text: `${state.year}年${card.trial ? '　大きな試練' : ''}` }),
       el('h2', { text: card.title }),
       sceneArt(card.scene),
-      el('p', { text: card.text }),
-      ieyasuSays(el('p', { class: 'iy-voice', text: `「${card.ieyasu}」` }), card.trial ? 'worry' : ieyasuMood()),
+      el('p', { text: fillNames(card.text) }),
+      ieyasuSays(el('p', { class: 'iy-voice', text: `「${fillNames(card.ieyasu)}」` }), card.trial ? 'worry' : ieyasuMood()),
       el('div', { class: 'iy-intent' }, [
         art(ART.shogun(s.trait), 'iy-face iy-face--small'),
-        el('p', { text: `将軍・${s.name}は${s.trait}な性格。好みに合う判断なら、乗り気で取り組んで育つ。` }),
+        el('p', {}, [
+          `将軍・${s.name}は${s.trait}な性格。好みに合う裁きなら乗り気で取り組んで育ち、合わなければ気苦労がたまる。`,
+          el('span', { class: (s.stress || 0) >= 60 ? 'iy-warn' : 'iy-muted', text: `（気苦労 ${s.stress || 0}）` }),
+        ]),
       ]),
       list,
     ];
@@ -1296,6 +1494,16 @@
     }
     nodes.push(list);
 
+    // 組み合わせの妙（そろうまでは中身を伏せておく）
+    nodes.push(el('h3', { text: `組み合わせの妙（${state.synergies.length} / ${DATA.synergies.length}）` }));
+    nodes.push(el('p', { class: 'iy-hint', text: '特定の制度がそろうと、隠れた効果が生まれる。' }));
+    nodes.push(el('ul', { class: 'iy-synergies' }, DATA.synergies.map((syn) => {
+      const got = state.synergies.includes(syn.id);
+      return el('li', { class: got ? 'iy-synergy--got' : '' }, got
+        ? [el('strong', { text: syn.name }), `　${syn.desc}`]
+        : [el('strong', { text: '？？？' }), `　${syn.hint}`]);
+    })));
+
     if (vacancies().length > 0) {
       nodes.push(el('p', { class: 'iy-warn-box', text: `空いている役職があります（${vacancies().map((p) => p.name).join('・')}）。空席のままだと、その役目の働きが落ちる。` }));
       nodes.push(el('button', { type: 'button', class: 'iy-secondary', text: '組織を開く', onclick: () => { ui.tab = 'org'; render(); scrollToGame(); } }));
@@ -1328,6 +1536,41 @@
       sceneArt(reason === 'retire' ? 'hall' : 'sickbed'),
       el('p', { text: intro }),
       list,
+    ];
+  }
+
+  // 一年の決算報告。数字の増減と、この一年の出来事をまとめて見せる
+  function viewReport() {
+    const r = state.report;
+    const total = r.op + r.inv + r.fin;
+    const kpi = (label, value, good) => el('div', {}, [
+      el('dt', { text: label }),
+      el('dd', { class: good === undefined ? '' : good ? 'iy-up' : 'iy-down', text: value }),
+    ]);
+    const mood = r.op < 0 || r.gauges.some((g) => g.after <= 20) ? 'worry' : 'calm';
+    const comment = r.honors.length ? `栄誉「${r.honors.join('」「')}」とは、めでたい。この調子じゃ。`
+      : r.op < 0 ? '年貢と経費だけで赤字じゃ。このままでは金蔵がもたぬぞ。'
+        : r.gauges.some((g) => g.after <= 20) ? '数字は持っておるが、足元が危うい。手を打たねば。'
+          : 'まずまずの一年じゃった。気を抜くでないぞ。';
+    const isSuccession = state.nextPhase === 'succession';
+    return [
+      el('p', { class: 'iy-year', text: `${r.year}年の暮れ` }),
+      el('h2', { text: `${r.year}年の決算` }),
+      el('dl', { class: 'iy-kpis' }, [
+        kpi('営業の収支', `${money(r.op)}万両`, r.op >= 0),
+        kpi('現金の増減', `${money(total)}万両`, total >= 0),
+        kpi('純資産の増減', `${money(r.netChange)}万両`, r.netChange >= 0),
+        kpi('年末の現金', `${money(r.cash)}万両`),
+        kpi('年末の借入', `${money(r.debt)}万両`),
+      ]),
+      el('ul', { class: 'iy-changes' }, r.gauges.map((g) => {
+        const d = g.after - g.before;
+        return el('li', { class: d > 0 ? 'iy-up' : d < 0 ? 'iy-down' : '', text: `${STATE_LABELS[g.key]} ${g.after}（${signed(d)}）` });
+      })),
+      r.honors.length ? el('p', { class: 'iy-honor-line', text: `栄誉を得た：${r.honors.join('、')}` }) : null,
+      r.notes.length ? el('ul', { class: 'iy-report-notes' }, r.notes.map((n) => el('li', { text: n }))) : null,
+      ieyasuSays(el('p', { class: 'iy-voice', text: comment }), mood),
+      el('button', { type: 'button', class: 'iy-primary', text: isSuccession ? '跡継ぎを決める' : '次の年へ', onclick: closeReport }),
     ];
   }
 
@@ -1551,6 +1794,7 @@
           el('p', {}, [el('strong', { text: `第${s.gen}代 ${s.name}` }), `（${s.age}歳・${s.trait}・健康${s.health}）`]),
         ]),
         statBars(s.stats, { seimu: '政務', bui: '武威', jintoku: '人徳' }),
+        el('p', { class: (s.stress || 0) >= 60 ? 'iy-warn' : 'iy-hint', text: `気苦労 ${s.stress || 0} / 100（60を超えると体を壊しはじめる。好みに合う裁きや、鷹狩り・湯治で晴れる）` }),
       ]),
       panel('役職', [
         el('p', { class: 'iy-hint', text: `家臣 ${state.retainers.length}人・俸禄の合計 年${salaries}万両（控えの家臣は半額）` }),
@@ -1576,6 +1820,17 @@
     $('tab-log').replaceChildren(
       panel('記録', [el('ul', { class: 'iy-log' }, state.log.map((entry) =>
         el('li', {}, [el('span', { class: 'iy-log__year', text: `${entry.year}` }), entry.text])))]),
+      panel('栄誉', [
+        el('p', { class: 'iy-hint', text: `この周回で ${state.honors.length}、これまでに ${loadHonors().length} / ${DATA.honors.length}。栄誉を集めると、プロローグの「最後の布石」で新しい遺訓が選べるようになる。` }),
+        el('ul', { class: 'iy-honors' }, DATA.honors.map((h) => {
+          const now = state.honors.includes(h.id);
+          const ever = loadHonors().includes(h.id);
+          return el('li', { class: now ? 'iy-honor--now' : ever ? 'iy-honor--ever' : '' }, [
+            el('strong', { text: ever || now ? h.name : '？？？' }),
+            `　${h.desc}${now ? '（この周回で達成）' : ever ? '（以前に達成）' : ''}`,
+          ]);
+        })),
+      ]),
       panel('遊び方', [
         el('p', { class: 'iy-hint', text: 'ルールや画面の見方は、ガイドにまとめてある。上の帯の「ガイド」からも、いつでも開ける。' }),
         el('div', { class: 'iy-actions' }, [

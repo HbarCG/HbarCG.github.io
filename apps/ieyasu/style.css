@@ -1014,3 +1014,51 @@ body.iy-coaching .iy-raise {
   font-size: 0.85rem;
   text-decoration: underline;
 }
+
+/* ─── 決算報告・組み合わせ・栄誉 */
+.iy-report-notes {
+  margin: 0 0 1rem;
+  padding-left: 1.2rem;
+  font-size: 0.88rem;
+  line-height: 1.7;
+}
+
+.iy-honor-line {
+  margin: 0 0 1rem !important;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, #d4a63a 18%, var(--color-bg));
+  font-weight: 600;
+}
+
+.iy-synergies,
+.iy-honors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.iy-synergies li,
+.iy-honors li {
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.iy-synergy--got,
+.iy-honor--now,
+.iy-honor--ever {
+  color: var(--color-text) !important;
+}
+
+.iy-synergy--got strong,
+.iy-honor--now strong {
+  color: #b5852a;
+}
+
+.iy-panel .iy-option--locked {
+  opacity: 0.55;
+  border-style: dashed;
+}
