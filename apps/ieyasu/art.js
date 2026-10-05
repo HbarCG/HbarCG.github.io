@@ -79,9 +79,7 @@ window.IEYASU_ART = (() => {
     }
     d += ` L320,${y} Z`;
     const g = linear([[0, shade(color, 0.25)], [1, shade(color, -0.08)]]);
-    const ridge = pts.slice(1, -1).map(([px, py]) =>
-      `<path d="M${px},${py + 2} q-6,10 -16,16 M${px},${py + 2} q5,9 12,14" stroke="${shade(color, 0.4)}" stroke-width="1.2" fill="none" opacity="0.7"/>`).join('');
-    return `<defs>${g.def}</defs><path d="${d}" fill="url(#${g.id})"/>${ridge}`;
+    return `<defs>${g.def}</defs><path d="${d}" fill="url(#${g.id})"/>`;
   }
 
   function ground(y, color) {
@@ -448,6 +446,15 @@ window.IEYASU_ART = (() => {
       + mountains(124, '#4f5668') + ground(124, '#3f4e38') + castle(160, 128, 1.2)
       + ghost(160, 48, 1.4) + ghost(208, 66, 0.8) + kasumi(26, 90, 90, C.white, 0.6) + kasumi(210, 100, 90, C.white, 0.6)],
 
+    comet: ['夜空のほうき星', () => sky('#0e1430', '#2e3658')
+      + Array.from({ length: 24 }, (_, i) => `<circle cx="${(i * 53) % 320}" cy="${(i * 29) % 90}" r="${0.5 + (i % 3) * 0.4}" fill="#fff6dc" opacity="${0.4 + (i % 4) * 0.15}"/>`).join('')
+      + (() => {
+        const tail = linear([[0, '#fff6dc', 0], [1, '#fff6dc', 0.85]], false);
+        return `<defs>${tail.def}</defs><path d="M40,8 L226,62 L222,70 Z" fill="url(#${tail.id})"/><path d="M70,4 L226,64 L230,58 Z" fill="url(#${tail.id})" opacity="0.6"/>`;
+      })()
+      + sun(228, 64, 5, '#fff6dc') + mountains(120, '#262c44') + ground(122, '#1c1f2c') + town(124, 9, '#141722')
+      + crowd(156, 5, { color: '#10121a' }, 50, 50)],
+
     shrine: ['東照宮', () => sky('#e6d2a8', C.paper) + mountains(116, '#a8a38a') + ground(116, C.green2)
       + pine(40, 132, 1.2) + pine(286, 134, 1.2) + shrine(160, 118, 1.3) + torii(160, 152, 0.9) + kasumi(16, 30, 100) + kasumi(210, 22, 90)],
 
@@ -540,7 +547,6 @@ window.IEYASU_ART = (() => {
       + person(40, 120, 1.2, { color: C.earth2, topknot: true, face: true })],
 
     road: ['街道と宿場', () => sky('#bcd4e0', C.paper) + sun(260, 34, 13, C.red) + mountains(96, '#a4b4aa', [[0, 24], [60, 8], [110, 30], [200, -18], [260, 20], [320, 10]])
-      + `<path d="M188,24 l12,10 l-6,0 l6,6 l-14,-4 Z" fill="${C.white}" opacity="0.9"/>`
       + ground(96, C.green)
       + `<path d="M140,96 L180,96 L260,160 L60,160 Z" fill="#d8c7a4"/>` + pine(70, 122, 1) + pine(250, 120, 1)
       + house(18, 152, 42, 18, C.roof) + house(268, 154, 46, 18, C.roof) + person(150, 132, 1, { kasa: true, color: C.blue }) + person(176, 148, 1.2, { kasa: true, color: C.earth2 })],
