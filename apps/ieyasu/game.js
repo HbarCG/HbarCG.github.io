@@ -134,7 +134,7 @@
 
   // 物価。年が進むほど上がり、支出（俸禄・費え・出来事の費用）がかさむ。年貢は石高で決まるので物価には追いつかない
   function price() {
-    return 1 + Math.max(0, state.year - CONFIG.START_YEAR) / 100;
+    return 1 + Math.max(0, state.year - CONFIG.START_YEAR) / 85;
   }
 
   function nextId() {
@@ -607,7 +607,7 @@
     if (card.trial) return 0.5 + (state.year - card.minYear) / 50;
     let w = card.weight || 1;
     if (card.followUp) w *= 3;
-    if (card.tone === 'good') w *= 1 + state.tension * 0.8;
+    if (card.tone === 'good') w *= 1 + state.tension * 0.6;
     if (card.tone === 'bad') w /= 1 + state.tension * 0.5;
     return w;
   }

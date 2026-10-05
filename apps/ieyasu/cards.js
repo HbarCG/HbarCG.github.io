@@ -923,10 +923,10 @@ window.IEYASU_DATA = {
   // needs の制度がすべてそろうと生まれる。on はそろったときに一度だけ、yearly は毎年の効果。
   // hint はそろう前に見せる手がかり。
   synergies: [
-    { id: 'komedokoro', name: '米どころ', needs: ['shinden', 'kakoimai'], on: { kokudaka: 20 },
-      desc: '新田と蔵が噛み合い、天領の石高がさらに20万石増えた。', hint: '田を広げる制度と、米を蓄える制度' },
-    { id: 'koueki', name: '交易の要', needs: ['nagasaki', 'kanjo'], on: { trade: 6 },
-      desc: '交易の上がりが帳簿でしっかり押さえられ、運上金・交易の収入が年6万両増えた。', hint: '交易を見張る制度と、金を管理する制度' },
+    { id: 'komedokoro', name: '米どころ', needs: ['shinden', 'kakoimai'], on: { kokudaka: 12 },
+      desc: '新田と蔵が噛み合い、天領の石高がさらに12万石増えた。', hint: '田を広げる制度と、米を蓄える制度' },
+    { id: 'koueki', name: '交易の要', needs: ['nagasaki', 'kanjo'], on: { trade: 4 },
+      desc: '交易の上がりが帳簿でしっかり押さえられ、運上金・交易の収入が年4万両増えた。', hint: '交易を見張る制度と、金を管理する制度' },
     { id: 'taihei', name: '太平の礎', needs: ['sankin', 'terauke'], yearly: { ikou: 1, minshin: 1 },
       desc: '大名と民の双方を押さえた。毎年、威光+1、民心+1。', hint: '大名を抑える制度と、民を把握する制度' },
     { id: 'bunchi', name: '文治の世', needs: ['gakumon', 'meyasu'], yearly: { jisseki: 1 },
