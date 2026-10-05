@@ -38,6 +38,14 @@
     BALANCE_MIN: 30,        // 三家がそろってこの格以上で、
     BALANCE_SPREAD: 6,      // 格の差がこれ以内なら、互いに牽制して威光が毎年+1
     HEAD_CHANGE: 0.05,      // 分家の当主が、1年に代替わりする見込み（当主になって12年たってから）
+    // 異国船（白船・赤船・黒船の順）。予兆が出る見込みは、開府からの年数が SHIP_START を
+    // 超えた年数 × SHIP_RAMP（上限 SHIP_MAX）。幕府が長く続くほど来やすい
+    SHIP_START: [40, 100, 160],
+    SHIP_RAMP: 0.001,
+    SHIP_MAX: 0.3,
+    SHIP_GAP: 15,           // 前の船が去ってから、次の船の予兆が出るまでの最短の年数
+    SHIP_NOTICE: [3, 5],    // 予兆から来航までの年数
+    SHIP_BOOST: 3,          // 軍資金を投じたときに上がる力
     CARD_COOLDOWN: 10,      // 同じ出来事は、この年数のあいだ出ない
     CRISIS_YEARS: 3,        // 危機になってから立て直すまでの猶予
     CRISIS_SAFE: 10,        // 威光・民心・朝廷がすべてこれを超え、借入が上限以下なら危機を脱する
@@ -189,6 +197,7 @@
       saved.fin.ooku = Math.max(0, saved.fin.ooku - 4);
     }
     saved.daughters = saved.daughters || [];
+    saved.ships = saved.ships || { next: 0, arriving: null, last: null, won: [], lost: [] };
     if (!saved.branches) {
       // 御三家を代々続く家にする前の保存データ。布石で御三家を固めていたら、血筋の強い状態で始める
       const strong = (saved.institutions || []).includes('gosanke');
@@ -278,6 +287,11 @@
       daughters: [],    // 将軍の娘（姫）
       // 御三家（と、のちに立つ御三卿）。血筋・当主・家風を持って代々続く
       branches: DATA.branches.map((def) => makeBranch(def, 'sanke', CONFIG.BLOOD_START, 1616)),
+      // 異国船。next: 次に来る船（DATA.ships の何番目か） / arriving: 予兆が出た船の来航の年 / last: 前の船が去った年
+      ships: { next: 0, arriving: null, last: null, won: [], lost: [] },
+      battle: null,     // 異国船との勝負のようす
+      endless: false,   // 黒船を退けたあとも続けているか
+      overReason: null, // 倒幕のわけ（黒船に屈したなら 'black'）
       // 大奥。wife: 正室 / concubines: 側室の数 / offers: 来ている縁談 / nextOffer: 次に縁談が来る年
       oku: { wife: null, concubines: 0, offers: null, nextOffer: 0 },
       retainers: [],
@@ -562,8 +576,14 @@
       state.oku.offers = makeBrides();
       state.phase = 'marriage';
     } else {
-      state.phase = 'event';
+      startEventOrShip();
     }
+  }
+
+  // 異国船が来る年は、その年の出来事のかわりに勝負になる
+  function startEventOrShip() {
+    if (shipDue()) startBattle();
+    else state.phase = 'event';
   }
 
   function marry(index) {
@@ -575,7 +595,7 @@
     if (kind.flag) state.flags[kind.flag] = state.year;
     person(state.shogun.personId).wife = `${b.name}（${b.house}・${kind.label}）`;
     addLog(`将軍・${state.shogun.name}は、${b.house}の${b.name}を正室に迎えた。`);
-    state.phase = 'event';
+    startEventOrShip();
     commit();
   }
 
@@ -583,7 +603,7 @@
     state.oku.offers = null;
     state.oku.nextOffer = state.year + CONFIG.OFFER_WAIT;
     addLog(`将軍・${state.shogun.name}の縁談を見送った。`);
-    state.phase = 'event';
+    startEventOrShip();
     commit();
   }
 
@@ -742,6 +762,119 @@
       addPerson({ name: def.founder, born: state.year - clamp(s.age - 18, 3, 15), parentId: s.personId, house: def.house, note: `${def.house}の祖。` });
     }
     addLog('田安・一橋・清水の御三卿が立った。本家に近い血筋の分家が、跡継ぎの備えとなる。');
+  }
+
+  // ─────────────────────────────── 異国船（白船・赤船・黒船）
+
+  // 次の船の予兆が出る見込み（1年あたり）。幕府が長く続くほど上がる
+  function shipChance() {
+    const sh = state.ships;
+    if (sh.next >= DATA.ships.length || sh.arriving) return 0;
+    if (sh.last !== null && state.year - sh.last < CONFIG.SHIP_GAP) return 0;
+    const over = bakufuYears() - CONFIG.SHIP_START[sh.next];
+    return over > 0 ? Math.min(CONFIG.SHIP_MAX, over * CONFIG.SHIP_RAMP) : 0;
+  }
+
+  // 年の暮れに、次の船の予兆が出るかを決める。出たら、決算報告に出す中身を返す
+  function rollShip() {
+    if (Math.random() >= shipChance()) return null;
+    const ship = DATA.ships[state.ships.next];
+    const years = rand(CONFIG.SHIP_NOTICE[0], CONFIG.SHIP_NOTICE[1]);
+    state.ships.arriving = { year: state.year + 1 + years };   // 決算のあとで年が1つ進むので、その年から数える
+    return { name: ship.name, years, text: ship.omen };
+  }
+
+  function shipDue() {
+    const a = state.ships.arriving;
+    return Boolean(a) && state.year >= a.year;
+  }
+
+  // 勝負の力：役職の腕（特技の上乗せこみ）＋将軍の能力÷4（＋長崎奉行があれば、海防と交渉に2）
+  function roundParts(roundId) {
+    const r = DATA.shipRounds[roundId];
+    const post = POSTS.find((p) => p.id === r.post);
+    const h = holder(r.post);
+    const parts = {
+      post, holder: h, value: postValue(r.post),
+      shogun: Math.floor(state.shogun.stats[r.stat] / 4),
+      nagasaki: hasInstitution('nagasaki') && (roundId === 'kaibo' || roundId === 'kosho') ? 2 : 0,
+    };
+    parts.power = parts.value + parts.shogun + parts.nagasaki;
+    return parts;
+  }
+
+  function roundChance(power, ship) {
+    return clamp(0.5 + (power - ship.difficulty) * 0.08, 0.1, 0.95);
+  }
+
+  function boostCost(ship) {
+    return Math.round(ship.boost * price());
+  }
+
+  function startBattle() {
+    state.battle = { ship: state.ships.next, round: 0, results: [], done: false, victory: null, changes: [], honors: [] };
+    state.phase = 'ship';
+  }
+
+  // 勝負をひとつ行う。boost なら軍資金を投じて力を上げる
+  function fight(boost) {
+    const b = state.battle;
+    if (!b || b.done) return;
+    const ship = DATA.ships[b.ship];
+    const roundId = ship.rounds[b.round];
+    if (boost) {
+      const cost = boostCost(ship);
+      if (state.fin.cash < cost) return;
+      state.fin.cash -= cost;
+      book('op', `異国船への備え（${ship.name}）`, -cost);
+    }
+    const power = roundParts(roundId).power + (boost ? CONFIG.SHIP_BOOST : 0);
+    const chance = roundChance(power, ship);
+    b.results.push({ id: roundId, win: Math.random() < chance, power, chance, boost });
+    b.round += 1;
+    const wins = b.results.filter((r) => r.win).length;
+    const losses = b.results.length - wins;
+    if (wins >= ship.need) finishBattle(true);
+    else if (losses > ship.rounds.length - ship.need) finishBattle(false);
+    commit();
+  }
+
+  function finishBattle(victory) {
+    const b = state.battle;
+    const ship = DATA.ships[b.ship];
+    const sh = state.ships;
+    b.done = true;
+    b.victory = victory;
+    b.changes = applyEffects(victory ? ship.win : ship.lose, { kind: 'foreign', label: ship.name });
+    sh.next += 1;
+    sh.arriving = null;
+    sh.last = state.year;
+    (victory ? sh.won : sh.lost).push(ship.id);
+    if (victory && ship.final) state.flags.opened = state.year;
+    const wins = b.results.filter((r) => r.win).length;
+    addLog(`${ship.name}の来航：${victory ? '退けた' : '屈した'}（${wins}勝${b.results.length - wins}敗）。`);
+    b.honors = checkHonors().map((h) => h.name);
+  }
+
+  // 勝負のあと。黒船に勝てば結末、負ければ倒幕。白船・赤船なら政務の間へ
+  function closeBattle() {
+    const b = state.battle;
+    const ship = DATA.ships[b.ship];
+    state.battle = null;
+    if (ship.final && !b.victory) {
+      gameOver('black');
+      return;
+    }
+    if (ship.final) saveBest(bakufuYears());
+    state.phase = ship.final ? 'ending' : 'manage';
+    commit();
+  }
+
+  // 結末のあとも、幕府を続ける（もう異国船は来ない）
+  function continueAfterEnding() {
+    state.endless = true;
+    state.phase = 'manage';
+    commit();
   }
 
   function makeShogunName() {
@@ -1442,6 +1575,9 @@
       }
     }
 
+    // 異国船の予兆（幕府が長く続くほど出やすい）。決算報告では、別の枠で見せる
+    const omen = rollShip();
+
     // 倒幕の危機
     const broke = state.fin.debt > debtLimit();
     const low = Object.keys(state.gauges).filter((k) => state.gauges[k] <= 0).map((k) => STATE_LABELS[k]);
@@ -1468,6 +1604,7 @@
 
     notes.forEach(addLog);
     births.forEach((b) => addLog(b.text));
+    if (omen) addLog(`予兆：${omen.text}（${omen.name}の来航まで、あと${omen.years}年）`);
     const honors = checkHonors();
 
     // 一年の決算報告をつくる
@@ -1480,6 +1617,7 @@
       gauges: Object.keys(STATE_LABELS).map((k) => ({ key: k, before: start.gauges[k], after: state.gauges[k] })),
       notes: notes.concat(died ? [`将軍・${s.name}が${s.age}歳で世を去った。`] : []),
       births,
+      omen,
       honors: honors.map((h) => h.name),
     };
 
@@ -1606,9 +1744,11 @@
     commit();
   }
 
-  function gameOver() {
+  // reason: 'black' なら黒船に屈した倒幕
+  function gameOver(reason = null) {
     state.phase = 'over';
-    closeReign('倒幕により、幕府とともに倒れる。');
+    state.overReason = reason;
+    closeReign(reason === 'black' ? '黒船に屈し、幕府とともに倒れる。' : '倒幕により、幕府とともに倒れる。');
     addLog(`倒幕。徳川幕府は${bakufuYears()}年で幕を閉じた。`);
     saveBest(bakufuYears());
     checkHonors();
@@ -1805,13 +1945,17 @@
       state.crisis
         ? el('p', { class: 'iy-crisis', role: 'alert', text: `倒幕の危機：あと${state.crisis.years}年で立て直せ（威光・民心・朝廷を${CONFIG.CRISIS_SAFE}より上、借入を上限以下に）` })
         : null,
+      state.ships.arriving && state.phase !== 'over'
+        ? el('p', { class: 'iy-ship-alert', text: shipDue() ? `${DATA.ships[state.ships.next].name}が来航した`
+          : `${DATA.ships[state.ships.next].name}の来航まで、あと${state.ships.arriving.year - state.year}年` })
+        : null,
     ].filter(Boolean));
   }
 
   function renderTabbar() {
     const alerts = {
       org: vacancies().length > 0 || state.retainers.some((r) => r.unhappy),
-      seimu: ['event', 'succession', 'marriage'].includes(state.phase),
+      seimu: ['event', 'succession', 'marriage', 'ship', 'ending'].includes(state.phase),
     };
     $('tabbar').replaceChildren(...TABS.map((t) => el('button', {
       type: 'button',
@@ -1832,6 +1976,7 @@
     const views = {
       prologue: viewPrologue, event: viewEvent, result: viewResult, marriage: viewMarriage,
       manage: viewManage, succession: viewSuccession, over: viewOver, report: viewReport,
+      ship: viewShip, ending: viewEnding,
     };
     $('stage').replaceChildren(...[].concat(views[state.phase]()).filter(Boolean));
   }
@@ -1970,6 +2115,101 @@
     ];
   }
 
+  // 異国船との勝負。役職ごとの勝負を順に行い、決まった数だけ勝てば退けられる
+  function viewShip() {
+    const b = state.battle;
+    const ship = DATA.ships[b.ship];
+    const nodes = [
+      el('p', { class: 'iy-year', text: `${state.year}年　異国船の来航` }),
+      el('h2', { text: `${ship.name}の来航` }),
+      sceneArt(ship.scene),
+      el('p', { text: ship.text }),
+      ieyasuSays(el('p', { class: 'iy-voice', text: `「${ship.ieyasu}」` }), 'worry'),
+      el('p', { class: 'iy-hint', text: `${ship.rounds.length}回の勝負のうち、${ship.need}回勝てば退けられる。${ship.final ? '負ければ、幕府は倒れる。' : ''}` }),
+      el('ol', { class: 'iy-rounds' }, ship.rounds.map((id, i) => {
+        const r = DATA.shipRounds[id];
+        const res = b.results[i];
+        const status = res ? `${res.win ? '勝ち' : '負け'}（力${res.power}・見込み${Math.round(res.chance * 100)}%${res.boost ? '・軍資金' : ''}）`
+          : !b.done && i === b.round ? 'いまの勝負' : b.done ? '—' : 'これから';
+        return el('li', { class: res ? (res.win ? 'iy-round--win' : 'iy-round--lose') : !b.done && i === b.round ? 'iy-round--now' : '' }, [
+          el('strong', { text: r.name }), `（${POSTS.find((p) => p.id === r.post).name}）　`, el('span', { text: status }),
+        ]);
+      })),
+    ];
+    if (!b.done) {
+      const id = ship.rounds[b.round];
+      const r = DATA.shipRounds[id];
+      const p = roundParts(id);
+      const cost = boostCost(ship);
+      const short = state.fin.cash < cost;
+      nodes.push(el('div', { class: 'iy-round' }, [
+        el('p', { class: 'iy-round__title', text: `第${b.round + 1}の勝負：${r.name}（${r.desc}）` }),
+        el('p', { class: 'iy-hint', text: `${p.post.name}・${p.holder ? p.holder.name : '空席'}の${RETAINER_LABELS[p.post.stat]}${p.value}　＋　将軍の${ABILITY_LABELS[r.stat]}÷4（${p.shogun}）${p.nagasaki ? `　＋　長崎奉行（${p.nagasaki}）` : ''}　＝　力${p.power}（難しさ${ship.difficulty}）` }),
+      ]));
+      nodes.push(el('div', { class: 'iy-options' }, [
+        el('button', { type: 'button', class: 'iy-option', onclick: () => fight(false) }, [
+          el('strong', { text: 'このまま臨む' }),
+          el('span', { class: 'iy-option__hint', text: `見込み${Math.round(roundChance(p.power, ship) * 100)}%` }),
+        ]),
+        el('button', { type: 'button', class: 'iy-option', disabled: short, onclick: () => fight(true) }, [
+          el('strong', { text: '軍資金を投じる' }),
+          el('span', { class: 'iy-option__hint', text: `約${cost}万両で力+${CONFIG.SHIP_BOOST}・見込み${Math.round(roundChance(p.power + CONFIG.SHIP_BOOST, ship) * 100)}%${short ? '（現金が足りない）' : ''}` }),
+        ]),
+      ]));
+    } else {
+      const line = b.victory
+        ? (ship.final ? '「……退けた。退けたぞ。」' : '「よし。じゃが、次はもっと手ごわいのが来るぞ。」')
+        : (ship.final ? '「……ここまでか。」' : '「……むう。備えが足りなんだ。次の船までに立て直さねば。」');
+      nodes.push(
+        el('p', { class: b.victory ? 'iy-victory' : 'iy-failed', text: b.victory ? ship.winText : ship.loseText }),
+        changeList(b.changes),
+        b.honors.length ? el('p', { class: 'iy-honor-line', text: `栄誉を得た：${b.honors.join('、')}` }) : null,
+        ieyasuSays(el('p', { class: 'iy-voice', text: line }), b.victory ? 'calm' : 'worry'),
+        el('button', { type: 'button', class: 'iy-primary', text: ship.final ? (b.victory ? '結末へ' : '幕府の最期') : '政務の間へ', onclick: closeBattle }),
+      );
+    }
+    return nodes;
+  }
+
+  // 黒船を退けた結末。このまま続けることもできる
+  function viewEnding() {
+    const years = bakufuYears();
+    return [
+      el('p', { class: 'iy-year', text: `${state.year}年` }),
+      el('h2', { text: '史実を超えて' }),
+      sceneArt('heaven'),
+      el('p', { text: `黒船は去った。開府から${years}年、第${state.shogun.gen}代・${state.shogun.name}の代。徳川の幕府は、国を閉ざすことも、屈することもなく、新しい時代へ踏み出した。` }),
+      ieyasuSays(el('p', { class: 'iy-voice', text: '「……やれやれ。これで、ようやく肩の荷が下りた。……肩はないが。」' })),
+      iemitsuSays(el('p', { class: 'iy-voice', text: '「権現様、お見事にございました。この先の世は、子や孫たちに任せてもよいのではありませぬか。」' })),
+      el('p', { class: 'iy-note', text: `記録：開府から${years}年（史実の幕府は約265年）。このまま幕府を続けることもできる（もう異国船は来ない）。` }),
+      el('button', { type: 'button', class: 'iy-primary', text: 'このまま幕府を続ける', onclick: continueAfterEnding }),
+      el('button', {
+        type: 'button', class: 'iy-secondary', text: 'もう一度、最初から',
+        onclick: () => { if (window.confirm('この幕府の進行状況を消して、はじめからやり直しますか？')) restart(); },
+      }),
+    ];
+  }
+
+  // 異国船の予兆が出ているときの備え（政務の間に出す）
+  function shipPrepNodes() {
+    const a = state.ships.arriving;
+    if (!a) return [];
+    const ship = DATA.ships[state.ships.next];
+    return [
+      el('h3', { text: '異国船への備え' }),
+      el('p', { class: 'iy-warn-box', text: `${ship.name}の来航まで、あと${a.year - state.year}年。${ship.rounds.length}回の勝負のうち${ship.need}回勝てば退けられる。${ship.final ? '負ければ、幕府は倒れる。' : ''}` }),
+      el('ul', { class: 'iy-prep' }, ship.rounds.map((id) => {
+        const r = DATA.shipRounds[id];
+        const p = roundParts(id);
+        return el('li', {}, [
+          el('strong', { text: r.name }),
+          `　${p.post.name}・${p.holder ? p.holder.name : '空席'}　力${p.power}（難しさ${ship.difficulty}）　見込み${Math.round(roundChance(p.power, ship) * 100)}%`,
+        ]);
+      })),
+      el('p', { class: 'iy-hint', text: `力は、役職の腕と、将軍の能力÷4で決まる。当日は、勝負ごとに軍資金（約${boostCost(ship)}万両）を投じて、力を${CONFIG.SHIP_BOOST}上げられる。` }),
+    ];
+  }
+
   // 縁組。正室のいない将軍に、三家から縁談が来る
   function viewMarriage() {
     const s = state.shogun;
@@ -2102,6 +2342,7 @@
       el('p', { class: 'iy-year', text: `${state.year}年` }),
       el('h2', { text: '政務の間' }),
       el('p', { class: 'iy-hint', text: '若君の教育、大奥、制度の整備、代替わりを決める。財務と組織は下のメニューから。終わったら年を越す。' }),
+      ...shipPrepNodes(),
       el('h3', { text: '若君' }),
     ];
 
@@ -2225,13 +2466,17 @@
       el('dt', { text: label }),
       el('dd', { class: good === undefined ? '' : good ? 'iy-up' : 'iy-down', text: value }),
     ]);
-    const mood = r.op < 0 || r.gauges.some((g) => g.after <= 20) ? 'worry' : 'calm';
+    const mood = r.omen || r.op < 0 || r.gauges.some((g) => g.after <= 20) ? 'worry' : 'calm';
     const bestBirth = (r.births || []).reduce((best, b) => Math.max(best, b.stars || 0), 0);
-    const comment = r.honors.length ? `栄誉「${r.honors.join('」「')}」とは、めでたい。この調子じゃ。`
-      : bestBirth >= 4 ? 'おお、これは良い器の子じゃ。しっかり育てよ。'
-        : r.op < 0 ? '年貢と経費だけで赤字じゃ。このままでは金蔵がもたぬぞ。'
-          : r.gauges.some((g) => g.after <= 20) ? '数字は持っておるが、足元が危うい。手を打たねば。'
-            : 'まずまずの一年じゃった。気を抜くでないぞ。';
+    // 家康のひと言（いちばん大事なことを1つだけ）
+    const comment = (() => {
+      if (r.omen) return '……海の向こうが騒がしい。役目の者どもを鍛え、金を蓄えて備えよ。';
+      if (r.honors.length) return `栄誉「${r.honors.join('」「')}」とは、めでたい。この調子じゃ。`;
+      if (bestBirth >= 4) return 'おお、これは良い器の子じゃ。しっかり育てよ。';
+      if (r.op < 0) return '年貢と経費だけで赤字じゃ。このままでは金蔵がもたぬぞ。';
+      if (r.gauges.some((g) => g.after <= 20)) return '数字は持っておるが、足元が危うい。手を打たねば。';
+      return 'まずまずの一年じゃった。気を抜くでないぞ。';
+    })();
     const isSuccession = state.nextPhase === 'succession';
     return [
       el('p', { class: 'iy-year', text: `${r.year}年の暮れ` }),
@@ -2247,6 +2492,12 @@
         const d = g.after - g.before;
         return el('li', { class: d > 0 ? 'iy-up' : d < 0 ? 'iy-down' : '', text: `${STATE_LABELS[g.key]} ${g.after}（${signed(d)}）` });
       })),
+      r.omen ? el('div', { class: 'iy-omen' }, [
+        sceneArt('horizon'),
+        el('p', { class: 'iy-omen__title', text: `予兆：${r.omen.name}` }),
+        el('p', { text: r.omen.text }),
+        el('p', { class: 'iy-muted', text: `あと${r.omen.years}年で来る。役職の腕を上げ、将軍を鍛え、金を蓄えて備えよ（政務の間に、備えのようすが出る）。` }),
+      ]) : null,
       r.births && r.births.length ? el('div', { class: 'iy-births' }, r.births.map(birthCard)) : null,
       r.honors.length ? el('p', { class: 'iy-honor-line', text: `栄誉を得た：${r.honors.join('、')}` }) : null,
       r.notes.length ? el('ul', { class: 'iy-report-notes' }, r.notes.map((n) => el('li', { text: n }))) : null,
@@ -2257,12 +2508,15 @@
 
   function viewOver() {
     const years = bakufuYears();
+    const black = state.overReason === 'black';
     return [
       el('p', { class: 'iy-year', text: `${state.year}年` }),
-      el('h2', { text: '倒幕' }),
-      sceneArt('fall'),
-      el('p', { text: `徳川の幕府は、開府から${years}年で幕を閉じた。最後の将軍は、第${state.shogun.gen}代・${state.shogun.name}。` }),
-      ieyasuSays(el('p', { class: 'iy-voice', text: '霊体の権現様は長いため息をつき、家光とともに日光の山へ帰っていった。……次こそは。' }), 'worry'),
+      el('h2', { text: black ? '倒幕（黒船）' : '倒幕' }),
+      sceneArt(black ? 'blackship' : 'fall'),
+      el('p', { text: `${black ? '黒船に屈し、' : ''}徳川の幕府は、開府から${years}年で幕を閉じた。最後の将軍は、第${state.shogun.gen}代・${state.shogun.name}。` }),
+      ieyasuSays(el('p', { class: 'iy-voice', text: black
+        ? '海の向こうの力を、甘く見ておった。霊体の権現様は長いため息をつき、家光とともに日光の山へ帰っていった。……次こそは。'
+        : '霊体の権現様は長いため息をつき、家光とともに日光の山へ帰っていった。……次こそは。' }), 'worry'),
       el('p', { class: 'iy-note', text: `これまでの最長記録：${Math.max(years, loadBest())}年（史実の幕府は約265年）。家系図と財務の記録は、このまま見られる。` }),
       el('button', { type: 'button', class: 'iy-primary', text: 'もう一度、最初から', onclick: restart }),
     ];
@@ -2734,6 +2988,7 @@
     shogunKaku, kakuOf, wants, raise,
     marry, declineMarriage, addConcubine, removeConcubine, marryDaughter, adoptOut, birthChance, ookuBase,
     projectedBlood, strongBranch, branchesBalanced, bloodKaku,
+    fight, closeBattle, continueAfterEnding, boostCost,
   };
 
   $('title-art').innerHTML = ART.scene('heaven');

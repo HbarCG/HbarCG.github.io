@@ -1185,6 +1185,85 @@ body.iy-coaching .iy-raise {
   color: var(--color-text-muted);
 }
 
+/* ─── 異国船 */
+.iy-topbar .iy-ship-alert {
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  border-left: 4px solid #2e4a6b;
+  background: color-mix(in srgb, #2e4a6b 8%, var(--color-bg));
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.iy-omen {
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  border: 2px solid #2e4a6b;
+  background: color-mix(in srgb, #2e4a6b 6%, var(--color-bg));
+}
+
+.iy-omen p {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.iy-omen .iy-scene {
+  margin-bottom: 0.6rem;
+}
+
+.iy-omen .iy-omen__title {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.iy-rounds {
+  margin: 0 0 1rem;
+  padding-left: 1.4rem;
+  font-size: 0.9rem;
+  line-height: 1.8;
+}
+
+.iy-round--win {
+  color: var(--color-link);
+}
+
+.iy-round--lose {
+  color: var(--color-accent-bar);
+}
+
+.iy-round--now {
+  font-weight: 700;
+}
+
+.iy-round {
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-link) 6%, var(--color-bg));
+}
+
+.iy-round p {
+  margin: 0 0 0.3rem;
+}
+
+.iy-round .iy-round__title {
+  font-weight: 700;
+}
+
+.iy-victory {
+  color: var(--color-link);
+  font-weight: 600;
+}
+
+.iy-prep {
+  margin: 0.5rem 0 0.75rem;
+  padding-left: 1.2rem;
+  font-size: 0.86rem;
+  line-height: 1.8;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ─── 御三家と御三卿 */
 .iy-branches summary {
   cursor: pointer;

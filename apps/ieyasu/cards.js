@@ -303,6 +303,49 @@ window.IEYASU_DATA = {
     { stars: 5, label: '名君の器', chance: 0.04, bonus: 5, grow: 0.6, skill: true },
   ],
 
+  // ─────────────────────────────── 異国船（ボス戦）
+  // 白船 → 赤船 → 黒船の順に来る。来る時期はランダムで、幕府が長く続くほど来やすい（game.js の CONFIG.SHIP_*）。
+  // 来る数年前に予兆（omen）が出る。本番は rounds の順に役職ごとの勝負をし、need 回勝てば退けられる。
+  //   difficulty: 勝負の難しさ。役職の腕＋将軍の能力÷4（＋軍資金）がこれを上回るほど勝ちやすい
+  //   win / lose: 勝ったとき・負けたときの効果（異国の出来事として扱うので、長崎奉行があれば負けの痛手が半分になる）
+  //   final: true の船（黒船）は、負ければ倒幕。退ければ結末になる
+  ships: [
+    {
+      id: 'white', name: '白船', scene: 'whiteship', difficulty: 11, need: 1, boost: 20, rounds: ['kaibo', 'kosho'],
+      omen: '南の海で、白い帆を張った大きな異国船が見かけられたという。数年のうちに、江戸の近くまで来るかもしれぬ。',
+      text: '白い帆を張った異国の大船が、江戸湾の入り口に現れた。交易を求める書状を携えているという。',
+      ieyasu: '……来たか。まずは小手調べじゃ。役目の者どもの腕を見せてもらおう。',
+      win: { ikou: 8, jisseki: 3 }, winText: '白船は、幕府の備えの固さを見て引き返していった。諸大名も、幕府を見直したようだ。',
+      lose: { ikou: -12, ryo: -30 }, loseText: '白船は幕府の足元を見て好き勝手にふるまい、悠々と去っていった。',
+    },
+    {
+      id: 'red', name: '赤船', scene: 'redship', difficulty: 15, need: 3, boost: 30, rounds: ['kaibo', 'kosho', 'gunshi', 'jinshin'],
+      omen: '北の海で、赤く塗られた異国の軍船が、沿岸の村や港を測っていたという。数年のうちに、本気で迫ってくるだろう。',
+      text: '赤く塗られた異国の軍船が数隻、江戸湾に入ってきた。砲門を開いたまま、港を開けと迫っている。',
+      ieyasu: '白船とは格が違う。……備えの差が、そのまま出るぞ。',
+      win: { ikou: 10, chotei: 5, jisseki: 4 }, winText: '赤船は、幕府の砲台と弁舌に押し返され、沖へ去った。「幕府恐るべし」の噂が、海の向こうにまで広がった。',
+      lose: { ikou: -16, chotei: -6, ryo: -40 }, loseText: '赤船の砲声に、江戸の町は大混乱に陥った。幕府は、不利な約束をいくつも呑まされた。',
+    },
+    {
+      id: 'black', name: '黒船', scene: 'blackship', difficulty: 19, need: 4, boost: 40, final: true,
+      rounds: ['kaibo', 'kosho', 'gunshi', 'chotei', 'jinshin', 'kito'],
+      omen: '海の向こうから、帆もないのに煙を吐いて進む、黒い鉄の船の噂が届いた。いずれ、必ず来る。',
+      text: '見たこともない大きな黒い船が、煙を吐きながら湾に現れた。国を開けと迫り、大砲がこちらを向いている。',
+      ieyasu: '……来たか。三浦按針から聞いた海の向こうの話を、もっと真剣に聞いておくべきじゃった。じゃが、今度は備えがある。',
+      win: { ikou: 15, chotei: 8, trade: 10 }, winText: '幕府は一歩も引かず、対等の約定を結んで黒船を帰らせた。国を閉ざすことも、屈することもなく、徳川の世は新しい時代へ踏み出した。',
+      lose: {}, loseText: '砲台は沈黙し、交渉は破れ、朝廷も民も幕府を見限った。黒船の煙が、徳川の世の終わりを告げていた。',
+    },
+  ],
+  // 異国船との勝負の中身。post: 腕を見る役職（game.js の POSTS） / stat: あわせて効く将軍の能力
+  shipRounds: {
+    kaibo: { name: '海防', post: 'ometsuke', stat: 'bui', desc: '砲台を築き、船の動きを抑える' },
+    kosho: { name: '交渉', post: 'roju', stat: 'seimu', desc: '使者と渡り合い、無理な要求を退ける' },
+    gunshi: { name: '軍資金', post: 'kanjo', stat: 'seimu', desc: '備えの金を、滞りなく回す' },
+    chotei: { name: '朝廷', post: 'shoshidai', stat: 'jintoku', desc: '騒ぎ立てる公家たちをなだめる' },
+    jinshin: { name: '人心', post: 'machi', stat: 'jintoku', desc: '江戸の民の動揺を鎮める' },
+    kito: { name: '祈祷', post: 'jisha', stat: 'jintoku', desc: '寺社に祈らせ、人心をひとつにまとめる' },
+  },
+
   // ─────────────────────────────── 出来事カード
   cards: [
     {
@@ -1166,26 +1209,6 @@ window.IEYASU_DATA = {
       ],
     },
     {
-      id: 'black-ships',
-      scene: 'blackship',
-      title: '異国の黒い船',
-      kind: 'foreign',
-      minYear: 1780,
-      trial: true,
-      text: '見たこともない大きな黒い船が湾に現れ、国を開けと迫ってきた。大砲がこちらを向いている。',
-      ieyasu: '……来たか。いつか来ると思っておった。三浦按針から聞いた海の向こうの話を、もっと真剣に聞いておくべきじゃった。',
-      options: [
-        { label: '国を開いて交易する', tag: '豪胆', grow: 'seimu', check: { stat: 'seimu', dc: 14 }, flag: 'opened',
-          effects: { trade: 10, chotei: -6, ikou: -2 }, text: '幕府は異国と約定を結んだ。新しい品と考えが、どっと流れ込んできた。',
-          fail: { ryo: -30, chotei: -12, ikou: -10 }, failText: '不利な約定を結ばされた。「幕府は弱腰だ」と、朝廷も大名も声を上げた。' },
-        { label: '打ち払う', tag: '倹約', grow: 'bui', check: { stat: 'bui', dc: 15 },
-          effects: { ikou: 8, chotei: 6 }, text: '黒い船は沖へ去った。今回は。',
-          fail: { ikou: -16, ryo: -40 }, failText: '砲台は一瞬で沈黙した。力の差を、天下が思い知った。' },
-        { label: '回答を一年待たせる', tag: '慎重', grow: 'seimu',
-          effects: { ikou: -5, chotei: -2, jisseki: 1 }, text: '異国の船は「来年また来る」と言い残して去った。' },
-      ],
-    },
-    {
       id: 'court-defiance',
       scene: 'court',
       title: '朝廷の不満',
@@ -1240,7 +1263,10 @@ window.IEYASU_DATA = {
     { id: 'tenka', name: '十代将軍', desc: '第10代将軍までつないだ。', check: (v) => v.gen >= 10 },
     { id: 'meikunnoki', name: '名君の器', desc: '素質★5の若君が生まれた。', check: (v) => v.heirs.some((h) => (h.stars || 0) >= 5) },
     { id: 'meishi', name: '名士を招く', desc: '名のある人物を召し抱えた。', check: (v) => v.retainers.some((r) => r.renowned) },
-    { id: 'teiritsu', name: '三家鼎立', desc: '御三家の血筋が、そろって格36以上になった。', check: (v) => v.sankeMinKaku >= 36 },
+    { id: 'teiritsu', name: '三家鼎立', desc: '御三家の血筋が、そろって格40以上になった。', check: (v) => v.sankeMinKaku >= 40 },
+    { id: 'shirobune', name: '白船退散', desc: '白船を退けた。', check: (v) => v.shipsWon.includes('white') },
+    { id: 'akabune', name: '赤船退散', desc: '赤船を退けた。', check: (v) => v.shipsWon.includes('red') },
+    { id: 'kurobune', name: '黒船退散', desc: '黒船を退け、史実を超えた結末を迎えた。', check: (v) => v.shipsWon.includes('black') },
   ],
 
   // ─────────────────────────────── 初回のチュートリアル
@@ -1438,7 +1464,17 @@ window.IEYASU_DATA = {
       body: [
         '威光・民心・朝廷のどれかが0になるか、借入が上限を超えると「倒幕の危機」になる。',
         '3年のうちに、威光・民心・朝廷をすべて10より上にし、借入を上限以下に戻せば危機を脱する。戻せなければゲームオーバー。',
-        '年が進むほど、大飢饉・大名連合・黒船などの大きな試練が来やすくなる。',
+        '年が進むほど、大飢饉・大名連合・朝廷の不満などの大きな試練が来やすくなる。',
+      ],
+    },
+    {
+      title: '異国船（白船・赤船・黒船）',
+      body: [
+        '幕府が長く続くほど、異国船が来やすくなる。白船、赤船、黒船の順に来る。来る時期は運しだい。',
+        '来る3〜5年前に予兆が出る。上の帯に「来航まで、あと◯年」が出て、政務の間に備えのようすが出る。',
+        '来航の年は、出来事のかわりに勝負になる。役職ごとに勝負をし、決まった数だけ勝てば退けられる（白船は2回中1回、赤船は4回中3回、黒船は6回中4回）。',
+        '勝負の力は、その役職の家臣の腕と、将軍の能力÷4で決まる。長崎奉行があれば、海防と交渉に2足される。勝負ごとに軍資金を投じると、力が3上がる。',
+        '白船・赤船に負けると、威光が大きく下がり、金も失う。黒船に負ければ倒幕。黒船を退ければ、史実を超えた結末になる（そのまま続けることもできる）。',
       ],
     },
     {

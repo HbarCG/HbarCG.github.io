@@ -298,6 +298,51 @@ window.IEYASU_ART = (() => {
       ${[0, 1, 2, 3].map((i) => `<rect x="${x - 36 * s + i * 20 * s}" y="${y - 12 * s}" width="${4 * s}" height="${3 * s}" fill="${C.gold}"/>`).join('')}`;
   }
 
+  // 異国の三本帆柱の帆船（白船・赤船）。hull: 船体の色 / sail: 帆の色 / guns: 舷側の砲門の数
+  function gaisen(x, y, s = 1, hull = C.white, sail = C.white, guns = 0) {
+    const h = (dx) => x + dx * s;
+    const v = (dy) => y + dy * s;
+    const edge = shade(hull, -0.4);
+    const sailEdge = shade(sail, -0.3);
+    // 船体（反り上がった船首と、高い船尾）
+    let out = `<path d="M${h(-58)},${v(-30)} L${h(-44)},${v(-30)} L${h(-40)},${v(-18)} L${h(40)},${v(-18)} L${h(56)},${v(-26)} L${h(48)},${v(-10)} L${h(38)},${v(0)} L${h(-40)},${v(0)} L${h(-52)},${v(-14)} Z"
+      fill="${hull}" stroke="${edge}" stroke-width="${0.8 * s}"/>
+      <line x1="${h(-46)}" y1="${v(-10)}" x2="${h(46)}" y2="${v(-10)}" stroke="${edge}" stroke-width="${0.9 * s}"/>`;
+    for (let i = 0; i < guns; i++) {
+      out += `<rect x="${h(-32 + i * 11)}" y="${v(-8)}" width="${4 * s}" height="${3 * s}" fill="${C.ink}"/>`;
+    }
+    // 船首の斜めの帆柱と三角帆
+    out += `<line x1="${h(46)}" y1="${v(-20)}" x2="${h(72)}" y2="${v(-34)}" stroke="${C.earth2}" stroke-width="${1.1 * s}"/>
+      <path d="M${h(34)},${v(-58)} L${h(68)},${v(-33)} L${h(38)},${v(-24)} Z" fill="${sail}" stroke="${sailEdge}" stroke-width="${0.5 * s}"/>`;
+    // 三本の帆柱と、重なった横帆
+    for (const [mx, top] of [[-26, -66], [4, -78], [30, -62]]) {
+      out += `<line x1="${h(mx)}" y1="${v(-18)}" x2="${h(mx)}" y2="${v(top)}" stroke="${C.earth2}" stroke-width="${1.4 * s}"/>`;
+      [13, 11, 8].forEach((w, row) => {
+        const yy = top + 6 + row * 13;
+        out += `<path d="M${h(mx - w)},${v(yy)} L${h(mx + w)},${v(yy)} Q${h(mx + w + 2.5)},${v(yy + 6)} ${h(mx + w - 1)},${v(yy + 11)} L${h(mx - w + 1)},${v(yy + 11)} Q${h(mx - w - 2.5)},${v(yy + 6)} ${h(mx - w)},${v(yy)} Z"
+          fill="${sail}" stroke="${sailEdge}" stroke-width="${0.5 * s}"/>`;
+      });
+      out += `<path d="M${h(mx)},${v(top)} l${6 * s},${2 * s} l${-6 * s},${2 * s} Z" fill="${C.red}"/>`;
+    }
+    return out;
+  }
+
+  // 大砲の煙
+  function cannonSmoke(x, y, s = 1) {
+    return `<circle cx="${x}" cy="${y}" r="${5 * s}" fill="#e8e2d6" opacity="0.85"/><circle cx="${x + 6 * s}" cy="${y - 3 * s}" r="${4 * s}" fill="#e8e2d6" opacity="0.75"/>
+      <circle cx="${x + 11 * s}" cy="${y - 1 * s}" r="${3 * s}" fill="#e8e2d6" opacity="0.6"/>`;
+  }
+
+  // 岸の見張り（遠見番所）
+  function lookout(x, y, s = 1) {
+    return `<line x1="${x - 8 * s}" y1="${y}" x2="${x - 5 * s}" y2="${y - 34 * s}" stroke="${C.earth2}" stroke-width="${1.6 * s}"/>
+      <line x1="${x + 8 * s}" y1="${y}" x2="${x + 5 * s}" y2="${y - 34 * s}" stroke="${C.earth2}" stroke-width="${1.6 * s}"/>
+      <line x1="${x - 7 * s}" y1="${y - 12 * s}" x2="${x + 7 * s}" y2="${y - 24 * s}" stroke="${C.earth2}" stroke-width="${1 * s}"/>
+      <line x1="${x + 7 * s}" y1="${y - 12 * s}" x2="${x - 7 * s}" y2="${y - 24 * s}" stroke="${C.earth2}" stroke-width="${1 * s}"/>
+      <rect x="${x - 9 * s}" y="${y - 40 * s}" width="${18 * s}" height="${7 * s}" fill="${C.earth}"/>
+      ${roofShape(x - 11 * s, y - 48 * s, 22 * s, 8 * s, C.roof)}`;
+  }
+
   // ─────────────────────────────── 社と道具
 
   function torii(x, y, s = 1) {
@@ -472,6 +517,21 @@ window.IEYASU_ART = (() => {
 
     ship: ['南蛮船', () => sky('#bfd9e6', C.paper) + sun(64, 36, 14, C.red) + kasumi(150, 30, 120)
       + waves(110) + ship(184, 122, 1.6, C.white) + ship(70, 130, 0.8, C.paper)],
+
+    horizon: ['水平線の異国船の影', () => sky('#c7d6dd', C.paper) + sun(250, 40, 12, '#f2ead0') + kasumi(150, 34, 130, C.white, 0.8)
+      + waves(100, '#4b7a96') + `<g opacity="0.55">${gaisen(236, 101, 0.22, '#8a96a0', '#c9d0d4')}</g>`
+      + `<path d="M0,112 Q40,104 92,108 L112,160 L0,160 Z" fill="${C.green2}"/>` + pine(16, 120, 0.6) + lookout(60, 118, 0.9)
+      + person(84, 138, 1, { topknot: true, color: C.blue })],
+
+    whiteship: ['白い帆の異国船', () => sky('#bcd8e6', C.paper) + sun(70, 34, 13, C.red) + kasumi(30, 30, 110)
+      + waves(110, '#3d6b8c') + gaisen(200, 128, 0.95, '#f4efe4', C.white, 4)
+      + `<path d="M0,124 Q30,116 62,120 L80,160 L0,160 Z" fill="${C.green2}"/>` + pine(18, 126, 0.7)
+      + person(32, 140, 1.05, { sword: true, topknot: true, color: C.blue }) + person(52, 136, 0.95, { topknot: true, color: C.ink2 })],
+
+    redship: ['赤い異国の軍船', () => sky('#e0a07a', '#efd8bc') + sun(250, 40, 16, '#f6d2a0') + kasumi(20, 28, 100, '#f3c8a8', 0.8)
+      + waves(108, '#3a4f63') + `<g opacity="0.8">${gaisen(96, 116, 0.5, '#9c2f24', '#e9d9c4', 3)}</g>`
+      + gaisen(214, 130, 0.9, '#b8392b', '#efe2cf', 5) + cannonSmoke(160, 116, 1.1) + cannonSmoke(60, 108, 0.7)
+      + `<path d="M0,128 Q24,122 46,126 L58,160 L0,160 Z" fill="${C.green3}"/>`],
 
     blackship: ['異国の黒い船', () => sky('#6f7a88', '#c9c4b8') + waves(108, '#2d4d63') + blackShip(196, 124, 1.25)
       + `<path d="M0,126 Q30,118 64,122 L84,160 L0,160 Z" fill="${C.green2}"/>` + pine(20, 128, 0.7)

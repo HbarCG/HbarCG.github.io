@@ -93,6 +93,7 @@ const POLICIES = {
     manage: (g) => fillPosts(g),
     crown: () => 0,
     marry: (g) => Math.floor(g.rand() * g.dev.state.oku.offers.length),
+    boost: () => false,
   },
   basic: {
     choose(g, card) {
@@ -151,6 +152,12 @@ const POLICIES = {
       // 老いた将軍は、成人した若君がいれば隠居させる
       if (s.shogun.age >= 62 && dev.canRetire()) dev.retire();
     },
+    // 異国船：金に余裕があれば、勝負ごとに軍資金を投じる
+    boost(g) {
+      const s = g.dev.state;
+      const ship = g.data.ships[s.battle.ship];
+      return s.fin.cash >= g.dev.boostCost(ship) + 60;
+    },
     // 縁談：金に余裕があれば、能力（と特技）のいちばん良い姫を選ぶ。なければ安い家臣の娘
     marry(g) {
       const s = g.dev.state;
@@ -172,7 +179,7 @@ function playOne(seed, policy, fuseki) {
   const g = createGame(seed);
   const { dev, data } = g;
   const counts = { succession: {}, shogunKaku: [], warned: 0, left: 0, candidates: [], raises: 0,
-    wives: {}, stars: [0, 0, 0, 0, 0, 0], daughters: 0, meddle: 0, balancedYears: 0 };
+    wives: {}, stars: [0, 0, 0, 0, 0, 0], daughters: 0, meddle: 0, balancedYears: 0, shipsArrived: [], ending: null };
   // 決算報告の「その年の出来事」から数える
   const NOTE_PATTERNS = { warned: /不満を漏らしている/, left: /見切りをつけて去った/ };
 
@@ -223,6 +230,17 @@ function playOne(seed, policy, fuseki) {
         counts.wives[kind] = (counts.wives[kind] || 0) + 1;
         dev.marry(i);
       }
+    } else if (s.phase === "ship") {
+      const b = s.battle;
+      if (!b.done) {
+        if (b.round === 0 && b.results.length === 0) counts.shipsArrived.push(g.data.ships[b.ship].id);
+        dev.fight(policy.boost(g));
+      } else {
+        dev.closeBattle();
+      }
+    } else if (s.phase === "ending") {
+      counts.ending = s.year - FOUNDED;
+      dev.continueAfterEnding();
     } else if (s.phase === "report") {
       dev.closeReport();
     } else if (s.phase === "succession") {
@@ -268,6 +286,10 @@ function playOne(seed, policy, fuseki) {
     balancedYears: counts.balancedYears,
     sankeKaku: s.branches ? avg(s.branches.filter((b) => b.kind === "sanke").map((b) => sum3(b.blood))) : 0,
     kyo: s.branches ? s.branches.some((b) => b.kind === "kyo") : false,
+    shipsArrived: counts.shipsArrived,
+    shipsWon: s.ships ? s.ships.won : [],
+    ending: counts.ending,
+    blackFall: s.overReason === "black",
   };
 }
 
@@ -328,6 +350,15 @@ function main() {
   if (results.some((r) => r.sankeKaku)) {
     const per100 = (key) => (avg(results.map((r) => (r[key] / Math.max(1, r.years)) * 100))).toFixed(1);
     console.log(`御三家: 終わりの血筋の格 平均 ${avg(results.map((r) => r.sankeKaku)).toFixed(1)}　釣り合っていた年 ${per100("balancedYears")}%　横やり 100年あたり ${per100("meddle")}回　御三卿を立てた ${pct(results.filter((r) => r.kyo).length, n)}`);
+  }
+  if (results.some((r) => r.shipsArrived && r.shipsArrived.length)) {
+    const line = ["white", "red", "black"].map((id, i) => {
+      const came = results.filter((r) => r.shipsArrived.includes(id)).length;
+      const won = results.filter((r) => r.shipsWon.includes(id)).length;
+      return `${["白船", "赤船", "黒船"][i]} 来た${pct(came, n)}・勝ち${came ? pct(won, came) : "—"}`;
+    }).join(" / ");
+    const endings = results.filter((r) => r.ending !== null).map((r) => r.ending);
+    console.log(`異国船: ${line}　黒船に屈して倒幕 ${pct(results.filter((r) => r.blackFall).length, n)}　結末（黒船を退けた）${pct(endings.length, n)}${endings.length ? `（平均 開府${Math.round(avg(endings))}年）` : ""}`);
   }
   console.log(`（${((Date.now() - started) / 1000).toFixed(1)}秒）`);
 }
