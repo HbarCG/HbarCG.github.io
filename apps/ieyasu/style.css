@@ -1122,3 +1122,64 @@ body.iy-coaching .iy-raise {
   font-size: 0.82rem;
   color: #a87c22;
 }
+
+/* ─── 素質（★）・誕生・大奥 */
+.iy-stars {
+  color: #c8962a;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.iy-star-line {
+  margin: 0 0 0.25rem !important;
+}
+
+.iy-births {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.iy-birth {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, #e8a0b0 10%, var(--color-bg));
+}
+
+.iy-birth--rare {
+  border: 2px solid #d4a63a;
+  background: color-mix(in srgb, #d4a63a 16%, var(--color-bg));
+}
+
+.iy-birth p {
+  margin: 0;
+  line-height: 1.5;
+  font-size: 0.88rem;
+}
+
+.iy-birth .iy-birth__title {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.iy-panel .iy-heir__adopt {
+  margin-top: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.iy-matches {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.iy-panel .iy-matches button {
+  text-align: left;
+  font-size: 0.85rem;
+}

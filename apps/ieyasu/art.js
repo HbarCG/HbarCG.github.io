@@ -691,6 +691,34 @@ window.IEYASU_ART = (() => {
       <path d="M28,14.6 q4,-2 8,0" stroke="#5a5050" stroke-width="0.8" fill="none"/>`, `若君（${trait}）`, '#f3e7cf');
   }
 
+  // 正室・姫の顔。seed で打掛の色を変える。young なら幼い姫（短い髪に赤い髪飾り）
+  function lady(seed = 0, young = false) {
+    const robes = [C.red, C.purple, '#b0475f', C.blue, '#c0632c', C.green2];
+    const color = robes[seed % robes.length];
+    const g = linear([[0, shade(color, 0.15)], [1, shade(color, -0.18)]]);
+    const flowers = [[16, 56], [24, 61], [44, 55], [50, 61], [37, 62]].map(([cx, cy], i) =>
+      `<circle cx="${cx}" cy="${cy}" r="${i % 2 ? 1.4 : 1.9}" fill="${i % 2 ? C.white : C.gold2}" opacity="0.8"/>`).join('');
+    // 後ろ髪（若い姫は肩まで、正室は背中まで垂らす）
+    const backHair = young
+      ? `<path d="M18.5,36 Q16,14 32,12.5 Q48,14 45.5,36 L44,40 L20,40 Z" fill="${C.ink}"/>`
+      : `<path d="M16.5,30 Q16,11.5 32,10.5 Q48,11.5 47.5,30 L49,57 Q32,60 15,57 Z" fill="${C.ink}"/>`;
+    const front = young
+      // 切りそろえた前髪
+      ? `<path d="M19.6,30 Q18.6,15.5 32,14.8 Q45.4,15.5 44.4,30 L43.6,24.6 Q32,22.4 20.4,24.6 Z" fill="${C.ink}"/>
+        <path d="M41,14.6 l4,-3 l1.2,4.2 Z M41,14.6 l5.4,1.6 l-2.6,3.2 Z" fill="${C.red}"/><circle cx="41.4" cy="15.2" r="1.3" fill="${C.red2}"/>`
+      // 真ん中で分けた髪と、両脇に垂らした髪、金のかんざし
+      : `<path d="M19.6,30 Q18.8,16 32,15.4 Q45.2,16 44.4,30 Q42,20.6 32.6,20.2 L32,17.4 L31.4,20.2 Q22,20.6 19.6,30 Z" fill="${C.ink}"/>
+        <path d="M19.6,28 Q18.4,40 20.8,47 L22.6,46.4 Q21.2,38 21.8,29 Z M44.4,28 Q45.6,40 43.2,47 L41.4,46.4 Q42.8,38 42.2,29 Z" fill="${C.ink}"/>
+        <line x1="39" y1="14.5" x2="47" y2="8.5" stroke="${C.gold}" stroke-width="1.4" stroke-linecap="round"/>
+        <circle cx="47.6" cy="8.1" r="2" fill="${C.gold2}"/><circle cx="46" cy="10.6" r="0.9" fill="${C.red}"/>`;
+    return portrait(`<defs>${g.def}</defs>${backHair}
+      <path d="M6,64 L10,48 Q32,40 54,48 L58,64 Z" fill="url(#${g.id})"/>${flowers}
+      <path d="M24,44 L32,58 L40,44" stroke="${C.white}" stroke-width="3.2" fill="none"/>
+      <path d="M26,44 L32,55 L38,44" stroke="${C.red}" stroke-width="1.4" fill="none"/>
+      ${face(32, 31, young ? 12 : 12.5, 'calm', { cheeks: true, young })}
+      ${front}`, young ? '姫' : '正室', '#f3e3e6');
+  }
+
   // 家臣の顔。seed で着物の色と顔つきを変える（同じ家臣はいつも同じ顔になる）
   function retainer(seed = 0) {
     const robes = [C.ink2, C.blue, C.green2, C.earth2, '#5a4a6a', '#3a5a5a', '#6a3a32'];
@@ -703,5 +731,5 @@ window.IEYASU_ART = (() => {
       <rect x="29.6" y="10.6" width="4.8" height="7.4" rx="2" fill="${C.ink}"/>`, '家臣', '#e6e1d4');
   }
 
-  return { scene, ieyasu, iemitsu, shogun, child, retainer, sceneNames: Object.keys(SCENES) };
+  return { scene, ieyasu, iemitsu, shogun, child, lady, retainer, sceneNames: Object.keys(SCENES) };
 })();

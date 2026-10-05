@@ -15,7 +15,18 @@
     TEACH_AGE_LIMIT: 20,    // この歳までは教育できる
     TEACH_COST: 10,         // 若君の教育費（万両/回）
     MAX_HEIRS: 3,
-    HEIR_BIRTH_CHANCE: 0.2,
+    MAX_DAUGHTERS: 3,
+    WIFE_BIRTH: 0.25,       // 正室がいるとき、1年に子が生まれる見込み
+    CONCUBINE_BIRTH: 0.15,  // 側室1人ごとに増える、子が生まれる見込み
+    SON_CHANCE: 0.55,       // 生まれた子が男子（若君）である見込み
+    BIRTH_AGE: [16, 55],    // 将軍に子が生まれる歳
+    MARRY_AGE: [16, 50],    // 将軍に縁談が来る歳
+    OFFER_WAIT: 3,          // 縁談を断ると、次に来るまでの年数
+    MAX_CONCUBINES: 3,
+    CONCUBINE_UPKEEP: 2,    // 側室1人ごとの大奥の費え（万両/年）
+    INHERIT_RATE: 0.45,     // 生まれた子の能力は、父と母の能力の平均のこの割合（＋少しの運と素質）
+    DAUGHTER_MARRY_AGE: 13, // 姫を嫁がせられる歳
+    ADOPT_OUT_COST: 10,     // 若君を他家へ養子に出すときの支度金（万両）
     CARD_COOLDOWN: 10,      // 同じ出来事は、この年数のあいだ出ない
     CRISIS_YEARS: 3,        // 危機になってから立て直すまでの猶予
     CRISIS_SAFE: 10,        // 威光・民心・朝廷がすべてこれを超え、借入が上限以下なら危機を脱する
@@ -167,6 +178,12 @@
     saved.synergies = saved.synergies || [];
     saved.honors = saved.honors || [];
     saved.renownSeen = saved.renownSeen || [];
+    if (!saved.oku) {
+      // 縁組を入れる前の保存データ。正室と側室のぶんを別に足すようになったので、もとの大奥の費えを下げておく
+      saved.oku = { wife: null, concubines: 0, offers: null, nextOffer: 0 };
+      saved.fin.ooku = Math.max(0, saved.fin.ooku - 4);
+    }
+    saved.daughters = saved.daughters || [];
     if (saved.shogun && saved.shogun.stress === undefined) saved.shogun.stress = 0;
     if (saved.shogun && saved.shogun.skill === undefined) saved.shogun.skill = null;
     return saved;
@@ -243,10 +260,14 @@
       year: 1616,
       nextId: 0,
       gauges: { ikou: 60, minshin: 55, chotei: 50 },
-      fin: { cash: 250, rice: 60, debt: 0, kokudaka: 400, mine: 30, trade: 5, ooku: 10, infra: 200, lastRevenue: 120 },
+      // ooku は大奥のもとの費え。正室と側室のぶんは別に足す（ookuBase）
+      fin: { cash: 250, rice: 60, debt: 0, kokudaka: 400, mine: 30, trade: 5, ooku: 6, infra: 200, lastRevenue: 120 },
       jisseki: 0,
       shogun: null,
       heirs: [],
+      daughters: [],    // 将軍の娘（姫）
+      // 大奥。wife: 正室 / concubines: 側室の数 / offers: 来ている縁談 / nextOffer: 次に縁談が来る年
+      oku: { wife: null, concubines: 0, offers: null, nextOffer: 0 },
       retainers: [],
       candidates: [],
       institutions: [],
@@ -323,8 +344,8 @@
     state.phase = 'event';
     state.ledger = { year: state.year, items: [] };
 
-    // 家光の忘れ形見（家光の子として家系図に記す）
-    const heir = makeHeir('竹千代');
+    // 家光の忘れ形見（家光と側室・お楽の子として家系図に記す）
+    const heir = makeChild({ label: '側室・お楽', stats: { seimu: 7, bui: 5, jintoku: 8, kenko: 10 }, skill: null }, '竹千代');
     closeReign('33歳で病に倒れ、天に昇る。霊体となって権現様に付き従う。');
     addLog('家光が天に昇った。権現様は東照宮の力で霊体となり、江戸城に降りた。');
 
@@ -339,7 +360,7 @@
     };
     addLog('家光の異母弟・保科正之が、第4代将軍となった。');
     state.heirs.push(heir);
-    addLog(`家光の忘れ形見、若君・${heir.name}が生まれた。`);
+    addLog(`家光の忘れ形見、若君・${heir.name}が生まれた（素質${starText(heir.stars)} ${starInfo(heir.stars).label}）。`);
     applyLegacy(heir);
     for (const id of state.institutions) applyInstitutionOn(id);
     state.yearStart = snapshot();
@@ -400,30 +421,194 @@
     return Math.random() < CONFIG.SKILL_CHANCE ? pick(DATA.skills).id : null;
   }
 
-  // ─────────────────────────────── 若君と将軍
+  // ─────────────────────────────── 若君と姫の誕生
 
-  function makeHeir(name) {
-    const parent = state.shogun.stats;
-    const inherit = (v) => clamp(Math.round(v * 0.3) + rand(2, 6), 1, CONFIG.ABILITY_MAX);
+  function starInfo(stars) {
+    return DATA.stars.find((s) => s.stars === stars) || DATA.stars[1];
+  }
+
+  function starText(stars) {
+    return '★'.repeat(stars) + '☆'.repeat(5 - stars);
+  }
+
+  // 素質のくじ（cards.js の stars の見込みで引く）
+  function rollStars() {
+    let roll = Math.random();
+    for (const s of DATA.stars) {
+      roll -= s.chance;
+      if (roll < 0) return s;
+    }
+    return DATA.stars[DATA.stars.length - 1];
+  }
+
+  // 子の特技。父か母の特技を受け継ぐか、★5なら必ず、そうでなくてもたまに新しい特技がつく
+  function childSkill(fatherSkill, motherSkill, star) {
+    if (fatherSkill && Math.random() < CONFIG.SKILL_INHERIT) return fatherSkill;
+    if (motherSkill && Math.random() < CONFIG.SKILL_INHERIT) return motherSkill;
+    if (star.skill) return pick(DATA.skills).id;
+    return Math.random() < CONFIG.SKILL_CHANCE * (star.stars >= 4 ? 2 : 1) ? pick(DATA.skills).id : null;
+  }
+
+  // 若君。能力は父（将軍）と母の平均から決まり、素質（★）の分だけ上下する
+  // mother: { label: '正室・照姫' など, stats: { seimu, bui, jintoku, kenko }, skill }
+  function makeChild(mother, name) {
+    const s = state.shogun;
+    const star = rollStars();
+    const inherit = (k) => clamp(Math.round((s.stats[k] + mother.stats[k]) / 2 * CONFIG.INHERIT_RATE) + rand(1, 4) + star.bonus,
+      1, CONFIG.ABILITY_MAX);
     const used = state.heirs.map((h) => h.name);
     const heirName = name || pick(CHILD_NAMES.filter((n) => !used.includes(n)));
-    const trait = Math.random() < 0.5 ? state.shogun.trait : pick(TRAITS);
-    const skill = rollSkill(state.shogun.skill);
-    const p = addPerson({ name: heirName, childName: heirName, born: state.year, parentId: state.shogun.personId, trait, skill });
+    const trait = Math.random() < 0.5 ? s.trait : pick(TRAITS);
+    const skill = childSkill(s.skill, mother.skill, star);
+    const p = addPerson({ name: heirName, childName: heirName, born: state.year, parentId: s.personId, trait, skill,
+      mother: mother.label, stars: star.stars });
     return {
       personId: p.id,
       name: heirName,
       age: 0,
       trait,
       skill,
+      stars: star.stars,
+      mother: mother.label,
       stats: {
-        seimu: inherit(parent.seimu),
-        bui: inherit(parent.bui),
-        jintoku: inherit(parent.jintoku),
-        kenko: rand(6, 14),
+        seimu: inherit('seimu'),
+        bui: inherit('bui'),
+        jintoku: inherit('jintoku'),
+        kenko: clamp(Math.round(mother.stats.kenko * 0.5) + rand(3, 8), 1, CONFIG.ABILITY_MAX),
       },
       taughtYear: null,
     };
+  }
+
+  function makeDaughter(mother) {
+    const used = state.daughters.map((d) => d.name);
+    const name = pick(DATA.brides.daughters.filter((n) => !used.includes(n)));
+    const p = addPerson({ name, born: state.year, parentId: state.shogun.personId, sex: 'f', mother: mother.label });
+    return { personId: p.id, name, age: 0, mother: mother.label, sex: 'f' };
+  }
+
+  // 1年に子が生まれる見込み（正室と側室の数しだい。将軍の特技「子宝」なら1.5倍）
+  function birthChance() {
+    const s = state.shogun;
+    if (s.age < CONFIG.BIRTH_AGE[0] || s.age > CONFIG.BIRTH_AGE[1]) return 0;
+    const p = (state.oku.wife ? CONFIG.WIFE_BIRTH : 0) + state.oku.concubines * CONFIG.CONCUBINE_BIRTH;
+    return Math.min(0.9, p * (hasSkill('kodakara') ? 1.5 : 1));
+  }
+
+  // 子が生まれたら、その子（若君か姫）を返す。母は、正室と側室の見込みの重みで決まる
+  function rollBirth() {
+    if (Math.random() >= birthChance()) return null;
+    const son = Math.random() < CONFIG.SON_CHANCE;
+    if (son ? state.heirs.length >= CONFIG.MAX_HEIRS : state.daughters.length >= CONFIG.MAX_DAUGHTERS) return null;
+    const wifeWeight = state.oku.wife ? CONFIG.WIFE_BIRTH : 0;
+    const total = wifeWeight + state.oku.concubines * CONFIG.CONCUBINE_BIRTH;
+    const w = state.oku.wife;
+    const mother = Math.random() * total < wifeWeight
+      ? { label: `正室・${w.name}`, stats: w.stats, skill: w.skill }
+      // 側室は名前だけ。能力はそのつど違う（だれの子になるかも運のうち）
+      : { label: `側室・${pick(DATA.brides.musume)}`, stats: { seimu: rand(3, 10), bui: rand(3, 10), jintoku: rand(3, 10), kenko: rand(6, 12) }, skill: null };
+    return son ? makeChild(mother) : makeDaughter(mother);
+  }
+
+  // ─────────────────────────────── 大奥（縁組・側室・姫の縁組・養子）
+
+  function brideKind(id) {
+    return DATA.brides.kinds.find((k) => k.id === id);
+  }
+
+  // 大奥の費え（万両/年、物価を反映する前）。もとの費えに、正室と側室のぶんを足す
+  function ookuBase() {
+    const o = state.oku;
+    return state.fin.ooku + (o.wife ? o.wife.upkeep : 0) + o.concubines * CONFIG.CONCUBINE_UPKEEP;
+  }
+
+  function needsMarriage() {
+    const s = state.shogun;
+    return !state.oku.wife && s.age >= CONFIG.MARRY_AGE[0] && s.age <= CONFIG.MARRY_AGE[1]
+      && state.year >= state.oku.nextOffer && state.year > CONFIG.START_YEAR;
+  }
+
+  // 三家から1人ずつ、縁談の相手をつくる
+  function makeBrides() {
+    const range = ([min, max]) => rand(min, max);
+    return DATA.brides.kinds.map((kind) => {
+      const name = kind.id === 'kashin' ? pick(DATA.brides.musume) : pick(DATA.brides.hime);
+      return {
+        kind: kind.id, name, house: pick(kind.houses), upkeep: kind.upkeep, seed: rand(0, 99),
+        skill: Math.random() < 0.15 ? pick(DATA.skills).id : null,
+        stats: { seimu: range(kind.stats.seimu), bui: range(kind.stats.bui), jintoku: range(kind.stats.jintoku), kenko: range(kind.stats.kenko) },
+      };
+    });
+  }
+
+  // 年のはじめの場面を決める。正室のいない将軍には、まず縁談が来る
+  function beginYear() {
+    if (needsMarriage()) {
+      state.oku.offers = makeBrides();
+      state.phase = 'marriage';
+    } else {
+      state.phase = 'event';
+    }
+  }
+
+  function marry(index) {
+    const b = state.oku.offers[index];
+    const kind = brideKind(b.kind);
+    state.oku.wife = b;
+    state.oku.offers = null;
+    applyEffects(kind.on, { label: '将軍の婚礼' });
+    if (kind.flag) state.flags[kind.flag] = state.year;
+    person(state.shogun.personId).wife = `${b.name}（${b.house}・${kind.label}）`;
+    addLog(`将軍・${state.shogun.name}は、${b.house}の${b.name}を正室に迎えた。`);
+    state.phase = 'event';
+    commit();
+  }
+
+  function declineMarriage() {
+    state.oku.offers = null;
+    state.oku.nextOffer = state.year + CONFIG.OFFER_WAIT;
+    addLog(`将軍・${state.shogun.name}の縁談を見送った。`);
+    state.phase = 'event';
+    commit();
+  }
+
+  function addConcubine() {
+    if (state.oku.concubines >= CONFIG.MAX_CONCUBINES) return;
+    state.oku.concubines += 1;
+    addLog(`側室を迎えた（いま${state.oku.concubines}人。大奥の費え 年+${CONFIG.CONCUBINE_UPKEEP}万両）。`);
+    commit();
+  }
+
+  function removeConcubine() {
+    if (state.oku.concubines <= 0) return;
+    state.oku.concubines -= 1;
+    addLog(`側室に暇を出した（いま${state.oku.concubines}人）。`);
+    commit();
+  }
+
+  // 姫を嫁がせる（大名家なら威光、公家なら朝廷との縁が深まる）
+  function marryDaughter(index, matchId) {
+    const d = state.daughters[index];
+    const match = DATA.brides.matches.find((m) => m.id === matchId);
+    if (!d || !match || d.age < CONFIG.DAUGHTER_MARRY_AGE) return;
+    const house = pick(match.houses);
+    state.daughters.splice(index, 1);
+    person(d.personId).note = `${house}へ嫁ぐ。`;
+    applyEffects(match.on, { label: '姫の婚礼' });
+    addLog(`姫・${d.name}が${house}へ嫁いだ。`);
+    commit();
+  }
+
+  // 若君を他家へ養子に出す（若君の枠が空く。大名との縁で、威光が少し上がる）
+  function adoptOut(index) {
+    const heir = state.heirs[index];
+    if (!heir || !window.confirm(`${heir.name}を他家へ養子に出しますか？（若君ではなくなる）`)) return;
+    const house = pick(brideKind('daimyo').houses);
+    state.heirs.splice(index, 1);
+    person(heir.personId).note = `${house}の養子となる。`;
+    applyEffects({ ikou: 2, ryo: -CONFIG.ADOPT_OUT_COST }, { label: '養子の支度' });
+    addLog(`若君・${heir.name}を${house}へ養子に出した。`);
+    commit();
   }
 
   function makeShogunName() {
@@ -679,7 +864,7 @@
     const costRate = 1 - (kanjo - 10) * 0.01 - (hasInstitution('kanjo') ? 0.05 : 0);
     const hatamoto = Math.round(60 * inflation * costRate);
     const salaries = state.retainers.reduce((sum, r) => sum + (r.post ? r.salary : Math.ceil(r.salary / 2)), 0);
-    const ooku = Math.round(f.ooku * inflation * costRate);
+    const ooku = Math.round(ookuBase() * inflation * costRate);
     const court = Math.round(5 * inflation * costRate);
     const upkeep = state.institutions.reduce((sum, id) => sum + (institution(id)?.upkeep || 0), 0);
     const interest = Math.round(f.debt * CONFIG.INTEREST);
@@ -974,6 +1159,7 @@
       years: bakufuYears(), gen: state.shogun.gen, shogun: state.shogun, fin: state.fin, gauges: state.gauges,
       institutions: state.institutions.length, synergies: state.synergies.length,
       postsAll: (min) => POSTS.every((p) => holderValue(p.id) >= min),
+      heirs: state.heirs, retainers: state.retainers,
     };
     const earned = [];
     for (const h of DATA.honors) {
@@ -1045,14 +1231,16 @@
       }
     }
 
-    // 若君が育つ
+    // 若君が育つ（素質が高いほど伸びやすい）。姫も歳をとる
     for (const heir of state.heirs) {
       heir.age += 1;
-      if (heir.age < CONFIG.ADULT_AGE && Math.random() < 0.5) {
+      const grow = heir.stars ? starInfo(heir.stars).grow : 0.5;
+      if (heir.age < CONFIG.ADULT_AGE && Math.random() < grow) {
         const stat = pick(['seimu', 'bui', 'jintoku']);
         heir.stats[stat] = clamp(heir.stats[stat] + 1, 1, CONFIG.ABILITY_MAX);
       }
     }
+    for (const d of state.daughters) d.age += 1;
 
     // 将軍が歳をとる（「頑健」なら衰えは半分）。気苦労がたまっていると体を壊し、城中にも苛立ちが広がる
     s.age += 1;
@@ -1078,12 +1266,22 @@
       state.candidates = makeCandidates();
     }
 
-    // 若君の誕生
-    if (!died && s.age >= 16 && s.age <= 55 && state.heirs.length < CONFIG.MAX_HEIRS
-        && Math.random() < CONFIG.HEIR_BIRTH_CHANCE) {
-      const heir = makeHeir();
-      state.heirs.push(heir);
-      notes.push(`若君・${heir.name}が生まれた。`);
+    // 子の誕生（決算報告では、別の枠で素質とともに見せる）
+    const births = [];
+    const child = died ? null : rollBirth();
+    if (child) {
+      if (child.sex === 'f') {
+        state.daughters.push(child);
+        births.push({ sex: 'f', name: child.name, mother: child.mother, seed: child.personId,
+          text: `姫・${child.name}が生まれた（母：${child.mother}）。` });
+      } else {
+        state.heirs.push(child);
+        const star = starInfo(child.stars);
+        const sk = skillById(child.skill);
+        births.push({ sex: 'm', name: child.name, mother: child.mother, trait: child.trait, stars: child.stars, label: star.label,
+          skill: child.skill,
+          text: `若君・${child.name}が生まれた（素質${starText(child.stars)} ${star.label}${sk ? `・特技「${sk.name}」` : ''}・母：${child.mother}）。` });
+      }
     }
 
     // 倒幕の危機
@@ -1099,6 +1297,7 @@
         state.crisis.years -= 1;
         if (state.crisis.years <= 0) {
           notes.forEach(addLog);
+          births.forEach((b) => addLog(b.text));
           state.year += 1;
           gameOver();
           return;
@@ -1110,6 +1309,7 @@
     }
 
     notes.forEach(addLog);
+    births.forEach((b) => addLog(b.text));
     const honors = checkHonors();
 
     // 一年の決算報告をつくる
@@ -1121,6 +1321,7 @@
       netChange: closed.net - start.net,
       gauges: Object.keys(STATE_LABELS).map((k) => ({ key: k, before: start.gauges[k], after: state.gauges[k] })),
       notes: notes.concat(died ? [`将軍・${s.name}が${s.age}歳で世を去った。`] : []),
+      births,
       honors: honors.map((h) => h.name),
     };
 
@@ -1142,7 +1343,8 @@
   }
 
   function closeReport() {
-    state.phase = state.nextPhase || 'event';
+    if ((state.nextPhase || 'event') === 'event') beginYear();
+    else state.phase = state.nextPhase;
     state.nextPhase = null;
     state.report = null;
     commit();
@@ -1232,10 +1434,12 @@
     }
 
     state.heirs = [];
+    // 先代の正室と側室は大奥を退く。新しい将軍の大奥は、縁組から始まる
+    state.oku = { wife: null, concubines: 0, offers: null, nextOffer: 0 };
     state.succession = null;
-    state.phase = 'event';
     ui.person = p.id;
     drawCard();
+    beginYear();
     commit();
   }
 
@@ -1317,12 +1521,13 @@
     return tight || Object.values(state.gauges).some((v) => v <= 25) ? 'worry' : 'calm';
   }
 
-  // 人物の顔。家康・将軍・若君・御三家の人などで描き分ける
+  // 人物の顔。家康・将軍・若君・姫・御三家の人などで描き分ける
   function faceOf(p, small) {
     const cls = `iy-face${small ? ' iy-face--small' : ''}`;
     if (p.gen === 1) return art(ART.ieyasu('calm'), cls);
     if (p.house && !p.gen) return art(ART.retainer(p.id || 0), cls);
     const age = p.age !== undefined ? p.age : state.year - p.born;
+    if (p.sex === 'f') return art(ART.lady(p.id || 0, age < CONFIG.DAUGHTER_MARRY_AGE), cls);
     if (!p.gen && age < CONFIG.ADULT_AGE) return art(ART.child(p.trait), cls);
     return art(ART.shogun(p.trait || '慎重'), cls);
   }
@@ -1344,13 +1549,22 @@
     }));
   }
 
-  // 特技の札。いまの将軍の特技でなければ「将軍になると働く」と添える
-  function skillTag(id, working = true) {
+  // 特技の札。note は、いまは働いていない特技に添える一言（「将軍になると働く」など）
+  function skillTag(id, note = '') {
     const sk = skillById(id);
     if (!sk) return null;
     return el('p', { class: 'iy-skill' }, [
       el('span', { class: 'iy-skill__name', text: `特技「${sk.name}」` }),
-      ` ${sk.desc}${working ? '' : '（将軍になると働く）'}`,
+      ` ${sk.desc}${note}`,
+    ]);
+  }
+
+  // 素質（★）の札
+  function starTag(stars, extra = '') {
+    if (!stars) return null;
+    return el('p', { class: 'iy-hint iy-star-line' }, [
+      el('span', { class: 'iy-stars', text: starText(stars) }),
+      ` 素質：${starInfo(stars).label}${extra}`,
     ]);
   }
 
@@ -1423,7 +1637,7 @@
   function renderTabbar() {
     const alerts = {
       org: vacancies().length > 0 || state.retainers.some((r) => r.unhappy),
-      seimu: ['event', 'succession'].includes(state.phase),
+      seimu: ['event', 'succession', 'marriage'].includes(state.phase),
     };
     $('tabbar').replaceChildren(...TABS.map((t) => el('button', {
       type: 'button',
@@ -1442,7 +1656,7 @@
 
   function renderSeimu() {
     const views = {
-      prologue: viewPrologue, event: viewEvent, result: viewResult,
+      prologue: viewPrologue, event: viewEvent, result: viewResult, marriage: viewMarriage,
       manage: viewManage, succession: viewSuccession, over: viewOver, report: viewReport,
     };
     $('stage').replaceChildren(...[].concat(views[state.phase]()).filter(Boolean));
@@ -1582,6 +1796,37 @@
     ];
   }
 
+  // 縁組。正室のいない将軍に、三家から縁談が来る
+  function viewMarriage() {
+    const s = state.shogun;
+    const list = el('div', { class: 'iy-options' });
+    state.oku.offers.forEach((b, i) => {
+      const kind = brideKind(b.kind);
+      const sk = skillById(b.skill);
+      const terms = [termsOf(kind.on, '婚礼の費え'), `大奥の費え 年+${kind.upkeep}万両`, kind.flag === 'gaiseki' ? 'のちに実家が口を出す' : '']
+        .filter(Boolean).join('・');
+      list.append(el('button', { type: 'button', class: 'iy-option iy-option--person', onclick: () => marry(i) }, [
+        art(ART.lady(b.seed), 'iy-face'),
+        el('span', { class: 'iy-option__text' }, [
+          el('span', { class: 'iy-option__how', text: `${kind.label}・${b.house}` }),
+          el('strong', { text: `${b.name}（格${kakuOf(b.stats)}）` }),
+          el('span', { text: Object.keys(ABILITY_LABELS).map((k) => `${ABILITY_LABELS[k]}${b.stats[k]}`).join('　') }),
+          sk ? el('span', { class: 'iy-skill__name', text: `特技「${sk.name}」${sk.desc}` }) : null,
+          el('span', { text: terms }),
+        ]),
+      ]));
+    });
+    return [
+      el('p', { class: 'iy-year', text: `${state.year}年` }),
+      el('h2', { text: '縁組' }),
+      sceneArt('palanquin'),
+      el('p', { text: `将軍・${s.name}（${s.age}歳）に、正室を迎える縁談が三つ来ている。正室の能力と特技は、生まれてくる子に受け継がれる。` }),
+      ieyasuSays(el('p', { class: 'iy-voice', text: '「嫁取りは、家と家を結ぶもの。じゃが、生まれてくる子の器も母しだいじゃ。……金のかかり方もな。」' })),
+      list,
+      el('button', { type: 'button', class: 'iy-secondary', text: `今は迎えない（${CONFIG.OFFER_WAIT}年後に、また縁談が来る）`, onclick: declineMarriage }),
+    ];
+  }
+
   function heirCard(heir, index) {
     const canTeach = heir.age < CONFIG.TEACH_AGE_LIMIT;
     const taught = heir.taughtYear === state.year;
@@ -1593,33 +1838,102 @@
           el('span', { class: 'iy-kaku', text: `格${kakuOf(heir.stats)}` }),
         ]),
       ]),
+      starTag(heir.stars, heir.mother ? `　母：${heir.mother}` : ''),
       statBars(heir.stats, ABILITY_LABELS),
-      skillTag(heir.skill, false),
+      skillTag(heir.skill, '（将軍になると働く）'),
       canTeach
         ? el('p', { class: 'iy-hint', text: taught ? '今年はもう師をつけた。' : `師をつける（教育費 ${teachCost()}万両・1年に1回）` })
         : el('p', { class: 'iy-hint', text: '成人したので、教育は終わった。' }),
       canTeach ? el('div', { class: 'iy-teach' }, Object.keys(TEACH_LABELS).map((stat) => el('button', {
         type: 'button', text: TEACH_LABELS[stat], disabled: taught, onclick: () => teach(index, stat),
       }))) : null,
+      el('button', { type: 'button', class: 'iy-heir__adopt', text: `他家へ養子に出す（支度金 約${Math.abs(scaledCost(-CONFIG.ADOPT_OUT_COST))}万両・威光+2）`, onclick: () => adoptOut(index) }),
     ]);
+  }
+
+  // 効果の一覧を短い文にする（例：「朝廷+8・婚礼の費え 約30万両」）。ryoName は出費の呼び名
+  function termsOf(on, ryoName) {
+    return Object.entries(on).map(([key, v]) => {
+      if (key === 'ryo') return v < 0 ? `${ryoName} 約${Math.abs(scaledCost(v))}万両` : `持参金 ${v}万両`;
+      return STATE_LABELS[key] ? `${STATE_LABELS[key]}${signed(v)}` : '';
+    }).filter(Boolean).join('・');
+  }
+
+  function daughterCard(d, index) {
+    const ready = d.age >= CONFIG.DAUGHTER_MARRY_AGE;
+    return el('div', { class: 'iy-heir' }, [
+      el('div', { class: 'iy-heir__head' }, [
+        faceOf({ ...d, id: d.personId }),
+        el('p', { class: 'iy-heir__name' }, [el('strong', { text: `姫・${d.name}` }), `（${d.age}歳）`, el('br'), el('span', { class: 'iy-muted', text: `母：${d.mother}` })]),
+      ]),
+      ready
+        ? el('div', { class: 'iy-matches' }, DATA.brides.matches.map((m) => el('button', {
+          type: 'button', text: `${m.label}（${termsOf(m.on, '婚礼の費え')}）`, onclick: () => marryDaughter(index, m.id),
+        })))
+        : el('p', { class: 'iy-hint', text: `${CONFIG.DAUGHTER_MARRY_AGE}歳になると、大名家や公家へ嫁がせられる。` }),
+    ]);
+  }
+
+  // 大奥：正室・側室と、子が生まれる見込み
+  function okuNodes() {
+    const o = state.oku;
+    const s = state.shogun;
+    const nodes = [];
+    if (o.wife) {
+      const kind = brideKind(o.wife.kind);
+      nodes.push(el('div', { class: 'iy-heir' }, [
+        el('div', { class: 'iy-heir__head' }, [
+          art(ART.lady(o.wife.seed), 'iy-face'),
+          el('p', { class: 'iy-heir__name' }, [
+            el('strong', { text: `正室・${o.wife.name}` }), `（${o.wife.house}・${kind.label}）`,
+            el('span', { class: 'iy-kaku', text: `格${kakuOf(o.wife.stats)}` }),
+          ]),
+        ]),
+        el('p', { class: 'iy-retainer__stats' }, Object.keys(ABILITY_LABELS).map((k) => el('span', { text: `${ABILITY_LABELS[k]}${o.wife.stats[k]}` }))),
+        skillTag(o.wife.skill, '（子に受け継がれることがある）'),
+      ]));
+    } else {
+      const [min, max] = CONFIG.MARRY_AGE;
+      nodes.push(el('p', { class: 'iy-hint', text: s.age < min ? `正室はまだいない。将軍が${min}歳になると、縁談が来る。`
+        : s.age > max ? '正室はいない。将軍の歳から、もう縁談は来ない。'
+          : `正室がいない。縁談は${Math.max(o.nextOffer, state.year + 1)}年のはじめに来る。` }));
+    }
+    nodes.push(el('p', { class: 'iy-hint', text: `側室 ${o.concubines}人（1人ごとに子が生まれやすくなり、大奥の費えが年${CONFIG.CONCUBINE_UPKEEP}万両増える）` }));
+    nodes.push(el('div', { class: 'iy-actions' }, [
+      el('button', { type: 'button', text: '側室を迎える', disabled: o.concubines >= CONFIG.MAX_CONCUBINES, onclick: addConcubine }),
+      el('button', { type: 'button', text: '側室に暇を出す', disabled: o.concubines <= 0, onclick: removeConcubine }),
+    ]));
+    const p = birthChance();
+    const [bmin, bmax] = CONFIG.BIRTH_AGE;
+    nodes.push(el('p', { class: 'iy-hint', text: p > 0
+      ? `子が生まれる見込み：年${Math.round(p * 100)}%（若君は${CONFIG.MAX_HEIRS}人、姫は${CONFIG.MAX_DAUGHTERS}人まで）。大奥の費え：年${Math.round(ookuBase())}万両（物価で上がる）`
+      : s.age < bmin ? `将軍が${bmin}歳になるまで、子は生まれない。`
+        : s.age > bmax ? '将軍の歳から、もう子は望めない。' : '正室か側室がいないと、子は生まれない。' }));
+    return nodes;
   }
 
   function viewManage() {
     const nodes = [
       el('p', { class: 'iy-year', text: `${state.year}年` }),
       el('h2', { text: '政務の間' }),
-      el('p', { class: 'iy-hint', text: '若君の教育、制度の整備、代替わりを決める。財務と組織は下のメニューから。終わったら年を越す。' }),
+      el('p', { class: 'iy-hint', text: '若君の教育、大奥、制度の整備、代替わりを決める。財務と組織は下のメニューから。終わったら年を越す。' }),
       el('h3', { text: '若君' }),
     ];
 
     if (state.heirs.length === 0) {
-      nodes.push(el('p', { class: 'iy-hint', text: 'まだ若君がいない。将軍が若いうちは、いずれ生まれるだろう。' }));
+      nodes.push(el('p', { class: 'iy-hint', text: 'まだ若君がいない。正室や側室がいれば、いずれ生まれるだろう。' }));
     } else {
       state.heirs.forEach((h, i) => nodes.push(heirCard(h, i)));
     }
     if (canRetire()) {
       nodes.push(el('button', { type: 'button', class: 'iy-secondary', onclick: retire, text: `${state.shogun.name}を隠居させ、将軍職を譲る` }));
     }
+    if (state.daughters.length > 0) {
+      nodes.push(el('h3', { text: '姫' }));
+      state.daughters.forEach((d, i) => nodes.push(daughterCard(d, i)));
+    }
+    nodes.push(el('h3', { text: '大奥' }));
+    nodes.push(...okuNodes());
 
     // 制度の一覧は長いので、たたんでおく。整えられるものがあるときだけ開く
     const insts = DATA.institutions.filter((inst) => !inst.prologueOnly || hasInstitution(inst.id));
@@ -1681,6 +1995,7 @@
         faceOf({ ...c, id: i + 3 }),
         el('span', { class: 'iy-option__text' }, [
           el('strong', { text: `${c.name}（${c.age}歳・${c.trait}）格${kakuOf(c.stats)}` }),
+          c.stars ? el('span', { class: 'iy-stars', text: `${starText(c.stars)} ${starInfo(c.stars).label}` }) : null,
           el('span', { text: Object.keys(ABILITY_LABELS).map((k) => `${ABILITY_LABELS[k]}${c.stats[k]}`).join('　') + warn }),
           sk ? el('span', { class: 'iy-skill__name', text: `特技「${sk.name}」${sk.desc}` }) : null,
         ]),
@@ -1695,6 +2010,20 @@
     ];
   }
 
+  // 決算報告の「誕生」の札。若君なら素質（★）と特技を見せる（ガチャの見せ場）
+  function birthCard(b) {
+    const sk = skillById(b.skill);
+    return el('div', { class: `iy-birth${b.stars >= 4 ? ' iy-birth--rare' : ''}` }, [
+      b.sex === 'f' ? art(ART.lady(b.seed || 0, true), 'iy-face') : art(ART.child(b.trait), 'iy-face'),
+      el('div', {}, [
+        el('p', { class: 'iy-birth__title', text: b.sex === 'f' ? `姫・${b.name}が生まれた` : `若君・${b.name}が生まれた` }),
+        b.stars ? el('p', {}, [el('span', { class: 'iy-stars', text: starText(b.stars) }), ` 素質：${b.label}`]) : null,
+        sk ? el('p', { class: 'iy-skill__name', text: `特技「${sk.name}」` }) : null,
+        el('p', { class: 'iy-muted', text: `母：${b.mother}` }),
+      ]),
+    ]);
+  }
+
   // 一年の決算報告。数字の増減と、この一年の出来事をまとめて見せる
   function viewReport() {
     const r = state.report;
@@ -1704,10 +2033,12 @@
       el('dd', { class: good === undefined ? '' : good ? 'iy-up' : 'iy-down', text: value }),
     ]);
     const mood = r.op < 0 || r.gauges.some((g) => g.after <= 20) ? 'worry' : 'calm';
+    const bestBirth = (r.births || []).reduce((best, b) => Math.max(best, b.stars || 0), 0);
     const comment = r.honors.length ? `栄誉「${r.honors.join('」「')}」とは、めでたい。この調子じゃ。`
-      : r.op < 0 ? '年貢と経費だけで赤字じゃ。このままでは金蔵がもたぬぞ。'
-        : r.gauges.some((g) => g.after <= 20) ? '数字は持っておるが、足元が危うい。手を打たねば。'
-          : 'まずまずの一年じゃった。気を抜くでないぞ。';
+      : bestBirth >= 4 ? 'おお、これは良い器の子じゃ。しっかり育てよ。'
+        : r.op < 0 ? '年貢と経費だけで赤字じゃ。このままでは金蔵がもたぬぞ。'
+          : r.gauges.some((g) => g.after <= 20) ? '数字は持っておるが、足元が危うい。手を打たねば。'
+            : 'まずまずの一年じゃった。気を抜くでないぞ。';
     const isSuccession = state.nextPhase === 'succession';
     return [
       el('p', { class: 'iy-year', text: `${r.year}年の暮れ` }),
@@ -1723,6 +2054,7 @@
         const d = g.after - g.before;
         return el('li', { class: d > 0 ? 'iy-up' : d < 0 ? 'iy-down' : '', text: `${STATE_LABELS[g.key]} ${g.after}（${signed(d)}）` });
       })),
+      r.births && r.births.length ? el('div', { class: 'iy-births' }, r.births.map(birthCard)) : null,
       r.honors.length ? el('p', { class: 'iy-honor-line', text: `栄誉を得た：${r.honors.join('、')}` }) : null,
       r.notes.length ? el('ul', { class: 'iy-report-notes' }, r.notes.map((n) => el('li', { text: n }))) : null,
       ieyasuSays(el('p', { class: 'iy-voice', text: comment }), mood),
@@ -1781,7 +2113,7 @@
   function detailOf(p) {
     const isCurrent = p.id === state.shogun.personId && state.phase !== 'over';
     const heir = state.heirs.find((h) => h.personId === p.id);
-    const facts = [p.gen ? `第${p.gen}代将軍` : '', p.house || '', p.trait ? `性格：${p.trait}` : '', `${p.born}年生まれ`].filter(Boolean);
+    const facts = [p.gen ? `第${p.gen}代将軍` : '', p.sex === 'f' ? '姫' : '', p.house || '', p.trait ? `性格：${p.trait}` : '', `${p.born}年生まれ`].filter(Boolean);
     const nodes = [
       el('div', { class: 'iy-heir__head' }, [
         faceOf(p),
@@ -1793,9 +2125,12 @@
         ]),
       ]),
     ];
-    nodes.push(skillTag(p.skill, Boolean(p.gen)));
+    nodes.push(starTag(p.stars));
+    if (p.mother) nodes.push(el('p', { class: 'iy-hint', text: `母：${p.mother}` }));
+    if (p.wife) nodes.push(el('p', { class: 'iy-hint', text: `正室：${p.wife}` }));
+    nodes.push(skillTag(p.skill, heir ? '（将軍になると働く）' : ''));
     if (p.gen) {
-      nodes.push(el('p', { class: 'iy-hint', text: `在位：${p.from}〜${p.to || '在位中'}年（${(p.to || state.year) - p.from}年）` }));
+      nodes.push(el('p', { class: 'iy-hint', text: `在位：${p.from}年〜${p.to ? `${p.to}年` : '在位中'}（${(p.to || state.year) - p.from}年）` }));
       if (isCurrent) {
         nodes.push(el('h3', { text: '今の能力（かっこ内は就任時からの伸び）' }));
         nodes.push(statBars(state.shogun.stats, { seimu: '政務', bui: '武威', jintoku: '人徳' }, p.start));
@@ -1882,7 +2217,7 @@
         el('p', { class: 'iy-hint', text: '金額の単位はすべて万両。年を越すときに決算をする。' }),
         el('dl', { class: 'iy-kpis' }, [
           ['現金', money(f.cash)], ['借入（上限）', `${money(f.debt)}（${money(limit)}）`], ['純資産', money(netAssets())],
-          ['天領の石高', `${Math.round(f.kokudaka)}万石`], ['昨年の歳入', money(f.lastRevenue)], ['大奥の費え', `${Math.round(f.ooku)}/年`],
+          ['天領の石高', `${Math.round(f.kokudaka)}万石`], ['昨年の歳入', money(f.lastRevenue)], ['大奥の費え', `${Math.round(ookuBase())}/年`],
         ].map(([k, v]) => el('div', {}, [el('dt', { text: k }), el('dd', { text: v })]))),
         state.phase === 'over' ? null : el('div', { class: 'iy-actions' }, [
           el('button', { type: 'button', text: `${CONFIG.LOAN_STEP}万両借りる`, disabled: f.debt + CONFIG.LOAN_STEP > limit, onclick: borrowMore }),
@@ -2169,6 +2504,7 @@
     startMain, choose, endYear, closeReport, crown, hire, autoAssign,
     teach, teachCost, establish, institutionStatus, repay, retire, canRetire,
     shogunKaku, kakuOf, wants, raise,
+    marry, declineMarriage, addConcubine, removeConcubine, marryDaughter, adoptOut, birthChance, ookuBase,
   };
 
   $('title-art').innerHTML = ART.scene('heaven');

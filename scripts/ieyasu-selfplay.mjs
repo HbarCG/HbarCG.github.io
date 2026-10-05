@@ -92,6 +92,7 @@ const POLICIES = {
     choose: (g, card) => Math.floor(g.rand() * card.options.length),
     manage: (g) => fillPosts(g),
     crown: () => 0,
+    marry: (g) => Math.floor(g.rand() * g.dev.state.oku.offers.length),
   },
   basic: {
     choose(g, card) {
@@ -127,8 +128,30 @@ const POLICIES = {
       }
       // 借入を返す
       while (s.fin.debt > 0 && s.fin.cash > 150) dev.repay();
+      // 大奥：金に余裕があれば側室を1人迎え、苦しければ暇を出す
+      const o = s.oku;
+      if (o.concubines < 1 && s.fin.cash > 150 && s.shogun.age <= 45 && s.heirs.length < dev.CONFIG.MAX_HEIRS) dev.addConcubine();
+      else if (o.concubines > 0 && (s.fin.cash < 40 || s.shogun.age > 55)) dev.removeConcubine();
+      // 年ごろの姫は、大名家へ嫁がせる
+      for (let i = s.daughters.length - 1; i >= 0; i--) {
+        if (s.daughters[i].age >= dev.CONFIG.DAUGHTER_MARRY_AGE && s.fin.cash > 80) dev.marryDaughter(i, "daimyo");
+      }
+      // 若君の枠が埋まっていたら、素質の低い若君を養子に出して枠を空ける
+      if (s.heirs.length >= dev.CONFIG.MAX_HEIRS && s.fin.cash > 50) {
+        const kaku = (h) => sum3(h.stats);
+        const weakest = s.heirs.reduce((w, h, i) => (kaku(h) < kaku(s.heirs[w]) ? i : w), 0);
+        if ((s.heirs[weakest].stars || 3) <= 2) dev.adoptOut(weakest);
+      }
       // 老いた将軍は、成人した若君がいれば隠居させる
       if (s.shogun.age >= 62 && dev.canRetire()) dev.retire();
+    },
+    // 縁談：金に余裕があれば、能力（と特技）のいちばん良い姫を選ぶ。なければ安い家臣の娘
+    marry(g) {
+      const s = g.dev.state;
+      const offers = s.oku.offers;
+      if (s.fin.cash < 60) return offers.findIndex((b) => b.kind === "kashin");
+      const score = (b) => sum3(b.stats) + (b.skill ? 3 : 0);
+      return offers.reduce((best, b, i) => (score(b) > score(offers[best]) ? i : best), 0);
     },
     crown(g) {
       const list = g.dev.state.succession.candidates;
@@ -145,7 +168,8 @@ const POLICIES = {
 function playOne(seed, policy, fuseki) {
   const g = createGame(seed);
   const { dev, data } = g;
-  const counts = { succession: {}, shogunKaku: [], warned: 0, left: 0, candidates: [], raises: 0 };
+  const counts = { succession: {}, shogunKaku: [], warned: 0, left: 0, candidates: [], raises: 0,
+    wives: {}, stars: [0, 0, 0, 0, 0, 0], daughters: 0 };
   // 決算報告の「その年の出来事」から数える
   const NOTE_PATTERNS = { warned: /不満を漏らしている/, left: /見切りをつけて去った/ };
 
@@ -177,8 +201,21 @@ function playOne(seed, policy, fuseki) {
           for (const note of report.notes) {
             for (const [key, re] of Object.entries(NOTE_PATTERNS)) if (re.test(note)) counts[key] += 1;
           }
+          for (const b of report.births || []) {
+            if (b.sex === "f") counts.daughters += 1;
+            else counts.stars[b.stars] += 1;
+          }
           if (dev.state.nextPhase !== "succession") counts.candidates.push(dev.state.candidates.length);
         }
+      }
+    } else if (s.phase === "marriage") {
+      const i = policy.marry(g);
+      if (i < 0) {
+        dev.declineMarriage();
+      } else {
+        const kind = s.oku.offers[i].kind;
+        counts.wives[kind] = (counts.wives[kind] || 0) + 1;
+        dev.marry(i);
       }
     } else if (s.phase === "report") {
       dev.closeReport();
@@ -215,6 +252,9 @@ function playOne(seed, policy, fuseki) {
     raises: s.retainers.reduce((sum, r) => sum + (r.raises || 0), 0),
     candidates: avg(counts.candidates),
     renowned: (s.renownSeen || []).length,
+    wives: counts.wives,
+    stars: counts.stars,
+    daughters: counts.daughters,
   };
 }
 
@@ -260,6 +300,17 @@ function main() {
     const per100 = (key) => (avg(results.map((r) => (r[key] / Math.max(1, r.years)) * 100))).toFixed(1);
     console.log(`登用の候補: 毎年平均 ${avg(results.map((r) => r.candidates)).toFixed(2)}人　名のある人物: 1回あたり平均 ${avg(results.map((r) => r.renowned)).toFixed(1)}人`);
     console.log(`家臣の不満: 100年あたり 不満 ${per100("warned")}回 / 去った ${per100("left")}人　最後に残った家臣の加増: 平均 ${avg(results.map((r) => r.raises)).toFixed(1)}回`);
+  }
+  const starTotal = [0, 0, 0, 0, 0, 0];
+  for (const r of results) (r.stars || []).forEach((k, i) => { starTotal[i] += k; });
+  const sons = starTotal.reduce((a, b) => a + b, 0);
+  if (sons > 0) {
+    const wives = {};
+    for (const r of results) for (const [kind, k] of Object.entries(r.wives || {})) wives[kind] = (wives[kind] || 0) + k;
+    const WIFE_LABELS = { kuge: "公家の姫", daimyo: "大名の姫", kashin: "家臣の娘" };
+    const wifeTotal = Object.values(wives).reduce((a, b) => a + b, 0);
+    console.log(`若君の素質: ${[1, 2, 3, 4, 5].map((s) => `★${s} ${pct(starTotal[s], sons)}`).join(" / ")}　姫: 1回あたり平均 ${avg(results.map((r) => r.daughters)).toFixed(1)}人`);
+    console.log(`正室: ${Object.entries(wives).map(([k, n]) => `${WIFE_LABELS[k] || k} ${pct(n, wifeTotal)}`).join(" / ")}（1回あたり平均 ${(wifeTotal / n).toFixed(1)}人）`);
   }
   console.log(`（${((Date.now() - started) / 1000).toFixed(1)}秒）`);
 }
