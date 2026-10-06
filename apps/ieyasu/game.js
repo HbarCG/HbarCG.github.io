@@ -44,6 +44,13 @@
   const sellRice = act(E.sellRice);
   const teach = act(E.teach);
   const establish = act(E.establish);
+  const closeEnthrone = act(E.closeEnthrone);
+  const chooseTestament = act(E.chooseTestament);
+
+  // 遺言の決まり（cards.js の testaments）。id がなければ null
+  function testamentDef(id) {
+    return DATA.testaments.find((t) => t.id === id) || null;
+  }
 
   // 年を越す。決算の年を、財務の画面で開く年にしておく（倒幕で終わった年は、そのまま）
   function endYear() {
@@ -195,6 +202,11 @@
       AUDIO.cue('drum');
     } else if (phase === 'marriage') {
       AUDIO.phrase('calm');
+    } else if (phase === 'enthrone') {
+      AUDIO.cue('honor');
+      AUDIO.phrase('calm');
+    } else if (phase === 'reignEnd') {
+      AUDIO.phrase('worry');
     } else if (phase === 'succession') {
       AUDIO.phrase('worry');
     } else if (phase === 'over') {
@@ -378,6 +390,7 @@
           // 決算報告を見ているあいだは、まだその年の暮れとして出す（年はもう進んでいるが、報告と食い違わないように）
           el('strong', { text: state.phase === 'report' && state.report ? `${state.report.year}年の暮れ` : `${state.year}年` }),
           ` 第${s.gen}代 ${s.name}（${s.age}歳）`,
+          s.ailing && state.phase !== 'over' ? el('span', { class: 'iy-warn', text: ' 御不例' }) : null,
         ]),
         // 音を入れる・切る（はじめは切ってある）
         el('button', {
@@ -412,7 +425,7 @@
   function renderTabbar() {
     const alerts = {
       org: vacancies().length > 0 || state.retainers.some((r) => r.unhappy),
-      seimu: ['event', 'succession', 'marriage', 'ship', 'ending'].includes(state.phase),
+      seimu: ['event', 'succession', 'marriage', 'ship', 'ending', 'enthrone', 'reignEnd'].includes(state.phase),
     };
     $('tabbar').replaceChildren(...TABS.map((t) => el('button', {
       type: 'button',
@@ -433,7 +446,7 @@
     const views = {
       prologue: viewPrologue, event: viewEvent, marriage: viewMarriage, talk: viewTalk,
       manage: viewManage, succession: viewSuccession, over: viewOver, report: viewReport,
-      ship: viewShip, ending: viewEnding,
+      ship: viewShip, ending: viewEnding, enthrone: viewEnthrone, reignEnd: viewReignEnd,
     };
     $('stage').replaceChildren(...[].concat(views[state.phase]()).filter(Boolean));
   }
@@ -555,7 +568,7 @@
     const history = t.history ? DATA.history.find((h) => h.year === t.history) : null;
     const speech = (lines) => lines.map((l) => lineOf(l)).map((l) => says(l.who, el('p', { class: 'iy-voice', text: l.text }), l.mood));
     const nodes = [
-      el('p', { class: 'iy-year', text: era ? `${state.year}年　第${DATA.eras.indexOf(era) + 1}章` : `${state.year}年　史実では` }),
+      el('p', { class: 'iy-year', text: era ? `${state.year}年　時代の移り変わり` : `${state.year}年　史実では` }),
       el('h2', { text: era ? era.title : history.title }),
       sceneArt(era ? era.scene : history.scene),
     ];
@@ -887,6 +900,8 @@
       state.result ? null : el('p', { class: 'iy-year', text: `${state.year}年` }),
       el('h2', { class: state.result ? 'iy-manage-title' : '', text: '政務の間' }),
       el('p', { class: 'iy-hint', text: '若君の教育、大奥、制度の整備、代替わりを決める。財務と組織は下のメニューから。終わったら年を越す。' }),
+      state.shogun.ailing ? el('p', { class: 'iy-warn-box', text: `将軍・${state.shogun.name}は病に伏している（御不例・${state.year - state.shogun.ailing.since + 1}年目）。残された時は長くないかもしれぬ。${canRetire() ? '成人した若君に、いまのうちに職を譲ることもできる。' : '跡継ぎの支度を急げ。'}健康が${CONFIG.AILING_RECOVER}まで戻れば、病は癒える。` }) : null,
+      testamentDef(state.shogun.testament) ? el('p', { class: 'iy-hint', text: `先代の遺言「${testamentDef(state.shogun.testament).label}」：${testamentDef(state.shogun.testament).desc}` }) : null,
       ...shipPrepNodes(),
       el('h3', { text: '若君' }),
     );
@@ -951,6 +966,72 @@
     return nodes;
   }
 
+  // 宣下の表紙。将軍1代が、物語の1章になる
+  function viewEnthrone() {
+    const s = state.shogun;
+    const will = testamentDef(s.testament);
+    return [
+      el('p', { class: 'iy-year', text: `${state.year}年　第${s.gen - 3}章` }),
+      el('h2', { text: `第${s.gen}代 ${s.name}の御治世` }),
+      sceneArt('castle'),
+      el('div', { class: 'iy-heir__head' }, [
+        shogunFace('iy-face'),
+        el('p', { class: 'iy-heir__name' }, [
+          el('strong', { text: s.name }), `（${s.age}歳・${s.trait}）`,
+          el('span', { class: 'iy-kaku', text: `格${shogunKaku()}` }),
+        ]),
+      ]),
+      statBars(s.stats, { seimu: '政務', bui: '武威', jintoku: '人徳' }),
+      skillTag(s.skill),
+      kafuLine(s.house),
+      will ? el('p', { class: 'iy-skill' }, [el('span', { class: 'iy-skill__name', text: `先代の遺言「${will.label}」` }), ` ${will.desc}`]) : null,
+      ieyasuSays(el('p', { class: 'iy-voice', text: `「${DATA.enthroneLines[s.trait] || 'さて、この代はどうなるかのう。'}」` })),
+      el('p', { class: 'iy-hint', text: 'この将軍の代が、物語の一章になる。将軍が世を去るか職を譲ると、大名・旗本・町人・朝廷が御治世に点をつける。' }),
+      el('button', { type: 'button', class: 'iy-primary', text: '御治世を始める', onclick: closeEnthrone }),
+    ];
+  }
+
+  // 御治世の評定と、遺言（職を譲るときは申し送り）。state.shogun は、まだ世を去った（職を譲った）将軍
+  function viewReignEnd() {
+    const sc = state.succession;
+    const s = state.shogun;
+    const p = person(s.personId);
+    const r = sc.rating;
+    const retire = sc.reason === 'retire';
+    const how = retire ? '職を譲り、大御所となった。' : sc.reason === 'sudden' ? 'にわかに世を去った。' : '病に伏したのち、世を去った。';
+    const nodes = [
+      el('p', { class: 'iy-year', text: `${state.year}年　第${s.gen - 3}章の終わり` }),
+      el('h2', { text: '御治世の評定' }),
+      sceneArt(retire ? 'hall' : 'sickbed'),
+      el('p', { text: `第${s.gen}代 ${s.name}（在位 ${p.from}〜${p.to}年・${p.to - p.from}年）。${how}` }),
+    ];
+    if (r) {
+      nodes.push(
+        el('p', { class: 'iy-nickname' }, ['後の世は、この将軍を', el('strong', { text: `「${r.nickname}」` }), 'と呼んだ。']),
+        el('p', { class: 'iy-hint', text: r.nickDesc }),
+        el('dl', { class: 'iy-kpis iy-judges' }, r.scores.map((x) => el('div', {}, [
+          el('dt', { text: x.label }),
+          el('dd', { text: `${x.value}点` }),
+        ]))),
+        el('p', { class: 'iy-rating' }, ['合わせて ', el('strong', { text: `${r.total}点` }), ` / 40　`, el('strong', { text: r.title })]),
+        el('p', { class: 'iy-hint', text: DATA.reignJudges.map((j) => `${j.label}は${j.desc}`).join('、') + 'を見て点をつける。' }),
+      );
+    }
+    nodes.push(
+      el('h3', { text: retire ? '次の将軍への申し送り' : '遺言' }),
+      el('p', { class: 'iy-hint', text: '一つ選ぶ。次の将軍の代のあいだ効く（得るものと、失うものがある）。' }),
+      el('div', { class: 'iy-options' }, sc.offers.map((id, i) => {
+        const t = testamentDef(id);
+        return el('button', { type: 'button', class: 'iy-option', onclick: () => chooseTestament(i) }, [
+          el('strong', { text: t.label }),
+          el('span', { class: 'iy-option__hint', text: `「${t.text}」` }),
+          el('span', { text: t.desc }),
+        ]);
+      })),
+    );
+    return nodes;
+  }
+
   function viewSuccession() {
     const { reason, mode, candidates } = state.succession;
     const intro = {
@@ -978,8 +1059,10 @@
     const heirs = candidates.filter((c) => !c.branchId && !c.house);
     const others = candidates.filter((c) => c.branchId || c.house);
     // 代替わりの掛け合い（年で選ぶので、描き直しても変わらない）
-    const talks = DATA.talks[reason === 'retire' ? 'retire' : 'death'] || [];
-    const talk = talks.length ? talkLines({ kind: reason === 'retire' ? 'retire' : 'death', i: state.year % talks.length }) : [];
+    const kind = reason === 'retire' ? 'retire' : 'death';
+    const talks = DATA.talks[kind] || [];
+    const talk = talks.length ? talkLines({ kind, i: state.year % talks.length }) : [];
+    const will = testamentDef(state.succession.testament);
     // 跡継ぎが決まるまで、state.shogun は世を去った（職を譲った）将軍のまま
     const fill = (text) => text.replace('{shogun}', state.shogun.name);
     return [
@@ -988,6 +1071,7 @@
       sceneArt(reason === 'retire' ? 'hall' : 'sickbed'),
       ...talk.map((l) => says(l.who, el('p', { class: 'iy-voice', text: fill(l.text) }), l.mood)),
       el('p', { text: intro }),
+      will ? el('p', { class: 'iy-hint', text: `${reason === 'retire' ? '申し送り' : '遺言'}「${will.label}」は、次の将軍の代のあいだ効く。${will.desc}` }) : null,
       heirs.length ? el('h3', { text: '本家の若君' }) : null,
       heirs.length ? el('div', { class: 'iy-options' }, heirs.map(option)) : null,
       others.length ? el('h3', { text: '御三家・御三卿から迎える' }) : null,
@@ -1028,7 +1112,7 @@
       if (r.gauges.some((g) => g.after <= 20)) return '数字は持っておるが、足元が危うい。手を打たねば。';
       return 'まずまずの一年じゃった。気を抜くでないぞ。';
     })();
-    const isSuccession = state.nextPhase === 'succession';
+    const isReignEnd = state.nextPhase === 'reignEnd';
     return [
       el('p', { class: 'iy-year', text: `${r.year}年の暮れ` }),
       el('h2', { text: `${r.year}年の決算` }),
@@ -1057,7 +1141,7 @@
       // 危機の始まりや、★の高い若君の誕生では、家康のひと言のかわりに家光との掛け合いを出す
       ...(r.talk ? talkLines(r.talk).map((l) => says(l.who, el('p', { class: 'iy-voice', text: l.text }), l.mood))
         : [ieyasuSays(el('p', { class: 'iy-voice', text: comment }), mood)]),
-      el('button', { type: 'button', class: 'iy-primary', text: isSuccession ? '跡継ぎを決める' : '次の年へ', onclick: closeReport }),
+      el('button', { type: 'button', class: 'iy-primary', text: isReignEnd ? '御治世の評定へ' : '次の年へ', onclick: closeReport }),
     ];
   }
 
@@ -1092,6 +1176,7 @@
         el('td', { text: `${p.name}${p.house ? `（${p.house}）` : ''}` }),
         el('td', { text: `${p.from}〜${p.to || ''}（${(p.to || state.year) - p.from}年）` }),
         el('td', { text: p.start ? `${kakuOf(p.start)}${endKaku !== null ? `→${endKaku}` : ''}` : '' }),
+        el('td', { text: p.rating ? `${p.rating.nickname} ${p.rating.total}点` : isCurrent ? '在位中' : '' }),
       ]);
     });
     const insts = DATA.institutions.filter((i) => hasInstitution(i.id)).map((i) => i.name);
@@ -1103,7 +1188,7 @@
       el('h3', { text: '幕府の年表' }),
       el('p', { class: 'iy-hint', text: `開府から${bakufuYears()}年・将軍${shoguns.length}代・制度${insts.length}・組み合わせの妙${syns.length}・栄誉${honors.length}` }),
       el('div', { class: 'iy-scroll' }, el('table', { class: 'iy-table iy-table--chronicle' }, [
-        el('thead', {}, el('tr', {}, ['代', '将軍', '在位', '格'].map((h) => el('th', { text: h })))),
+        el('thead', {}, el('tr', {}, ['代', '将軍', '在位', '格', '評定'].map((h) => el('th', { text: h })))),
         el('tbody', {}, rows),
       ])),
       insts.length ? el('p', { class: 'iy-hint', text: `整えた制度：${insts.join('、')}${syns.length ? `（組み合わせの妙：${syns.join('、')}）` : ''}` }) : null,
@@ -1211,6 +1296,14 @@
         nodes.push(statBars(p.end, { seimu: '政務', bui: '武威', jintoku: '人徳' }, p.start));
         nodes.push(el('p', { class: 'iy-hint', text: `退任時の格${kakuOf(p.end)}（就任時${kakuOf(p.start)}）` }));
       }
+      if (p.rating) {
+        nodes.push(el('p', { class: 'iy-hint' }, [
+          el('strong', { text: `「${p.rating.nickname}」` }),
+          `　御治世の評定 ${p.rating.total}点 / 40（${p.rating.title}）　${p.rating.scores.map((x) => `${x.label}${x.value}`).join('・')}`,
+        ]));
+      }
+      const will = testamentDef(isCurrent ? state.shogun.testament : p.testament);
+      if (will) nodes.push(el('p', { class: 'iy-hint', text: `受けた遺言：「${will.label}」` }));
       if (p.insts.length) nodes.push(el('p', { class: 'iy-hint', text: `整えた制度：${p.insts.join('、')}` }));
       if (p.endGauges) {
         nodes.push(el('p', { class: 'iy-hint', text: `退任時の幕府：${Object.entries(STATE_LABELS).map(([k, l]) => `${l}${p.endGauges[k]}`).join('　')}　純資産 ${money(p.endNet)}万両` }));

@@ -87,6 +87,12 @@
     STRESS_EAGER: -6,       // 将軍の好みに合う裁きをすると、気苦労が減る
     STRESS_RELUCTANT: 6,    // 好みに合わない裁きをすると、気苦労がたまる
     STRESS_DECAY: 2,        // 毎年、自然に減る気苦労
+    // 将軍の寿命。病に伏す（御不例）と、数年のうちに世を去る。予告なしの急死は、ごくまれ。
+    // 病に伏す見込み（1年あたり）は、健康が40を下回るほど、60歳を超えるほど上がる
+    SUDDEN_DEATH: 0.003,    // 予告なしに世を去る見込み（1年あたり）
+    AILING_DEATH: 0.4,      // 御不例のあいだ、1年に世を去る見込み
+    AILING_MAX: 4,          // 御不例は、長くともこの年数で終わる
+    AILING_RECOVER: 50,     // 御不例のあいだに健康がここまで戻れば、病は癒える
   };
 
   const STATE_LABELS = { ikou: '威光', minshin: '民心', chotei: '朝廷' };
@@ -208,6 +214,11 @@
     if (saved.shogun && saved.shogun.stress === undefined) saved.shogun.stress = 0;
     if (saved.shogun && saved.shogun.skill === undefined) saved.shogun.skill = null;
     saved.lastChoice = saved.lastChoice || {};
+    // 御治世の評定を入れる前の保存データ。いまの年から始まったことにする
+    if (saved.reign === undefined && saved.shogun) {
+      saved.reign = { from: saved.year, tags: {}, gauges: { ...saved.gauges }, net: null, kaku: kakuOf(saved.shogun.stats),
+        insts: 0, won: (saved.ships.won || []).length, lost: (saved.ships.lost || []).length, crisis: false };
+    }
     // 結果の画面は政務の間にまとめた
     if (saved.phase === 'result') saved.phase = 'manage';
     if (saved.era === undefined) saved.era = saved.phase === 'prologue' ? null : eraAt(saved.year).id;
@@ -307,6 +318,7 @@
       succession: null,
       crisis: null,
       kien: 0,          // 借入が上限を超えて、借金の棒引き（棄捐令）を命じた回数
+      reign: null,      // いまの将軍の御治世（1章）の始まりの記録。評定に使う（beginReign）
       ledger: { year: CONFIG.START_YEAR, items: [] },
       books: [],
       family: [],
@@ -396,6 +408,7 @@
     state.era = eraAt(state.year).id;
     state.yearStart = snapshot();
     drawCard();
+    beginReign();
   }
 
   // 最後の布石で、制度ではなく「遺訓」を選んだときの効果
@@ -447,6 +460,11 @@
   // 働くのは、いまの将軍の特技だけ
   function hasSkill(id) {
     return state.shogun.skill === id;
+  }
+
+  // いまの将軍に効いている、先代の遺言の id（なければ null）
+  function testament() {
+    return (state.shogun && state.shogun.testament) || null;
   }
 
   // 生まれた子や御三家の若殿の特技。親の特技を受け継ぐか、たまたま新しくつく
@@ -525,7 +543,8 @@
   function birthChance() {
     const s = state.shogun;
     if (s.age < CONFIG.BIRTH_AGE[0] || s.age > CONFIG.BIRTH_AGE[1]) return 0;
-    const p = (state.oku.wife ? CONFIG.WIFE_BIRTH : 0) + state.oku.concubines * CONFIG.CONCUBINE_BIRTH;
+    const p = (state.oku.wife ? CONFIG.WIFE_BIRTH : 0) + state.oku.concubines * CONFIG.CONCUBINE_BIRTH
+      + (testament() === 'ie' && (state.oku.wife || state.oku.concubines) ? 0.1 : 0);
     return Math.min(0.9, p * (hasSkill('kodakara') ? 1.5 : 1));
   }
 
@@ -947,7 +966,7 @@
   function candidateCount() {
     const k = shogunKaku();
     const base = CONFIG.CANDIDATE_STEPS.filter(([min]) => k >= min).pop()[1];
-    return base + (hasSkill('mekiki') ? 1 : 0);
+    return base + (hasSkill('mekiki') ? 1 : 0) + (testament() === 'hito' ? 1 : 0);
   }
 
   // 格が高いほど、腕の立つ者が集まる。格に見合わないほどの腕の者は、はじめから来ない
@@ -1143,17 +1162,20 @@
     // 米価は物価につれて上がるが、物価ほどには上がらない（NENGU_PRICE）
     const ricePrice = 1 + (inflation - 1) * CONFIG.NENGU_PRICE;
     const nengu = Math.round(f.kokudaka * 0.25 * (0.825 + (g.minshin - 50) * CONFIG.MINSHIN_NENGU) * (0.9 + s.stats.seimu / 100)
-      * (1 + (kanjo - 10) * 0.015) * (hasInstitution('kanjo') ? 1.08 : 1) * ricePrice);
+      * (1 + (kanjo - 10) * 0.015) * (hasInstitution('kanjo') ? 1.08 : 1) * ricePrice * (testament() === 'tami' ? 0.97 : 1));
     const mine = Math.round(f.mine);
     // 商いは時代とともに大きくなる（交易の上がりは年々増える）。尾張家の華美な家風なら、さらに15%
     const trade = Math.round(f.trade * (1 + (state.year - CONFIG.START_YEAR) / 250) * (s.house === 'owari' ? 1.15 : 1));
     // 紀伊家の倹約の家風なら、経費が5%減る
-    const costRate = 1 - (kanjo - 10) * 0.01 - (hasInstitution('kanjo') ? 0.05 : 0) - (s.house === 'kii' ? 0.05 : 0);
-    const hatamoto = Math.round(60 * inflation * costRate);
-    const salaries = state.retainers.reduce((sum, r) => sum + (r.post ? r.salary : Math.ceil(r.salary / 2)), 0);
-    const ooku = Math.round(ookuBase() * inflation * costRate * (s.house === 'owari' ? 1.3 : 1));
+    // 遺言「倹約を守れ」でも5%減る
+    const costRate = 1 - (kanjo - 10) * 0.01 - (hasInstitution('kanjo') ? 0.05 : 0) - (s.house === 'kii' ? 0.05 : 0)
+      - (testament() === 'ken' ? 0.05 : 0);
+    const hatamoto = Math.round(60 * inflation * costRate * (testament() === 'bu' ? 1.05 : 1));
+    const salaries = Math.round(state.retainers.reduce((sum, r) => sum + (r.post ? r.salary : Math.ceil(r.salary / 2)), 0)
+      * (testament() === 'hito' ? 1.1 : 1));
+    const ooku = Math.round(ookuBase() * inflation * costRate * (s.house === 'owari' ? 1.3 : 1) * (testament() === 'ie' ? 1.2 : 1));
     // 朝廷との仲が冷えるほど、官位の礼金や公家への付け届けがかさむ（朝廷50以上でもとの額）
-    const court = Math.round(5 * inflation * costRate * (1 + Math.max(0, 50 - g.chotei) * CONFIG.CHOTEI_COURT));
+    const court = Math.round(5 * inflation * costRate * (1 + Math.max(0, 50 - g.chotei) * CONFIG.CHOTEI_COURT) * (testament() === 'kyo' ? 2 : 1));
     const upkeep = state.institutions.reduce((sum, id) => sum + (institution(id)?.upkeep || 0), 0);
     const interest = Math.round(f.debt * CONFIG.INTEREST);
     // 威光が高ければ大名の献上や手伝い普請が入り、低ければ大名を見張る費えがかさむ（威光50で差し引きなし）
@@ -1386,9 +1408,13 @@
         growth = `将軍は乗り気で取り組み、${ABILITY_LABELS[option.grow]}が1上がった。気苦労も少し晴れた。`;
       }
     } else if (option.tag) {
-      sh.stress = clamp((sh.stress || 0) + CONFIG.STRESS_RELUCTANT, 0, 100);
-      growth = `${sh.trait}な将軍は渋々従った（気苦労+${CONFIG.STRESS_RELUCTANT}、いま${sh.stress}）。`;
+      // 遺言「倹約を守れ」に背く華美な裁きは、気苦労がさらにたまる
+      const extra = option.tag === '華美' && testament() === 'ken' ? 3 : 0;
+      sh.stress = clamp((sh.stress || 0) + CONFIG.STRESS_RELUCTANT + extra, 0, 100);
+      growth = `${sh.trait}な将軍は渋々従った（気苦労+${CONFIG.STRESS_RELUCTANT + extra}、いま${sh.stress}）。`;
     }
+    // 御治世の裁きの好みを数える（あだ名に使う）
+    if (option.tag && state.reign) state.reign.tags[option.tag] = (state.reign.tags[option.tag] || 0) + 1;
 
     // 選択の印（数年後の出来事につながる）
     if (option.flag) state.flags[option.flag] = state.year;
@@ -1417,7 +1443,7 @@
   // ─────────────────────────────── 政務の間（教育・制度・隠居）
 
   function teachCost() {
-    return Math.round(CONFIG.TEACH_COST * price());
+    return Math.round(CONFIG.TEACH_COST * price() * (testament() === 'gaku' ? 2 : 1));
   }
 
   function teach(heirIndex, stat) {
@@ -1426,7 +1452,7 @@
     const cost = teachCost();
     state.fin.cash -= cost;
     book('op', '若君の教育費', -cost);
-    const gain = 2 + (hasInstitution('gakumon') ? 1 : 0) + (hasSkill('gakumonzuki') ? 1 : 0);
+    const gain = 2 + (hasInstitution('gakumon') ? 1 : 0) + (hasSkill('gakumonzuki') ? 1 : 0) + (testament() === 'gaku' ? 1 : 0);
     heir.stats[stat] = clamp(heir.stats[stat] + gain, 1, CONFIG.ABILITY_MAX);
     heir.taughtYear = state.year;
     addLog(`若君・${heir.name}に${TEACH_LABELS[stat]}の師をつけた（${ABILITY_LABELS[stat]}+${gain}、${cost}万両）。`);
@@ -1461,6 +1487,7 @@
     book('inv', `制度の整備：${inst.name}`, -cost);
     state.institutions.push(id);
     person(state.shogun.personId).insts.push(inst.name);
+    if (state.reign) state.reign.insts += 1;
     applyInstitutionOn(id);
     if (id === 'gosankyo') foundKyo();
     addLog(`制度「${inst.name}」を整えた。この制度は代をまたいで残る。`);
@@ -1542,6 +1569,10 @@
     if (branchesBalanced()) drift.ikou += 1;
     // 放っておくと、威光と民心は少しずつ下がる（手当てをしないと保てない）。
     // 朝廷はもともと将軍の能力では伸びないので、ここでは下げない
+    // 先代の遺言
+    if (testament() === 'tami') drift.minshin += 1;
+    if (testament() === 'bu') drift.ikou += 1;
+    if (testament() === 'kyo') drift.chotei += 1;
     drift.ikou += CONFIG.DRIFT_SHIFT;
     drift.minshin += CONFIG.DRIFT_SHIFT;
     // 満ち足りた状態は長続きしない（慢心）。50を超えたぶんの一部が、毎年自然に戻る。
@@ -1556,7 +1587,7 @@
     closeBooks();
 
     // 家臣が歳をとる。腕は役目の中で磨かれ（将軍が「名伯楽」なら2倍伸びやすい）、老いれば職を辞す
-    const growChance = hasSkill('hakuraku') ? 0.6 : 0.3;
+    const growChance = (hasSkill('hakuraku') ? 0.6 : 0.3) + (testament() === 'hito' ? 0.1 : 0);
     for (const r of [...state.retainers]) {
       r.age += 1;
       if (r.post && r.age < 45 && Math.random() < growChance) {
@@ -1596,8 +1627,24 @@
       notes.push(`将軍・${s.name}は気苦労がたまり、顔色がすぐれない。`);
     }
     s.health = clamp(s.health, 0, 100);
-    const deathChance = 0.005 + Math.max(0, 40 - s.health) * 0.008 + Math.max(0, s.age - 60) * 0.02;
-    const died = Math.random() < deathChance;
+    // 寿命。病に伏す（御不例）と、数年のうちに世を去る。健康が戻れば病は癒える。予告なしの急死は、ごくまれ
+    let died = false;
+    let fellIll = false;
+    if (s.ailing) {
+      if (s.health >= CONFIG.AILING_RECOVER) {
+        s.ailing = null;
+        notes.push(`将軍・${s.name}は、病から持ち直した。`);
+      } else {
+        died = Math.random() < CONFIG.AILING_DEATH || state.year - s.ailing.since >= CONFIG.AILING_MAX - 1;
+      }
+    } else if (Math.random() < CONFIG.SUDDEN_DEATH) {
+      died = true;
+    } else if (Math.random() < Math.max(0, 40 - s.health) * 0.008 + Math.max(0, s.age - 60) * 0.02) {
+      s.ailing = { since: state.year };
+      fellIll = true;
+      notes.push(`将軍・${s.name}が病に伏した（御不例）。残された時は、長くないかもしれぬ。跡継ぎの支度を急げ。`);
+    }
+    const sudden = died && !s.ailing;
 
     // 家臣の去就と、来年の登用の候補（将軍が亡くなった年は、次の将軍が決まってから）
     if (!died) {
@@ -1651,6 +1698,7 @@
       state.crisis = { years: CONFIG.CRISIS_YEARS };
       notes.push(`${low.join('・')}が尽きた。倒幕の危機！${CONFIG.CRISIS_YEARS}年のうちに立て直さねばならぬ。`);
       crisisBegan = true;
+      if (state.reign) state.reign.crisis = true;
     }
 
     notes.forEach(addLog);
@@ -1666,12 +1714,12 @@
       op: closed.op, inv: closed.inv, fin: closed.fin, cash: closed.cash, debt: closed.debt,
       netChange: closed.net - start.net,
       gauges: Object.keys(STATE_LABELS).map((k) => ({ key: k, before: start.gauges[k], after: state.gauges[k] })),
-      notes: notes.concat(died ? [`将軍・${s.name}が${s.age}歳で世を去った。`] : []),
+      notes: notes.concat(died ? [`将軍・${s.name}が${s.age}歳で${sudden ? '、にわかに' : ''}世を去った。`] : []),
       births,
       omen,
       honors: honors.map((h) => h.name),
       // 節目の掛け合い（cards.js の talks）。何番目のせりふかを決めておき、描き直しても変わらないようにする
-      talk: crisisBegan ? talkPick('crisis') : births.some((b) => (b.stars || 0) >= 4) ? talkPick('star') : null,
+      talk: crisisBegan ? talkPick('crisis') : fellIll ? talkPick('ailing') : births.some((b) => (b.stars || 0) >= 4) ? talkPick('star') : null,
     };
     state.result = null;
 
@@ -1696,7 +1744,7 @@
     state.brief = null;
     if (died) {
       addLog(`将軍・${s.name}が${s.age}歳で世を去った。`);
-      startSuccession('death');
+      startSuccession(sudden ? 'sudden' : 'death');
     } else {
       state.phase = 'event';
       drawCard();
@@ -1721,20 +1769,82 @@
 
   // ─────────────────────────────── 世代交代
 
+  // 御治世（1章）の始まりを記録し、宣下の表紙を出す。評定は、ここからの伸びで決まる
+  function beginReign() {
+    state.reign = {
+      from: state.year, tags: {}, gauges: { ...state.gauges }, net: netAssets() / price(), kaku: shogunKaku(),
+      insts: 0, won: state.ships.won.length, lost: state.ships.lost.length, crisis: false,
+    };
+    state.phase = 'enthrone';
+  }
+
+  // 宣下の表紙を閉じて、その年を始める
+  function closeEnthrone() {
+    beginYear();
+  }
+
+  // 御治世の評定。大名・旗本・町人・朝廷が10点ずつ点をつけ、在位中の裁きの癖からあだ名をつける
+  function rateReign() {
+    const r = state.reign;
+    if (!r) return null;
+    const g = state.gauges;
+    // 在位中にどれだけ良くしたか（4で割る）と、いまの高さ（50から10で割る）
+    const gauge = (k) => 5 + (g[k] - r.gauges[k]) / 4 + (g[k] - 50) / 10;
+    const won = state.ships.won.length - r.won;
+    const lost = state.ships.lost.length - r.lost;
+    // 純資産の増減は、物価を割り引いて比べる
+    const netChange = r.net === null ? 0 : netAssets() / price() - r.net;
+    const raw = {
+      daimyo: gauge('ikou') + (won - lost) * 2,
+      hatamoto: 5 + clamp(netChange / 150, -3, 3) + Math.min(3, r.insts) + (shogunKaku() - r.kaku) / 4,
+      chonin: gauge('minshin'),
+      kuge: gauge('chotei'),
+    };
+    // 倒幕の危機を招いた代は、どの者も1点ずつ辛くつける
+    const scores = DATA.reignJudges.map((j) => ({ key: j.key, label: j.label,
+      value: clamp(Math.round(raw[j.key] - (r.crisis ? 1 : 0)), 1, 10) }));
+    const total = scores.reduce((sum, x) => sum + x.value, 0);
+    // あだ名：いちばん多く選んだ裁きの好み（同じ数なら将軍の性格を優先）。2回に満たなければ性格で決める
+    const tags = Object.entries(r.tags)
+      .sort((a, b) => b[1] - a[1] || (b[0] === state.shogun.trait) - (a[0] === state.shogun.trait));
+    const tag = tags.length && tags[0][1] >= 2 ? tags[0][0] : state.shogun.trait;
+    const nick = DATA.nicknames[tag] || DATA.nicknames['慎重'];
+    return {
+      scores, total, title: DATA.reignRatings.find((x) => total >= x.min).label,
+      nickname: nick.name, nickDesc: nick.desc, years: state.year - r.from,
+    };
+  }
+
+  // 御治世を閉じる。家系図に退任時のようすと評定を記し、評定を返す
   function closeReign(note) {
     const s = state.shogun;
     const p = person(s.personId);
+    const rating = rateReign();
     p.to = state.year;
     p.end = { ...s.stats };
     p.endAge = s.age;
     p.endGauges = { ...state.gauges };
     p.endNet = Math.round(netAssets());
     p.note = note;
+    if (rating) p.rating = rating;
+    if (s.testament) p.testament = s.testament;
+    state.reign = null;
+    return rating;
   }
 
+  // 遺言の候補を3つ。世を去る将軍の性格に合うものを1つ、ほかからくじで2つ
+  function testamentOffers() {
+    const own = DATA.testaments.filter((t) => t.trait === state.shogun.trait);
+    const rest = DATA.testaments.filter((t) => !own.includes(t));
+    const offers = own.slice(0, 1);
+    while (offers.length < 3 && rest.length) offers.push(rest.splice(Math.floor(Math.random() * rest.length), 1)[0]);
+    return offers.map((t) => t.id);
+  }
+
+  // reason: 'death'（病に伏したのち世を去った）/ 'sudden'（にわかに世を去った）/ 'retire'（職を譲った）
   function startSuccession(reason) {
     const s = state.shogun;
-    closeReign(reason === 'retire' ? '隠居して大御所となる。' : `${s.age}歳で没する。`);
+    const rating = closeReign(reason === 'retire' ? '隠居して大御所となる。' : `${s.age}歳で没する。`);
 
     // 本家の若君に加えて、御三家・御三卿からも候補が出る（若君がいれば、さしおいて迎えると威光が下がる）
     const heirs = state.heirs.map((h) => ({ ...h }));
@@ -1748,12 +1858,24 @@
         stats: { seimu: rand(3, 8), bui: rand(3, 8), jintoku: rand(3, 8), kenko: rand(5, 12) },
       }];
     }
-    state.succession = { reason, mode, candidates };
+    // まず御治世の評定と遺言の場面（reignEnd）。遺言を選んだら、跡継ぎを選ぶ（succession）
+    state.succession = { reason, mode, candidates, rating, offers: testamentOffers(), testament: null };
+    state.phase = 'reignEnd';
+  }
+
+  // 遺言を選ぶ（次の将軍の代のあいだ効く）
+  function chooseTestament(index) {
+    const sc = state.succession;
+    const id = sc.offers[index];
+    if (!id) return;
+    sc.testament = id;
+    const t = DATA.testaments.find((x) => x.id === id);
+    addLog(`${state.shogun.name}は、${sc.reason === 'retire' ? '次の将軍に' : '遺言として'}「${t.label}」と言い残した。`);
     state.phase = 'succession';
   }
 
   function crown(index) {
-    const { mode, candidates } = state.succession;
+    const { mode, candidates, testament: will } = state.succession;
     const c = candidates[index];
     const prev = state.shogun;
     const name = makeShogunName();
@@ -1781,6 +1903,8 @@
       health: clamp(c.stats.kenko * 5, 20, 100),
       stats: { ...p.start }, stress: 0, skill: c.skill || null,
       house: branch ? branch.id : null,   // 分家から迎えた将軍は、その家の家風を持ち込む
+      testament: will || null,            // 先代の遺言（この代のあいだ効く）
+      ailing: null,                       // 病に伏しているか（御不例）。{ since: 伏した年 }
     };
     // 新しい将軍の格に応じて、登用の候補が集まり直す
     state.candidates = makeCandidates();
@@ -1812,7 +1936,7 @@
     state.oku = { wife: null, concubines: 0, offers: null, nextOffer: 0 };
     state.succession = null;
     drawCard();
-    beginYear();
+    beginReign();
   }
 
   // 何が尽きて倒れたか（cards.js の endings の名前）。いちばん低いゲージ
@@ -1897,5 +2021,7 @@
     teachCost, teach, institutionCost, institutionStatus, establish, canRetire, retire,
     // 年を越す・場面を進める
     endYear, closeReport, closeTalk, eraAt, crown, overCause,
+    // 将軍1代（章）
+    closeEnthrone, chooseTestament, testament,
   };
 })();

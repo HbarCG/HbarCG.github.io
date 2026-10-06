@@ -1468,3 +1468,30 @@ body.iy-coaching .iy-raise {
   font-size: 0.92rem;
   color: var(--color-text-muted);
 }
+
+/* ─── 御治世の評定 */
+.iy-nickname {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+}
+
+.iy-nickname strong {
+  font-size: 1.2rem;
+}
+
+.iy-judges {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  text-align: center;
+}
+
+.iy-judges dd {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.iy-rating {
+  margin: 0 0 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, #d4a63a 18%, var(--color-bg));
+}

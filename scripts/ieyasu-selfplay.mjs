@@ -80,6 +80,7 @@ const POLICIES = {
     crown: () => 0,
     marry: (g) => Math.floor(g.rand() * g.dev.state.oku.offers.length),
     boost: () => false,
+    testament: (g) => Math.floor(g.rand() * g.dev.state.succession.offers.length),
   },
   basic: {
     choose(g, card) {
@@ -199,7 +200,7 @@ function playOne(seed, policy, fuseki) {
   const { dev, data } = g;
   const counts = { succession: {}, shogunKaku: [], warned: 0, left: 0, candidates: [], raises: 0,
     wives: {}, stars: [0, 0, 0, 0, 0, 0], daughters: 0, meddle: 0, balancedYears: 0, lowYears: 0, gaugeSum: 0, shipsArrived: [], ending: null,
-    events: 0, repeats: 0, talks: 0, purse: {} };
+    events: 0, repeats: 0, talks: 0, purse: {}, ratings: [], ends: {} };
   // 決算報告の「その年の出来事」から数える
   const NOTE_PATTERNS = { warned: /不満を漏らしている/, left: /見切りをつけて去った/ };
 
@@ -278,6 +279,15 @@ function playOne(seed, policy, fuseki) {
       // 時代の章・史実の節目の掛け合い（読むだけ）
       counts.talks += 1;
       dev.closeTalk();
+    } else if (s.phase === "enthrone") {
+      // 宣下の表紙（読むだけ）
+      dev.closeEnthrone();
+    } else if (s.phase === "reignEnd") {
+      // 御治世の評定と遺言
+      const sc = s.succession;
+      if (sc.rating) counts.ratings.push(sc.rating);
+      counts.ends[sc.reason] = (counts.ends[sc.reason] || 0) + 1;
+      dev.chooseTestament(policy.testament ? policy.testament(g) : 0);
     } else if (s.phase === "succession") {
       const { mode, candidates } = s.succession;
       const pickIndex = policy.crown(g);
@@ -329,6 +339,8 @@ function playOne(seed, policy, fuseki) {
     talks: counts.talks,
     kien: s.kien || 0,
     purse: counts.purse,
+    ratings: counts.ratings,
+    ends: counts.ends,
     firstKien: counts.firstKien,
   };
 }
@@ -400,6 +412,17 @@ function main() {
     }).join(" / ");
     const endings = results.filter((r) => r.ending !== null).map((r) => r.ending);
     console.log(`異国船: ${line}　黒船に屈して倒幕 ${pct(results.filter((r) => r.blackFall).length, n)}　結末（黒船を退けた）${pct(endings.length, n)}${endings.length ? `（平均 開府${Math.round(avg(endings))}年）` : ""}`);
+  }
+  const ratings = results.flatMap((r) => r.ratings);
+  if (ratings.length) {
+    const titles = {};
+    for (const x of ratings) titles[x.title] = (titles[x.title] || 0) + 1;
+    const ends = {};
+    for (const r of results) for (const [k, v] of Object.entries(r.ends)) ends[k] = (ends[k] || 0) + v;
+    const endTotal = Object.values(ends).reduce((a, b) => a + b, 0);
+    console.log(`御治世の評定: 平均${avg(ratings.map((x) => x.total)).toFixed(1)}/40　在位 平均${avg(ratings.map((x) => x.years)).toFixed(1)}年　`
+      + Object.entries(titles).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${pct(v, ratings.length)}`).join(' / '));
+    console.log(`代の終わり方: 病に伏したのち ${pct(ends.death || 0, endTotal)} / にわかに ${pct(ends.sudden || 0, endTotal)} / 職を譲る ${pct(ends.retire || 0, endTotal)}`);
   }
   const kienGames = results.filter((r) => r.kien > 0);
   for (const y of [100, 200]) {
