@@ -350,6 +350,11 @@ function playOne(seed, policy, fuseki) {
     projectsByYear: (s.projectsDone || []).filter((p) => p.year <= 1853).length,
     ends: counts.ends,
     firstKien: counts.firstKien,
+    // 味付け：二つ名（1853年まで）と種類、締めた十年、終わりの江戸の町の段
+    epithets: (s.meishin || []).filter((m) => m.year <= 1853).length,
+    epithetKinds: (s.meishin || []).map((m) => m.kind),
+    decades: (s.decades || []).length,
+    town: dev.townView ? dev.townView().level : 0,
   };
 }
 
@@ -444,6 +449,19 @@ function main() {
   const works = results.flatMap((r) => r.projects);
   if (works.length) {
     console.log(`普請: 1回あたり平均${avg(results.map((r) => r.projects.length)).toFixed(1)}件（1853年までに${avg(results.map((r) => r.projectsByYear)).toFixed(1)}件）　評定 平均${avg(works).toFixed(1)}/40`);
+  }
+  if (results.some((r) => r.decades)) {
+    const postNames = Object.fromEntries(createGame(0).dev.POSTS.map((p) => [p.id, p.name]));
+    const kinds = {};
+    const KIND_LABELS = { work: '普請', ship: '異国船', elder: '長く仕えた', special: '名のある人物' };
+    for (const r of results) {
+      for (const k of r.epithetKinds) {
+        const label = KIND_LABELS[k] || (postNames[k] || k);
+        kinds[label] = (kinds[label] || 0) + 1;
+      }
+    }
+    console.log(`味付け: 見立番付 1回あたり平均${avg(results.map((r) => r.decades)).toFixed(1)}回　二つ名 1853年までに平均${avg(results.map((r) => r.epithets)).toFixed(1)}人（全体の内訳 `
+      + Object.entries(kinds).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join('・') + `）　終わりの江戸の町 平均${avg(results.map((r) => r.town)).toFixed(1)}段`);
   }
   const kienGames = results.filter((r) => r.kien > 0);
   for (const y of [100, 200]) {

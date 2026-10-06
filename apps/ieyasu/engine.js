@@ -101,6 +101,10 @@
     WISH_JUDGE: 1,          // 宿願を果たした代は、御治世の評定で、どの者も1点ずつ甘くつける
     PROJECT_AGAIN: 10,      // くり返せる普請は、終わってからこの年数がたつと、また始められる
     PROJECT_MULT: [0.6, 1.5], // 普請の評定の点（4〜40点）しだいで、効き目がこの幅で変わる
+    // 家臣の二つ名（効き目はなく、記録のためのもの）
+    EPITHET_POST: [15, 18], // 同じ役職を [0] 年以上、腕 [1] 以上で務めると、役職ごとの二つ名がつく
+    EPITHET_WORK: 30,       // 普請の評定がこの点以上なら、奉行に二つ名がつく
+    EPITHET_ELDER: 45,      // この年数以上仕えると、二つ名がつく
   };
 
   const STATE_LABELS = { ikou: '威光', minshin: '民心', chotei: '朝廷' };
@@ -136,6 +140,7 @@
   const SAVE_KEY = 'ieyasu-save';
   const BEST_KEY = 'ieyasu-best';
   const HONORS_KEY = 'ieyasu-honors';   // これまでの周回で得た栄誉（周回をまたいで残る）
+  const ZUKAN_KEY = 'ieyasu-zukan';     // 図鑑（これまでの周回で出会ったもの。周回をまたいで残る）
   const SAVE_VERSION = 2;
 
   // ゲームの状態。作り直さずに中身を入れ替えるので、画面の側は同じ入れ物を見続けられる
@@ -226,6 +231,13 @@
     if (saved.project === undefined) saved.project = null;
     saved.projectsDone = saved.projectsDone || [];
     saved.shipPower = saved.shipPower || 0;
+    // 見立番付と二つ名を入れる前の保存データ。仕えた年と役職に就いた年は、いまの年から数える
+    saved.decades = saved.decades || [];
+    saved.meishin = saved.meishin || [];
+    for (const r of saved.retainers || []) {
+      if (r.since === undefined) r.since = saved.year;
+      if (r.post && r.postSince === undefined) r.postSince = saved.year;
+    }
     // 御治世の評定を入れる前の保存データ。いまの年から始まったことにする
     if (saved.reign === undefined && saved.shogun) {
       saved.reign = { from: saved.year, tags: {}, gauges: { ...saved.gauges }, net: null, kaku: kakuOf(saved.shogun.stats),
@@ -276,6 +288,27 @@
       return JSON.parse(localStorage.getItem(HONORS_KEY)) || [];
     } catch (e) {
       return [];
+    }
+  }
+
+  // 図鑑。{ cards: [id, ...], renowned: [名前, ...], ... } の形で、出会ったものを周回をまたいで残す
+  function loadZukan() {
+    try {
+      return JSON.parse(localStorage.getItem(ZUKAN_KEY)) || {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function noteZukan(kind, id) {
+    try {
+      const all = loadZukan();
+      const list = all[kind] || [];
+      if (list.includes(id)) return;
+      all[kind] = list.concat(id);
+      localStorage.setItem(ZUKAN_KEY, JSON.stringify(all));
+    } catch (e) {
+      // 記録できなくてもゲームは続けられる
     }
   }
 
@@ -344,6 +377,9 @@
       project: null,    // 進めている普請（{ id, bugyo: 奉行の家臣の id, from: 始めた年 }）
       projectsDone: [], // 終わった普請（{ id, year, total, title, trade }）
       shipPower: 0,     // 普請（台場・大船など）で上がった、異国船との勝負の力
+      decade: null,     // いまの十年の始まりの記録（見立番付に使う。decadeStart）
+      decades: [],      // 締めた十年（{ from, to, label, era, name, score }）。見立番付に並べる
+      meishin: [],      // 名臣録。二つ名のついた家臣（{ name, epithet, kind, desc, year }）
       legacy: null,     // 最後の布石で選んだ遺訓（制度でないもの）
       report: null,     // 一年の決算報告
       nextPhase: null,  // 決算報告のあとに進む場面
@@ -421,7 +457,13 @@
     addLog(`家光の忘れ形見、若君・${heir.name}が生まれた（素質${starText(heir.stars)} ${starInfo(heir.stars).label}）。`);
     applyLegacy(heir);
     for (const id of state.institutions) applyInstitutionOn(id);
+    // 家光の代からの家臣も、仕えた年数（二つ名に使う）は本編の始まりから数える
+    for (const r of state.retainers) {
+      r.since = state.year;
+      if (r.post) r.postSince = state.year;
+    }
     state.era = eraAt(state.year).id;
+    state.decade = decadeStart();
     state.yearStart = snapshot();
     drawCard();
     beginReign();
@@ -898,7 +940,7 @@
   }
 
   function startBattle() {
-    state.battle = { ship: state.ships.next, round: 0, results: [], done: false, victory: null, changes: [], honors: [] };
+    state.battle = { ship: state.ships.next, round: 0, results: [], done: false, victory: null, changes: [], honors: [], epithets: [] };
     state.phase = 'ship';
   }
 
@@ -916,8 +958,15 @@
     }
     const power = roundParts(roundId).power + (boost ? CONFIG.SHIP_BOOST : 0);
     const chance = roundChance(power, ship);
-    b.results.push({ id: roundId, win: Math.random() < chance, power, chance, boost });
+    const win = Math.random() < chance;
+    b.results.push({ id: roundId, win, power, chance, boost });
     b.round += 1;
+    // 勝負に勝った役職の家臣には、二つ名がつく
+    if (win) {
+      const text = grantEpithet(holder(DATA.shipRounds[roundId].post), 'ship',
+        `${ship.name}との勝負「${DATA.shipRounds[roundId].name}」に勝った`, { ship: ship.name });
+      if (text) (b.epithets = b.epithets || []).push(text);
+    }
     const wins = b.results.filter((r) => r.win).length;
     const losses = b.results.length - wins;
     if (wins >= ship.need) finishBattle(true);
@@ -935,6 +984,7 @@
     sh.arriving = null;
     sh.last = state.year;
     (victory ? sh.won : sh.lost).push(ship.id);
+    if (victory) noteZukan('ships', ship.id);
     if (victory && ship.final) state.flags.opened = state.year;
     const wins = b.results.filter((r) => r.win).length;
     addLog(`${ship.name}の来航：${victory ? '退けた' : '屈した'}（${wins}勝${b.results.length - wins}敗）。`);
@@ -1037,6 +1087,7 @@
     if (pool.length === 0) return null;
     const p = pick(pool);
     state.renownSeen.push(p.name);
+    noteZukan('renowned', p.name);
     const r = makeRetainer({ name: p.name, age: p.age, stats: { ...p.stats } });
     r.renowned = p.desc;
     return r;
@@ -1069,6 +1120,7 @@
     const r = state.retainers.find((x) => x.id === retainerId);
     if (r) {
       r.post = postId;
+      r.postSince = state.year;
       addLog(`${r.name}を${POSTS.find((p) => p.id === postId).name}に任じた。`);
     }
   }
@@ -1080,6 +1132,7 @@
       if (free.length === 0) break;
       const best = free.reduce((a, b) => (b.stats[post.stat] > a.stats[post.stat] ? b : a));
       best.post = post.id;
+      best.postSince = state.year;
       addLog(`${best.name}を${post.name}に任じた。`);
     }
   }
@@ -1087,6 +1140,7 @@
   function hire(index) {
     if (state.retainers.length >= CONFIG.MAX_RETAINERS) return;
     const c = state.candidates.splice(index, 1)[0];
+    c.since = state.year;
     state.retainers.push(c);
     addLog(`${c.name}を召し抱えた（俸禄 年${c.salary}万両）。`);
   }
@@ -1474,6 +1528,7 @@
 
     state.seen[card.id] = state.year;
     state.lastChoice[card.id] = option.label;
+    noteZukan('cards', card.id);
     state.brief = null;
     state.result = {
       title: card.title,
@@ -1549,6 +1604,7 @@
       if (state.synergies.includes(syn.id)) continue;
       if (!syn.needs.every((id) => hasInstitution(id))) continue;
       state.synergies.push(syn.id);
+      noteZukan('synergies', syn.id);
       if (syn.on) applyEffects(syn.on);
       addLog(`組み合わせの妙「${syn.name}」が生まれた。${syn.desc}`);
     }
@@ -1761,6 +1817,11 @@
     const project = advanceProject();
     const wish = checkWish();
     if (wish) notes.push(wish.text);
+    const epithets = checkEpithets();
+    // 十年の締め（見立番付）。倒幕の危機にあった年を数えてから締める
+    if (!state.decade) state.decade = decadeStart();
+    if (state.crisis) state.decade.crisisYears += 1;
+    const banzuke = closeDecade();
 
     // 一年の決算報告をつくる
     const closed = state.books[0];
@@ -1776,6 +1837,8 @@
       honors: honors.map((h) => h.name),
       wish,
       project,
+      epithets,
+      banzuke,
       // 節目の掛け合い（cards.js の talks）。何番目のせりふかを決めておき、描き直しても変わらないようにする
       talk: crisisBegan ? talkPick('crisis') : fellIll ? talkPick('ailing') : births.some((b) => (b.stars || 0) >= 4) ? talkPick('star') : null,
     };
@@ -1783,7 +1846,7 @@
 
     // 何も起きなかった年は、決算の画面を出さずに次の年へ進み、翌年の出来事の上に1行で知らせる
     const run = runway();
-    const quiet = !died && !wish && !project && notes.length === 0 && births.length === 0 && !omen && honors.length === 0
+    const quiet = !died && !wish && !project && !banzuke && epithets.length === 0 && notes.length === 0 && births.length === 0 && !omen && honors.length === 0
       && !state.crisis && closed.op >= 0 && !(run && run.years <= 15);
     const report = state.report;
 
@@ -1823,6 +1886,153 @@
     else state.phase = state.nextPhase;
     state.nextPhase = null;
     state.report = null;
+  }
+
+  // ─────────────────────────────── 家臣の二つ名
+
+  // 名字（名前の最後の2文字が名。「本多正勝」なら「本多」）
+  function surname(name) {
+    return name.length > 2 ? name.slice(0, -2) : name;
+  }
+
+  // 二つ名をつける（1人に1つまで）。kind: 役職の id / 'work'（普請） / 'ship'（異国船） / 'elder'（長く仕えた）。
+  // desc は名臣録に残す働き。ついたら決算報告などに出す一文を、つかなければ null を返す
+  function grantEpithet(r, kind, desc, vars = {}) {
+    if (!r || r.epithet) return null;
+    const def = DATA.epithets;
+    const special = def.special[r.name];
+    const epithet = special || (def.post[kind] || def[kind]).replace('{sei}', surname(r.name)).replace('{ship}', vars.ship || '');
+    r.epithet = epithet;
+    state.meishin.push({ name: r.name, epithet, kind: special ? 'special' : kind, desc, year: state.year });
+    noteZukan('epithets', special ? r.name : kind);
+    const text = `${postOf(r)}${r.name}は、「${epithet}」と呼ばれるようになった（${desc}）。`;
+    addLog(text);
+    return text;
+  }
+
+  // 年の暮れに、長く役目を務めた家臣・長く仕えた家臣に二つ名をつける。ついた一文の一覧を返す
+  function checkEpithets() {
+    const out = [];
+    for (const r of state.retainers) {
+      if (r.epithet) continue;
+      const post = r.post ? POSTS.find((p) => p.id === r.post) : null;
+      const tenure = post && r.postSince !== undefined ? state.year - r.postSince + 1 : 0;
+      const served = r.since !== undefined ? state.year - r.since + 1 : 0;
+      let text = null;
+      if (post && tenure >= CONFIG.EPITHET_POST[0] && r.stats[post.stat] >= CONFIG.EPITHET_POST[1]) {
+        text = grantEpithet(r, post.id, `${post.name}として${tenure}年、${RETAINER_LABELS[post.stat]}${r.stats[post.stat]}の腕で務めた`);
+      } else if (served >= CONFIG.EPITHET_ELDER) {
+        text = grantEpithet(r, 'elder', `${served}年にわたって仕えた`);
+      }
+      if (text) out.push(text);
+    }
+    return out;
+  }
+
+  // ─────────────────────────────── 見立番付（十年ごと）
+
+  // 十年の始まりの記録。締めるときに、ここからの伸びを見る
+  function decadeStart() {
+    return {
+      from: state.year, gauges: { ...state.gauges }, net: netAssets() / price(), honors: state.honors.length,
+      won: state.ships.won.length, lost: state.ships.lost.length, projects: state.projectsDone.length,
+      insts: state.institutions.length, kien: state.kien || 0, crisisYears: 0,
+    };
+  }
+
+  // 1〜99を漢数字にする（前頭の枚目に使う）
+  function kanjiNumber(n) {
+    const digits = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+    const tens = Math.floor(n / 10);
+    return `${tens > 1 ? digits[tens] : ''}${tens ? '十' : ''}${digits[n % 10]}`;
+  }
+
+  // 番付の何番目（1から）の位。1番目が東の大関、2番目が西の大関、3番目が東の関脇……、小結の下は前頭
+  function banzukeRank(place) {
+    const side = place % 2 === 1 ? '東' : '西';
+    const tier = Math.floor((place - 1) / 2);
+    const ranks = DATA.banzuke.ranks;
+    const rank = tier < ranks.length ? ranks[tier] : tier === ranks.length ? '前頭筆頭' : `前頭${kanjiNumber(tier - ranks.length + 1)}枚目`;
+    return { side, rank, rankLabel: `${side}の${rank}` };
+  }
+
+  // 締めた十年を、点の高い順に並べた番付（同じ点なら、先の十年が上）
+  function banzukeTable() {
+    return [...state.decades].sort((a, b) => b.score - a.score || a.from - b.from)
+      .map((d, i) => ({ ...d, place: i + 1, ...banzukeRank(i + 1) }));
+  }
+
+  // 十年の治世に点をつけ、見立（いちばん目立ったこと）を決める
+  function rateDecade(d) {
+    const g = state.gauges;
+    const won = state.ships.won.slice(d.won);
+    const lost = state.ships.lost.slice(d.lost);
+    const works = state.projectsDone.slice(d.projects);
+    const honors = state.honors.slice(d.honors);
+    const insts = state.institutions.slice(d.insts);
+    const kien = (state.kien || 0) - d.kien;
+    const stars = state.family.filter((p) => p.childName && p.born >= d.from && (p.stars || 0) >= 4).length;
+    const netChange = netAssets() / price() - d.net;
+    // 威光・民心・朝廷は、いまの高さと十年の伸びの両方を見る。金蔵は、物価を割り引いた純資産の増減を見る
+    let score = 50 + clamp(netChange / 40, -10, 10) + honors.length * 3 + (won.length - lost.length) * 10
+      + works.reduce((sum, p) => sum + (p.total - 20) / 3 + 2, 0) + insts.length * 2
+      - d.crisisYears * 4 - kien * 6 + stars * 3;
+    for (const k of Object.keys(STATE_LABELS)) score += (g[k] - 50) / 4 + (g[k] - d.gauges[k]) / 4;
+    score = clamp(Math.round(score), 0, 100);
+
+    const names = DATA.banzuke.names;
+    const shipName = (id) => DATA.ships.find((x) => x.id === id).name;
+    const best = works.reduce((a, p) => (!a || p.total > a.total ? p : a), null);
+    const rise = Object.keys(STATE_LABELS).map((k) => [k, g[k] - d.gauges[k]]).sort((a, b) => b[1] - a[1])[0];
+    let name;
+    if (won.length) name = names.shipWon.replace('{ship}', shipName(won[won.length - 1]));
+    else if (lost.length) name = names.shipLost.replace('{ship}', shipName(lost[lost.length - 1]));
+    else if (d.crisisYears) name = names.crisis;
+    else if (kien) name = names.kien;
+    else if (best && best.total >= 26) name = names.project.replace('{project}', projectDef(best.id).name);
+    else if (stars) name = names.star;
+    else if (honors.length) name = names.honor.replace('{honor}', DATA.honors.find((h) => h.id === honors[honors.length - 1]).name);
+    else if (insts.length) name = names.inst.replace('{inst}', institution(insts[insts.length - 1]).name);
+    else if (rise[1] >= 8) name = names[rise[0]];
+    else if (netChange >= 150) name = names.money;
+    else if (netChange <= -150) name = names.poor;
+    else name = names.calm;
+    return { score, name };
+  }
+
+  // 年の暮れに、十年の締めの年（1649年・1659年……）なら、その十年を番付に載せる。決算報告に出す中身を返す。
+  // 始まってから5年に満たない十年（本編の始まりの1637〜1639年）は、次の十年とまとめて締める
+  function closeDecade() {
+    const d = state.decade;
+    if (state.year % 10 !== 9 || state.year - d.from + 1 < 5) return null;
+    const { score, name } = rateDecade(d);
+    const label = `${state.year - 9}年代`;
+    const entry = { from: d.from, to: state.year, label, era: eraAt(state.year).title, name, score };
+    state.decades.push(entry);
+    state.decade = decadeStart();
+    state.decade.from = state.year + 1;
+    const table = banzukeTable();
+    const mine = table.find((x) => x.from === entry.from);
+    const lines = DATA.banzuke.lines;
+    const half = Math.ceil(table.length / 2);
+    const line = mine.place <= 2 ? lines.top : mine.place <= 6 ? lines.high : mine.place <= half ? lines.mid : lines.low;
+    addLog(`見立番付：${label}は「${name}」（${score}点）。これまでの十年${table.length}のうち、${mine.rankLabel}。`);
+    return { ...entry, place: mine.place, rank: mine.rankLabel, count: table.length, line };
+  }
+
+  // ─────────────────────────────── 江戸の町
+
+  // 江戸の町の育ち（絵に使う）。普請・制度・年月・民心・商いで、町は大きくなる（1〜6段）
+  function townView() {
+    const points = state.projectsDone.length + state.institutions.length / 2
+      + Math.floor(Math.max(0, state.year - CONFIG.START_YEAR) / 30)
+      + (state.gauges.minshin >= 60 ? 1 : 0) + (state.fin.trade >= 15 ? 1 : 0);
+    return {
+      level: clamp(1 + Math.floor(points / 4), 1, 6),
+      works: [...new Set(state.projectsDone.map((p) => p.id))],
+      minshin: state.gauges.minshin,
+      opened: Boolean(state.flags.opened),
+    };
   }
 
   // ─────────────────────────────── 世代交代
@@ -1906,8 +2116,11 @@
     const title = DATA.projectRatings.find((x) => total >= x.min).label;
     state.projectsDone.push({ id: def.id, year: state.year, total, title, trade: scaled.trade || 0 });
     state.project = null;
+    noteZukan('projects', def.id);
     addLog(`普請「${def.name}」が成った。評定は${total}点（${title}）。`);
-    return { id: def.id, name: def.name, scene: def.scene, bugyo: bugyo ? bugyo.name : null, scores, total, title, changes };
+    // 見事にやり遂げた奉行には、二つ名がつく
+    const epithet = bugyo && total >= CONFIG.EPITHET_WORK ? grantEpithet(bugyo, 'work', `普請「${def.name}」を、評定${total}点でやり遂げた`) : null;
+    return { id: def.id, name: def.name, scene: def.scene, bugyo: bugyo ? bugyo.name : null, scores, total, title, changes, epithet };
   }
 
   // ─────────────────────────────── 宿願と家訓
@@ -2011,6 +2224,7 @@
     if (rule.lower ? now > w.target : now < w.target) return null;
     w.done = true;
     w.year = state.year;
+    noteZukan('wishes', w.id);
     const def = wishDef(w.id);
     const k = kakunDef(def.kakun);
     state.kakun[k.id] = Math.min(CONFIG.KAKUN_MAX, kakun(k.id) + 1);
@@ -2060,6 +2274,7 @@
       .sort((a, b) => b[1] - a[1] || (b[0] === state.shogun.trait) - (a[0] === state.shogun.trait));
     const tag = tags.length && tags[0][1] >= 2 ? tags[0][0] : state.shogun.trait;
     const nick = DATA.nicknames[tag] || DATA.nicknames['慎重'];
+    noteZukan('nicknames', DATA.nicknames[tag] ? tag : '慎重');
     return {
       scores, total, title: DATA.reignRatings.find((x) => total >= x.min).label,
       nickname: nick.name, nickDesc: nick.desc, years: state.year - r.from,
@@ -2281,5 +2496,7 @@
     heirCap, expectedChildKaku,
     // 普請
     projectDef, projectCost, projectOptions, bestBugyo, startProject, projectLeft,
+    // 味付け（見立番付・二つ名・江戸の町・図鑑）
+    banzukeTable, banzukeRank, townView, loadZukan,
   };
 })();

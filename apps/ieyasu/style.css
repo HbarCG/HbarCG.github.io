@@ -1520,3 +1520,49 @@ body.iy-coaching .iy-raise {
   margin: 0.5rem 0;
   font-weight: 700;
 }
+
+/* ─── 見立番付・図鑑・江戸の町 */
+.iy-edo-caption {
+  margin-top: 0.35rem;
+}
+
+.iy-banzuke {
+  font-size: 0.82rem;
+  table-layout: fixed;
+}
+
+.iy-banzuke th,
+.iy-banzuke td,
+.iy-banzuke td:last-child {
+  text-align: center;
+  vertical-align: top;
+  line-height: 1.5;
+  white-space: normal;
+}
+
+/* 真ん中の位の列（大関・関脇……）は細く、縦書きふうに詰める */
+.iy-banzuke th:nth-child(2) {
+  width: 4.5em;
+  font-family: var(--font-serif);
+  white-space: nowrap;
+}
+
+.iy-banzuke__mine {
+  outline: 2px solid var(--color-accent-bar);
+  outline-offset: -2px;
+}
+
+.iy-zukan summary {
+  cursor: pointer;
+  font-size: 0.92rem;
+  color: var(--color-link);
+  padding: 0.3rem 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.iy-zukan ul {
+  margin: 0 0 0.5rem;
+  padding-left: 1.2rem;
+  font-size: 0.86rem;
+  line-height: 1.7;
+}

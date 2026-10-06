@@ -4,6 +4,7 @@
 //
 //   IEYASU_ART.scene('fire')        … 出来事の場面（横長）。名前は SCENES の一覧を参照
 //   IEYASU_ART.scene('fire', 'bad') … 結果の絵。'good' なら金の光、'bad' なら曇り空と雨を重ねる
+//   IEYASU_ART.edo({ level: 3, works: ['josui'] }) … 江戸の町。町の育ちと、終わった普請で絵が変わる
 //   IEYASU_ART.ieyasu('worry')      … 家康（神さま姿）の顔。'calm' / 'worry' / 'angry'
 //   IEYASU_ART.shogun('華美', 12, 55) … 将軍の顔。性格で着物の色が、人ごとの番号で顔つきが、歳で髪の白さとしわが変わる
 //   IEYASU_ART.child('慎重', 12)     … 若君の顔（番号で顔つきが少し変わる）
@@ -751,6 +752,74 @@ window.IEYASU_ART = (() => {
     return wrap(entry[1]() + outcomeLayer(outcome), label);
   }
 
+  // 江戸の町。v: { level: 町の育ち（1〜6）, works: 終わった普請の id, minshin: 民心, opened: 黒船を退けて国を開いたか }。
+  // 段が上がるほど家が増え、終わった普請が絵に加わる（上水の樋・日本橋と街道・堤・新田・天守・学問所・湊の船・台場・大船など）
+  function edo(v = {}) {
+    const level = v.level || 1;
+    const has = (name) => (v.works || []).includes(name);
+    const minshin = v.minshin === undefined ? 50 : v.minshin;
+    // 空と富士と、遠くの山
+    let out = sky('#cfe0e6', C.paper) + sun(46, 30, 11, C.red) + kasumi(140, 20, 110);
+    out += `<path d="M188,92 L234,44 Q241,38 248,44 L300,92 Z" fill="#8ea3b5"/>
+      <path d="M224,55 L234,44 Q241,38 248,44 L259,56 Q253,52 249,57 Q243,51 239,57 Q232,52 224,55 Z" fill="${C.white}"/>`;
+    out += mountains(100, '#a9bab2', [[0, 28], [60, 14], [120, 32], [180, 26], [240, 38], [320, 30]]);
+    out += ground(96, has('shinden') ? '#a3b56c' : C.green);
+    // 上水（左の奥から町へ水を引く木の樋）
+    if (has('josui')) {
+      out += `<path d="M-2,104 L74,114" stroke="${C.earth2}" stroke-width="3"/><path d="M-2,103 L74,113" stroke="#7fb0d0" stroke-width="1.2"/>
+        ${[8, 26, 44, 62].map((x) => `<line x1="${x}" y1="${105 + x * 0.13}" x2="${x}" y2="${112 + x * 0.13}" stroke="${C.earth2}" stroke-width="1"/>`).join('')}`;
+    }
+    // 測量の旗（蝦夷地の見分）
+    if (has('ezo')) out += flag(18, 112, 24, C.red, false);
+    // 江戸城。天守を再建していれば大きく、金の光をまとう
+    if (has('tenshu')) {
+      const glow = radial([[0, C.gold2, 0.45], [1, C.gold2, 0]]);
+      out += `<defs>${glow.def}</defs><circle cx="140" cy="76" r="48" fill="url(#${glow.id})"/>` + castle(140, 112, 0.82);
+    } else {
+      out += castle(140, 112, 0.6);
+    }
+    if (has('toshogu')) out += torii(44, 118, 0.42);
+    if (has('gakumonjo')) out += house(238, 118, 34, 13, '#3f5e5a', '#f6efe0');
+    // 奥の家並み（町が育つほど増える）
+    const back = 2 + level * 2;
+    for (let i = 0; i < back; i++) {
+      const x = 4 + ((i * 47) % 296);
+      if (x > 104 && x < 176) continue; // 城の前はあけておく
+      out += house(x, 120 + (i % 2) * 2, 16 + (i % 3) * 2, 8, i % 3 === 2 ? C.roof2 : C.roof);
+    }
+    // 川と、堤（堤を築いていれば、土手と柳が並ぶ。なければ濁った暴れ川）
+    out += `<path d="M-4,127 Q60,121 120,127 T236,128" stroke="${has('tsutsumi') ? C.sea : '#7d8a78'}" stroke-width="6" fill="none"/>`;
+    if (has('tsutsumi')) {
+      out += `<path d="M-4,122 Q60,116 120,122 T232,123" stroke="${C.earth}" stroke-width="2" fill="none"/>
+        ${[16, 70, 190].map((x) => `<path d="M${x},121 q-3,6 -4,10 M${x},121 q0,6 1,10 M${x},121 q3,6 5,9" stroke="${C.green}" stroke-width="1" fill="none"/>`).join('')}`;
+    }
+    // 街道と日本橋
+    if (has('kaido')) {
+      out += `<path d="M70,160 Q110,144 150,131" stroke="#c9b48a" stroke-width="7" fill="none"/>
+        <path d="M134,131 Q150,120 166,131" stroke="${C.earth2}" stroke-width="2.4" fill="none"/>
+        <line x1="138" y1="128" x2="138" y2="132" stroke="${C.earth2}"/><line x1="162" y1="128" x2="162" y2="132" stroke="${C.earth2}"/>`;
+    }
+    // 新田（左の手前に実った田）
+    if (has('shinden')) out += rice(160, '#7a8a3a', 6);
+    // 手前の家並み
+    const front = Math.max(0, level * 2 - 2);
+    for (let i = 0; i < front; i++) {
+      const x = 92 + ((i * 29) % 128);
+      out += house(x, 146 + (i % 2) * 3, 22 + (i % 2) * 4, 11, [C.roof, '#6a4a3a', C.roof2][i % 3]);
+    }
+    // 江戸の湊（右の手前の海）。湊の普請・台場・大船・開国で、船や砲台が加わる
+    out += `<path d="M222,160 Q246,130 320,122 L320,160 Z" fill="${C.sea}"/>`
+      + [[262, 136], [292, 132], [248, 150], [282, 148], [304, 154]].map(([x, y]) => `<path d="M${x - 6},${y} a6,4 0 0 1 12,0" fill="none" stroke="${C.white}" stroke-width="0.7" opacity="0.6"/>`).join('');
+    if (has('daiba')) out += `<path d="M284,138 L312,138 L316,145 L280,145 Z" fill="${C.stone}"/>` + cannon(298, 138, 0.6, -1);
+    if (has('dejima')) out += ship(258, 152, 0.36);
+    if (has('taisen')) out += gaisen(296, 158, 0.22, C.earth2, C.white, 0);
+    if (v.opened) out += gaisen(300, 132, 0.16, '#3a3a40', '#d8d4cc', 0);
+    // 町の人。民心が高いほど、にぎわう
+    const people = minshin >= 60 ? 4 : minshin >= 30 ? 2 : 1;
+    out += crowd(158, people, minshin >= 30 ? { color: C.blue, face: true, topknot: true } : { color: C.ink2, kasa: true }, 104, 28);
+    return wrap(out, `江戸の町（${level}段）`);
+  }
+
   // ─────────────────────────────── 顔（四角い小さな絵）
 
   function portrait(body, label, bg = '#ece3cf') {
@@ -952,5 +1021,5 @@ window.IEYASU_ART = (() => {
       <rect x="29.6" y="10.6" width="4.8" height="7.4" rx="2" fill="${C.ink}"/>`, '家臣', '#e6e1d4');
   }
 
-  return { scene, ieyasu, iemitsu, shogun, child, lady, retainer, sceneNames: Object.keys(SCENES) };
+  return { scene, edo, ieyasu, iemitsu, shogun, child, lady, retainer, sceneNames: Object.keys(SCENES) };
 })();

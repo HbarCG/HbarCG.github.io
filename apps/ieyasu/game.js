@@ -20,6 +20,7 @@
     cardById, fillNames, successChance, teachCost, institutionCost, institutionStatus, canRetire, overCause,
     wishStatus, wishDef, kakun, kakunDef, heirCap, expectedChildKaku,
     projectDef, projectCost, projectOptions, bestBugyo, projectLeft,
+    banzukeTable, townView, loadZukan,
   } = E;
 
   // ルールの側の操作。状態を変えたあと、保存して描き直す（commit）
@@ -210,7 +211,7 @@
       const r = state.report;
       AUDIO.cue('year');
       if ((r.births || []).some((b) => (b.stars || 0) >= 4)) AUDIO.cue('star');
-      else if (r.honors.length) AUDIO.cue('honor');
+      else if (r.honors.length || (r.banzuke && r.banzuke.place <= 2)) AUDIO.cue('honor');
       else if (r.omen || state.crisis) AUDIO.cue('drum');
     } else if (phase === 'ship') {
       AUDIO.cue('drum');
@@ -248,6 +249,38 @@
   // outcome … 'good' なら金の光、'bad' なら曇り空と雨を重ねる（結果の絵）
   function sceneArt(name, compact = false, outcome = null) {
     return art(ART.scene(name, outcome), compact ? 'iy-scene iy-scene--compact' : 'iy-scene');
+  }
+
+  // 江戸の町の絵と、その下の一行（町の育ちと、絵に加わった普請）
+  function edoNodes() {
+    const v = townView();
+    const works = v.works.map((id) => projectDef(id).name);
+    return [
+      art(ART.edo(v), 'iy-scene'),
+      el('p', { class: 'iy-hint iy-edo-caption', text: `江戸の町（${v.level}段 / 6）${works.length ? `　普請：${works.join('・')}` : '　まだ大きな普請はない'}` }),
+    ];
+  }
+
+  // 家臣の名前に、二つ名を添える
+  function retainerName(r) {
+    return r.epithet ? `${r.name}「${r.epithet}」` : r.name;
+  }
+
+  // 見立番付の表（東と西に並べる）。limit を渡すと、上からその数まで。highlight の十年（from の年）に印をつける
+  function banzukeNodes(limit = Infinity, highlight = null) {
+    const table = banzukeTable().slice(0, limit);
+    if (table.length === 0) return [el('p', { class: 'iy-hint', text: '1640年代から、十年ごとに番付が出る。' })];
+    const rows = [];
+    for (let i = 0; i < table.length; i += 2) {
+      const cell = (d) => (d ? el('td', { class: d.from === highlight ? 'iy-banzuke__mine' : '' }, [
+        el('strong', { text: d.label }), el('br'), d.name, el('span', { class: 'iy-muted', text: `（${d.score}点）` }),
+      ]) : el('td', { text: '' }));
+      rows.push(el('tr', {}, [cell(table[i]), el('th', { text: table[i].rank }), cell(table[i + 1])]));
+    }
+    return [el('div', { class: 'iy-scroll' }, el('table', { class: 'iy-table iy-banzuke' }, [
+      el('thead', {}, el('tr', {}, ['東', '', '西'].map((h) => el('th', { text: h })))),
+      el('tbody', {}, rows),
+    ]))];
   }
 
   // 話し手ごとの顔と名前
@@ -730,6 +763,7 @@
         el('p', { class: b.victory ? 'iy-victory' : 'iy-failed', text: b.victory ? ship.winText : ship.loseText }),
         changeList(b.changes),
         b.honors.length ? el('p', { class: 'iy-honor-line', text: `栄誉を得た：${b.honors.join('、')}` }) : null,
+        ...(b.epithets || []).map((t) => el('p', { class: 'iy-honor-line', text: t })),
         ieyasuSays(el('p', { class: 'iy-voice', text: line }), b.victory ? 'calm' : 'worry'),
         el('button', { type: 'button', class: 'iy-primary', text: ship.final ? (b.victory ? '結末へ' : '幕府の最期') : '政務の間へ', onclick: closeBattle }),
       );
@@ -998,7 +1032,7 @@
     return [
       el('p', { class: 'iy-year', text: `${state.year}年　第${s.gen - 3}章` }),
       el('h2', { text: `第${s.gen}代 ${s.name}の御治世` }),
-      sceneArt('castle'),
+      ...edoNodes(),
       el('div', { class: 'iy-heir__head' }, [
         shogunFace('iy-face'),
         el('p', { class: 'iy-heir__name' }, [
@@ -1136,6 +1170,7 @@
         el('dl', { class: 'iy-kpis iy-judges' }, pr.scores.map((x) => el('div', {}, [el('dt', { text: x.label }), el('dd', { text: `${x.value}点` })]))),
         el('p', { class: 'iy-rating' }, ['評定 ', el('strong', { text: `${pr.total}点` }), ' / 40　', el('strong', { text: pr.title })]),
         changeList(pr.changes),
+        pr.epithet ? el('p', { class: 'iy-honor-line', text: pr.epithet }) : null,
       ]),
     ];
   }
@@ -1201,6 +1236,21 @@
     ]);
   }
 
+  // 見立番付（十年の締めの決算報告に出す）。江戸の町の絵と、この十年の位、番付の上のほう
+  function banzukeReportNodes(bz) {
+    return [
+      el('div', { class: 'iy-review' }, [
+        el('p', { class: 'iy-review__title', text: `見立番付：${bz.label}（${bz.era}）` }),
+        ...edoNodes(),
+        el('p', { class: 'iy-rating' }, ['この十年の見立 ', el('strong', { text: `「${bz.name}」` }), `　${bz.score}点`]),
+        el('p', {}, [`これまでの十年${bz.count}のうち、`, el('strong', { text: bz.rank }), '。']),
+        ...banzukeNodes(6, bz.from),
+        ieyasuSays(el('p', { class: 'iy-voice', text: bz.line })),
+        el('p', { class: 'iy-hint', text: '番付の全部は、記録のメニューで見られる。' }),
+      ]),
+    ];
+  }
+
   // 一年の決算報告。数字の増減と、この一年の出来事をまとめて見せる
   function viewReport() {
     const r = state.report;
@@ -1244,7 +1294,9 @@
         el('p', { class: 'iy-muted', text: `あと${r.omen.years}年で来る。役職の腕を上げ、将軍を鍛え、金を蓄えて備えよ（政務の間に、備えのようすが出る）。` }),
       ]) : null,
       ...(r.project ? projectReviewNodes(r.project) : []),
+      ...(r.banzuke ? banzukeReportNodes(r.banzuke) : []),
       r.births && r.births.length ? el('div', { class: 'iy-births' }, r.births.map(birthCard)) : null,
+      ...(r.epithets || []).map((t) => el('p', { class: 'iy-honor-line', text: t })),
       r.honors.length ? el('p', { class: 'iy-honor-line', text: `栄誉を得た：${r.honors.join('、')}` }) : null,
       r.wish ? el('p', { class: 'iy-honor-line', text: `宿願「${r.wish.label}」を果たした。家訓「${r.wish.kakun}」が${r.wish.level}段になった（${r.wish.desc}）。` }) : null,
       r.notes.filter((n) => !r.wish || n !== r.wish.text).length
@@ -1297,7 +1349,9 @@
     const honors = DATA.honors.filter((h) => state.honors.includes(h.id)).map((h) => h.name);
     const ships = DATA.ships.filter((s) => state.ships.won.includes(s.id) || state.ships.lost.includes(s.id))
       .map((s) => (state.ships.won.includes(s.id) ? `${s.name}を退けた` : `${s.name}に屈した`));
+    const top = banzukeTable().slice(0, 2);
     return [
+      ...edoNodes(),
       el('h3', { text: '幕府の年表' }),
       el('p', { class: 'iy-hint', text: `開府から${bakufuYears()}年・将軍${shoguns.length}代・制度${insts.length}・組み合わせの妙${syns.length}・栄誉${honors.length}` }),
       el('div', { class: 'iy-scroll' }, el('table', { class: 'iy-table iy-table--chronicle' }, [
@@ -1308,6 +1362,8 @@
       ships.length ? el('p', { class: 'iy-hint', text: `異国船：${ships.join('、')}` }) : null,
       kakunList().length ? el('p', { class: 'iy-hint', text: `家訓：${kakunList().join('、')}` }) : null,
       state.projectsDone.length ? el('p', { class: 'iy-hint', text: `普請：${state.projectsDone.map((p) => `${projectDef(p.id).name}（${p.year}年・${p.total}点）`).join('、')}` }) : null,
+      top.length ? el('p', { class: 'iy-hint', text: `見立番付の大関：${top.map((d) => `${d.side} ${d.label}「${d.name}」`).join('、')}` }) : null,
+      state.meishin.length ? el('p', { class: 'iy-hint', text: `名臣録：${state.meishin.slice(0, 12).map((m) => `${m.epithet}（${m.name}）`).join('、')}${state.meishin.length > 12 ? `、ほか${state.meishin.length - 12}人` : ''}` }) : null,
       honors.length ? el('p', { class: 'iy-honor-line', text: `この幕府で得た栄誉：${honors.join('、')}` }) : null,
     ];
   }
@@ -1586,7 +1642,7 @@
       retainerFace(r, true),
       el('div', {}, [
         r.renowned ? el('p', { class: 'iy-renowned' }, [el('strong', { text: '名のある人物' }), ` ${r.renowned}`]) : null,
-        el('p', { class: 'iy-retainer__name', text: `${r.name}（${r.age}歳・俸禄${r.salary}万両）` }),
+        el('p', { class: 'iy-retainer__name', text: `${retainerName(r)}（${r.age}歳・俸禄${r.salary}万両）` }),
         retainerStats(r),
         loyaltyLine(r, canRaise),
       ]),
@@ -1616,7 +1672,7 @@
         el('p', { class: 'iy-post__name' }, [el('strong', { text: post.name }), el('span', { class: 'iy-muted', text: `　見る能力：${RETAINER_LABELS[post.stat]}` })]),
         h
           ? el('div', { class: 'iy-retainer' }, [retainerFace(h, true), el('div', {}, [
-            el('p', { class: 'iy-retainer__name', text: `${h.name}（${h.age}歳・俸禄${h.salary}万両）` }),
+            el('p', { class: 'iy-retainer__name', text: `${retainerName(h)}（${h.age}歳・俸禄${h.salary}万両）` }),
             retainerStats(h, post.stat),
             loyaltyLine(h, !over),
           ])])
@@ -1667,6 +1723,19 @@
 
   function renderLog() {
     $('tab-log').replaceChildren(
+      panel('江戸の町', [
+        ...edoNodes(),
+        el('p', { class: 'iy-hint', text: '普請を成し、制度を整え、民がにぎわうほど、町は育つ。終わった普請は絵に加わる。' }),
+      ]),
+      panel('見立番付', [
+        el('p', { class: 'iy-hint', text: '十年ごとの暮れに、その十年の治世に点をつけて番付にする（威光・民心・朝廷、金蔵、普請、異国船、栄誉などを見る）。' }),
+        ...banzukeNodes(),
+      ]),
+      panel('名臣録', state.meishin.length
+        ? [el('ul', { class: 'iy-log' }, state.meishin.map((m) => el('li', {}, [
+          el('span', { class: 'iy-log__year', text: `${m.year}` }), el('strong', { text: `「${m.epithet}」` }), `${m.name}　${m.desc}`,
+        ])))]
+        : [el('p', { class: 'iy-hint', text: '目立つ働きをした家臣には、二つ名がつく（同じ役職を長く腕よく務める、普請を見事にやり遂げる、異国船との勝負に勝つ、長く仕える）。' })]),
       panel('記録', [el('ul', { class: 'iy-log' }, state.log.map((entry) =>
         el('li', {}, [el('span', { class: 'iy-log__year', text: `${entry.year}` }), entry.text])))]),
       panel('栄誉', [
@@ -1680,6 +1749,7 @@
           ]);
         })),
       ]),
+      zukanPanel(),
       panel('遊び方', [
         el('p', { class: 'iy-hint', text: 'ルールや画面の見方は、ガイドにまとめてある。上の帯の「ガイド」からも、いつでも開ける。' }),
         el('div', { class: 'iy-actions' }, [
@@ -1695,6 +1765,40 @@
         }),
       ]),
     );
+  }
+
+  // 図鑑。これまでの周回で出会ったもの（出来事・名のある人物・普請・組み合わせ・あだ名・宿願・異国船・二つ名）
+  function zukanPanel() {
+    const z = loadZukan();
+    const got = (kind, id) => (z[kind] || []).includes(id);
+    const ep = DATA.epithets;
+    const sections = [
+      { title: '出来事', items: DATA.cards.map((c) => ({ known: got('cards', c.id), name: c.title })) },
+      { title: '名のある人物', items: DATA.renowned.map((p) => ({ known: got('renowned', p.name), name: p.name, desc: p.desc })) },
+      { title: '普請', items: DATA.projects.map((p) => ({ known: got('projects', p.id), name: p.name, desc: p.desc })) },
+      { title: '組み合わせの妙', items: DATA.synergies.map((x) => ({ known: got('synergies', x.id), name: x.name, desc: x.desc, hint: x.hint })) },
+      { title: 'あだ名', items: Object.entries(DATA.nicknames).map(([tag, n]) => ({ known: got('nicknames', tag), name: n.name, desc: n.desc, hint: `${tag}な裁きを重ねた将軍` })) },
+      { title: '宿願', items: DATA.wishes.map((w) => ({ known: got('wishes', w.id), name: w.label })) },
+      { title: '異国船', items: DATA.ships.map((x) => ({ known: got('ships', x.id), name: `${x.name}を退けた` })) },
+      { title: '二つ名', items: [
+        ...POSTS.map((p) => ({ known: got('epithets', p.id), name: ep.post[p.id].replace('{sei}', '◯◯'), hint: `${p.name}を長く腕よく務めた家臣` })),
+        { known: got('epithets', 'work'), name: ep.work.replace('{sei}', '◯◯'), hint: '普請を見事にやり遂げた奉行' },
+        { known: got('epithets', 'ship'), name: ep.ship.replace('{ship}', '◯船').replace('{sei}', '◯◯'), hint: '異国船との勝負に勝った家臣' },
+        { known: got('epithets', 'elder'), name: ep.elder.replace('{sei}', '◯◯'), hint: '長く仕えた家臣' },
+        ...Object.entries(ep.special).map(([who, name]) => ({ known: got('epithets', who), name: `${name}（${who}）`, hint: '名のある人物の二つ名' })),
+      ] },
+    ];
+    const total = sections.reduce((n, sec) => n + sec.items.length, 0);
+    const known = sections.reduce((n, sec) => n + sec.items.filter((i) => i.known).length, 0);
+    return panel('図鑑', [
+      el('p', { class: 'iy-hint', text: `これまでの周回で出会ったもの ${known} / ${total}。倒幕になっても消えない。項目を押すと開く。` }),
+      ...sections.map((sec) => el('details', { class: 'iy-zukan' }, [
+        el('summary', { text: `${sec.title}　${sec.items.filter((i) => i.known).length} / ${sec.items.length}` }),
+        el('ul', {}, sec.items.map((i) => el('li', { class: i.known ? '' : 'iy-muted' }, i.known
+          ? [el('strong', { text: i.name }), i.desc || i.hint ? `　${i.desc || i.hint}` : '']
+          : ['？？？', i.hint ? `　${i.hint}` : '']))),
+      ])),
+    ]);
   }
 
   // ───── ガイド（いつでも開ける説明）
