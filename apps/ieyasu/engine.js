@@ -61,7 +61,7 @@
     DRIFT_SHIFT: -1,        // 威光と民心の毎年の自然な増減に足す値（マイナスなら、放っておくと下がる）
     GAUGE_PULL: 0.2,        // 50を超えたぶんのこの割合が、毎年自然に戻る（慢心）
     MINSHIN_NENGU: 0.005,
-    NENGU_PRICE: 0.3,       // 物価の上がりのうち、この割合だけ年貢の換金額（米価）も上がる。残りが、時代とともに重くなる財政の苦しさ   // 民心が50から1離れるごとに、年貢の取れ高がこれだけ増減する
+    NENGU_PRICE: 0.2,       // 物価の上がりのうち、この割合だけ年貢の換金額（米価）も上がる。残りが、時代とともに重くなる財政の苦しさ   // 民心が50から1離れるごとに、年貢の取れ高がこれだけ増減する
     IKOU_CENTER: 50,        // 威光がこれより高ければ大名の献上が入り、低ければ見張りの費えがかかる
     IKOU_DAIMYO: 0.4,       // 威光が IKOU_CENTER から1離れるごとに、大名の献上（または見張りの費え）がこれだけ増減する（万両/年、物価を反映）
     CHOTEI_COURT: 0.05,     // 朝廷が50を1下回るごとに、朝廷・寺社への費えがこの割合で増える
@@ -99,6 +99,8 @@
     WISH_OFFERS: 3,         // 宣下のときに出る宿願の数
     KAKUN_MAX: 2,           // 家訓は、この段まで上がる
     WISH_JUDGE: 1,          // 宿願を果たした代は、御治世の評定で、どの者も1点ずつ甘くつける
+    PROJECT_AGAIN: 10,      // くり返せる普請は、終わってからこの年数がたつと、また始められる
+    PROJECT_MULT: [0.6, 1.5], // 普請の評定の点（4〜40点）しだいで、効き目がこの幅で変わる
   };
 
   const STATE_LABELS = { ikou: '威光', minshin: '民心', chotei: '朝廷' };
@@ -221,6 +223,9 @@
     if (saved.shogun && saved.shogun.skill === undefined) saved.shogun.skill = null;
     saved.lastChoice = saved.lastChoice || {};
     saved.kakun = saved.kakun || {};
+    if (saved.project === undefined) saved.project = null;
+    saved.projectsDone = saved.projectsDone || [];
+    saved.shipPower = saved.shipPower || 0;
     // 御治世の評定を入れる前の保存データ。いまの年から始まったことにする
     if (saved.reign === undefined && saved.shogun) {
       saved.reign = { from: saved.year, tags: {}, gauges: { ...saved.gauges }, net: null, kaku: kakuOf(saved.shogun.stats),
@@ -336,6 +341,9 @@
       synergies: [],    // そろった制度の組み合わせ
       honors: [],       // この周回で得た栄誉
       renownSeen: [],   // 登用の候補に現れた、名のある人物の名前
+      project: null,    // 進めている普請（{ id, bugyo: 奉行の家臣の id, from: 始めた年 }）
+      projectsDone: [], // 終わった普請（{ id, year, total, title, trade }）
+      shipPower: 0,     // 普請（台場・大船など）で上がった、異国船との勝負の力
       legacy: null,     // 最後の布石で選んだ遺訓（制度でないもの）
       report: null,     // 一年の決算報告
       nextPhase: null,  // 決算報告のあとに進む場面
@@ -875,8 +883,9 @@
       shogun: Math.floor(state.shogun.stats[r.stat] / 4),
       nagasaki: hasInstitution('nagasaki') && (roundId === 'kaibo' || roundId === 'kosho') ? 2 : 0,
       kakun: kakun('kaibo'),
+      works: state.shipPower || 0,
     };
-    parts.power = parts.value + parts.shogun + parts.nagasaki + parts.kakun;
+    parts.power = parts.value + parts.shogun + parts.nagasaki + parts.kakun + parts.works;
     return parts;
   }
 
@@ -1137,7 +1146,8 @@
   function tradeBase() {
     const inst = state.institutions.reduce((sum, id) => sum + ((institution(id)?.on || {}).trade || 0), 0);
     const syn = state.synergies.reduce((sum, id) => sum + ((DATA.synergies.find((x) => x.id === id)?.on || {}).trade || 0), 0);
-    return CONFIG.TRADE_START + inst + syn;
+    const works = (state.projectsDone || []).reduce((sum, p) => sum + (p.trade || 0), 0);
+    return CONFIG.TRADE_START + inst + syn + works;
   }
 
   function debtLimit() {
@@ -1748,6 +1758,7 @@
     births.forEach((b) => addLog(b.text));
     if (omen) addLog(`予兆：${omen.text}（${omen.name}の来航まで、あと${omen.years}年）`);
     const honors = checkHonors();
+    const project = advanceProject();
     const wish = checkWish();
     if (wish) notes.push(wish.text);
 
@@ -1764,6 +1775,7 @@
       omen,
       honors: honors.map((h) => h.name),
       wish,
+      project,
       // 節目の掛け合い（cards.js の talks）。何番目のせりふかを決めておき、描き直しても変わらないようにする
       talk: crisisBegan ? talkPick('crisis') : fellIll ? talkPick('ailing') : births.some((b) => (b.stars || 0) >= 4) ? talkPick('star') : null,
     };
@@ -1771,7 +1783,7 @@
 
     // 何も起きなかった年は、決算の画面を出さずに次の年へ進み、翌年の出来事の上に1行で知らせる
     const run = runway();
-    const quiet = !died && !wish && notes.length === 0 && births.length === 0 && !omen && honors.length === 0
+    const quiet = !died && !wish && !project && notes.length === 0 && births.length === 0 && !omen && honors.length === 0
       && !state.crisis && closed.op >= 0 && !(run && run.years <= 15);
     const report = state.report;
 
@@ -1814,6 +1826,89 @@
   }
 
   // ─────────────────────────────── 世代交代
+
+  // ─────────────────────────────── 普請と評定
+
+  function projectDef(id) {
+    return DATA.projects.find((p) => p.id === id) || null;
+  }
+
+  function projectCost(def) {
+    return Math.round(def.ryo * price());
+  }
+
+  // いま始められる普請（年代・一度きりか・くり返しの間をみる）。進めている普請があれば空
+  function projectOptions() {
+    if (state.project) return [];
+    return DATA.projects.filter((def) => {
+      if (state.year < def.minYear) return false;
+      const last = state.projectsDone.filter((p) => p.id === def.id).pop();
+      if (!last) return true;
+      return def.once === false && state.year - last.year >= CONFIG.PROJECT_AGAIN;
+    });
+  }
+
+  // その普請の奉行にいちばん向いている家臣（なければ null）
+  function bestBugyo(def) {
+    return state.retainers.reduce((best, r) => (!best || r.stats[def.stat] > best.stats[def.stat] ? r : best), null);
+  }
+
+  // 普請を始める。費用は始めるときに払う（普請として資産に積む）
+  function startProject(id, bugyoId) {
+    const def = projectDef(id);
+    if (!def || !projectOptions().includes(def)) return;
+    const cost = projectCost(def);
+    if (state.fin.cash < cost) return;
+    const bugyo = state.retainers.find((r) => r.id === bugyoId) || bestBugyo(def);
+    if (!bugyo) return;
+    state.fin.cash -= cost;
+    state.fin.infra += cost;
+    book('inv', `普請：${def.name}`, -cost);
+    state.project = { id, bugyo: bugyo.id, from: state.year };
+    addLog(`普請「${def.name}」を始めた（奉行：${bugyo.name}・${cost}万両・${def.years}年がかり）。`);
+  }
+
+  // 普請があと何年で終わるか（その年の暮れに終わるなら1）
+  function projectLeft() {
+    const p = state.project;
+    return p ? projectDef(p.id).years - (state.year - p.from) : 0;
+  }
+
+  // 年の暮れに普請を進め、終わったら評定をつけて効き目を出す。決算報告に出す中身を返す
+  function advanceProject() {
+    const p = state.project;
+    if (!p || projectLeft() > 1) return null;
+    const def = projectDef(p.id);
+    // 奉行が去っていたら、いま居るいちばん向いた者が引き継いだことにする
+    const bugyo = state.retainers.find((r) => r.id === p.bugyo) || bestBugyo(def);
+    const skill = bugyo ? bugyo.stats[def.stat] : 6;
+    const tilt = {
+      daimyo: (state.gauges.ikou - 50) / 20, chonin: (state.gauges.minshin - 50) / 20,
+      kuge: (state.gauges.chotei - 50) / 20, jisha: 0,
+    };
+    const scores = DATA.projectJudges.map((j) => ({ key: j.key, label: j.label,
+      value: clamp(Math.round(3 + (def.likes[j.key] || 0) + (skill - 12) / 2 + tilt[j.key] + rand(-1, 1)), 1, 10) }));
+    const total = scores.reduce((sum, x) => sum + x.value, 0);
+    const [lo, hi] = CONFIG.PROJECT_MULT;
+    const mult = lo + (hi - lo) * clamp((total - 4) / 36, 0, 1);
+    const scaled = {};
+    for (const [k, v] of Object.entries(def.on)) if (k !== 'shipPower') scaled[k] = Math.round(v * mult);
+    const changes = applyEffects(scaled, { label: def.name });
+    if (def.on.shipPower) {
+      state.shipPower = (state.shipPower || 0) + def.on.shipPower;
+      changes.push({ label: '異国船との勝負の力', delta: def.on.shipPower, good: true });
+    }
+    // 奉行は、大きな普請をやり遂げて腕を上げる
+    if (bugyo) {
+      bugyo.stats[def.stat] = clamp(bugyo.stats[def.stat] + 1, 1, CONFIG.ABILITY_MAX);
+      bugyo.salary = payOf(bugyo);
+    }
+    const title = DATA.projectRatings.find((x) => total >= x.min).label;
+    state.projectsDone.push({ id: def.id, year: state.year, total, title, trade: scaled.trade || 0 });
+    state.project = null;
+    addLog(`普請「${def.name}」が成った。評定は${total}点（${title}）。`);
+    return { id: def.id, name: def.name, scene: def.scene, bugyo: bugyo ? bugyo.name : null, scores, total, title, changes };
+  }
 
   // ─────────────────────────────── 宿願と家訓
 
@@ -2184,5 +2279,7 @@
     chooseWish, wishStatus, wishDef, kakun, kakunDef,
     // 血筋
     heirCap, expectedChildKaku,
+    // 普請
+    projectDef, projectCost, projectOptions, bestBugyo, startProject, projectLeft,
   };
 })();

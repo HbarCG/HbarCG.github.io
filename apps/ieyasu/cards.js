@@ -329,7 +329,7 @@ window.IEYASU_DATA = {
       lose: { ikou: -16, chotei: -6, ryo: -40 }, loseText: '赤船の砲声に、江戸の町は大混乱に陥った。幕府は、不利な約束をいくつも呑まされた。',
     },
     {
-      id: 'black', name: '黒船', scene: 'blackship', difficulty: 25, need: 4, boost: 40, final: true,
+      id: 'black', name: '黒船', scene: 'blackship', difficulty: 27, need: 4, boost: 40, final: true,
       rounds: ['kaibo', 'kosho', 'gunshi', 'chotei', 'jinshin', 'kito'],
       omen: '海の向こうから、帆もないのに煙を吐いて進む、黒い鉄の船の噂が届いた。いずれ、必ず来る。',
       text: '見たこともない大きな黒い船が、煙を吐きながら湾に現れた。国を開けと迫り、大砲がこちらを向いている。',
@@ -2122,6 +2122,63 @@ window.IEYASU_DATA = {
     },
   ],
 
+  // ─────────────────────────────── 普請（数年かけて進む事業と、完成のときの評定）
+  // 政務の間で始め、家臣を奉行につける。1つずつしか進められない。完成すると4者が10点ずつ点をつけ、点が高いほど効き目が大きい。
+  //   minYear: この年から始められる / ryo: 始めるときの費用（万両。物価で上がる） / years: かかる年数
+  //   stat: 奉行の腕として見る家臣の能力（seimu 政務・sanyo 算用・bui 武威・jinbo 人望）
+  //   likes: 4者（daimyo 大名・chonin 町人・kuge 朝廷・jisha 寺社）の好み（−2〜+3）。評定の点に足される
+  //   on: 完成したときの効き目（評定の点で0.6〜1.5倍になる）。shipPower は異国船の勝負の力（倍にはならない）
+  //   once: false なら、終わったあとにまた始められる（10年たってから）
+  projects: [
+    { id: 'josui', name: '上水の普請', scene: 'river', minYear: 1637, ryo: 80, years: 3, stat: 'sanyo',
+      likes: { daimyo: 0, chonin: 3, kuge: 0, jisha: 1 }, on: { minshin: 8 },
+      desc: '多摩の川から江戸へ水を引く。町人の暮らしが潤う。' },
+    { id: 'tsutsumi', name: '大河の堤', scene: 'river', minYear: 1637, ryo: 100, years: 4, stat: 'sanyo',
+      likes: { daimyo: 1, chonin: 2, kuge: 0, jisha: 0 }, on: { kokudaka: 15, minshin: 2 },
+      desc: '暴れ川の流れを変え、堤を築く。田が広がり、天領の石高が増える。' },
+    { id: 'kaido', name: '五街道の整備', scene: 'road', minYear: 1637, ryo: 90, years: 4, stat: 'seimu',
+      likes: { daimyo: 2, chonin: 2, kuge: 0, jisha: 0 }, on: { trade: 2, ikou: 4 },
+      desc: '宿場と一里塚を整える。人と物が行き交い、参勤の行列も滞りない。' },
+    { id: 'toshogu', name: '東照宮の大修繕', scene: 'shrine', minYear: 1640, ryo: 120, years: 3, stat: 'jinbo',
+      likes: { daimyo: 2, chonin: -1, kuge: 1, jisha: 3 }, on: { ikou: 8, chotei: 3 },
+      desc: '日光の社殿を、金と漆で塗り直す。権現様の威光を天下に示す。……わしの社じゃ。' },
+    { id: 'gakumonjo', name: '学問所の造営', scene: 'study', minYear: 1680, ryo: 100, years: 3, stat: 'seimu',
+      likes: { daimyo: 0, chonin: 0, kuge: 2, jisha: 1 }, on: { jisseki: 8, chotei: 4 },
+      desc: '湯島に学問の府を建てる。旗本の子弟が学び、政の筋が通る。' },
+    { id: 'shinden', name: '新田の開発', scene: 'harvest', minYear: 1700, ryo: 140, years: 5, stat: 'sanyo',
+      likes: { daimyo: 1, chonin: 2, kuge: 0, jisha: 0 }, on: { kokudaka: 25 },
+      desc: '沼を干し、荒れ地を拓いて田にする。年貢の土台が太くなる。' },
+    { id: 'tenshu', name: '天守の再建', scene: 'castle', minYear: 1660, ryo: 240, years: 5, stat: 'bui',
+      likes: { daimyo: 3, chonin: -2, kuge: 0, jisha: 0 }, on: { ikou: 14 },
+      desc: '大火で失った江戸城の天守を、ふたたび天にそびえさせる。金はかかる。' },
+    { id: 'dejima', name: '長崎の湊の普請', scene: 'ship', minYear: 1690, ryo: 110, years: 4, stat: 'sanyo',
+      likes: { daimyo: 0, chonin: 2, kuge: -1, jisha: 0 }, on: { trade: 3 },
+      desc: '長崎の湊と蔵を広げる。異国との商いが太くなる。' },
+    { id: 'ezo', name: '蝦夷地の見分', scene: 'snow', minYear: 1760, ryo: 100, years: 4, stat: 'bui',
+      likes: { daimyo: 2, chonin: 0, kuge: 0, jisha: 0 }, on: { ikou: 6, trade: 1 },
+      desc: '北の地を測り、海の向こうの動きを探る。' },
+    { id: 'daiba', name: '台場の築造', scene: 'fort', minYear: 1780, ryo: 180, years: 4, stat: 'bui',
+      likes: { daimyo: 2, chonin: -1, kuge: 1, jisha: 0 }, on: { ikou: 4, shipPower: 1 },
+      desc: '江戸の海に砲台を築く。異国船との勝負で、力が上がる。' },
+    { id: 'taisen', name: '大船の建造', scene: 'ship', minYear: 1820, ryo: 220, years: 5, stat: 'sanyo',
+      likes: { daimyo: 1, chonin: 0, kuge: -1, jisha: 0 }, on: { trade: 2, shipPower: 1 },
+      desc: '大船建造の禁を解き、異国に負けぬ船を造る。異国船との勝負で、力が上がる。' },
+  ],
+  // 普請の評定をつける4者
+  projectJudges: [
+    { key: 'daimyo', label: '大名' },
+    { key: 'chonin', label: '町人' },
+    { key: 'kuge', label: '朝廷' },
+    { key: 'jisha', label: '寺社' },
+  ],
+  // 普請の評定の格付け（合わせた点ごと。上から順に見る）
+  projectRatings: [
+    { min: 32, label: '天下の名普請' },
+    { min: 26, label: '見事な出来' },
+    { min: 20, label: 'まずまずの出来' },
+    { min: 0, label: '評判は芳しくない' },
+  ],
+
   // ─────────────────────────────── 将軍1代（章）
   // 将軍1代を、物語の1章として扱う。宣下で始まり、御治世の評定と遺言で終わる（engine.js の beginReign / rateReign）。
 
@@ -2676,6 +2733,14 @@ window.IEYASU_DATA = {
         '将軍は歳をとると、やがて病に伏す（御不例）。そうなると、数年のうちに世を去る。健康が50まで戻れば病は癒える。まれに、前ぶれなく世を去ることもある。',
         '将軍が世を去るか職を譲ると、御治世の評定になる。大名（威光と異国船）・旗本（金蔵と制度と将軍の格の伸び）・町人（民心）・朝廷が10点ずつ、40点満点で点をつけ、裁きの癖からあだ名がつく。',
         'そのあと、遺言（職を譲るときは申し送り）を3つから1つ選ぶ。次の将軍の代のあいだ効き、得るものと失うものがある。',
+      ],
+    },
+    {
+      title: '普請',
+      body: [
+        '政務の間で、上水・街道・新田・学問所・台場などの普請を始められる。家臣の中から奉行を選び、費用を払うと、数年かけて進む。1つずつしか進められない。',
+        '完成すると、大名・町人・朝廷・寺社が10点ずつ評定をつける。奉行の腕と、それぞれの好み、いまの威光・民心・朝廷で点が決まり、点が高いほど効き目が大きい（0.6〜1.5倍）。',
+        '時代が進むと、新しい普請ができるようになる。台場や大船は、異国船との勝負の力を上げる。普請で増やした交易の上がりは、細らない。',
       ],
     },
     {

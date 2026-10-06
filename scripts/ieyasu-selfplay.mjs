@@ -115,6 +115,9 @@ const POLICIES = {
         if (s.fin.cash - (inst.ryo || 0) < 80) continue;
         dev.establish(inst.id);
       }
+      // 普請：進めているものがなく、金に余裕があれば、始められる最初の普請を、いちばん向いた奉行で始める
+      const work = dev.projectOptions().find((def) => s.fin.cash >= dev.projectCost(def) + 100);
+      if (work) dev.startProject(work.id, dev.bestBugyo(work)?.id);
       // 借入を返す
       while (s.fin.debt > 0 && s.fin.cash > 150) dev.repay();
       // 大奥：金に余裕があれば側室を1人迎え、苦しければ暇を出す
@@ -343,6 +346,8 @@ function playOne(seed, policy, fuseki) {
     purse: counts.purse,
     ratings: counts.ratings,
     kakun: Object.values(s.kakun || {}).reduce((a, b) => a + b, 0),
+    projects: (s.projectsDone || []).map((p) => p.total),
+    projectsByYear: (s.projectsDone || []).filter((p) => p.year <= 1853).length,
     ends: counts.ends,
     firstKien: counts.firstKien,
   };
@@ -435,6 +440,10 @@ function main() {
     console.log(`宿願: 果たした ${pct(wished.filter((x) => x.wish.done).length, Math.max(1, wished.length))}（`
       + Object.entries(byWish).map(([k, [all, done]]) => `${k} ${pct(done, all)}`).join('・') + `）　終わりの家訓 平均${avg(results.map((r) => r.kakun)).toFixed(1)}段`);
     console.log(`代の終わり方: 病に伏したのち ${pct(ends.death || 0, endTotal)} / にわかに ${pct(ends.sudden || 0, endTotal)} / 職を譲る ${pct(ends.retire || 0, endTotal)}`);
+  }
+  const works = results.flatMap((r) => r.projects);
+  if (works.length) {
+    console.log(`普請: 1回あたり平均${avg(results.map((r) => r.projects.length)).toFixed(1)}件（1853年までに${avg(results.map((r) => r.projectsByYear)).toFixed(1)}件）　評定 平均${avg(works).toFixed(1)}/40`);
   }
   const kienGames = results.filter((r) => r.kien > 0);
   for (const y of [100, 200]) {

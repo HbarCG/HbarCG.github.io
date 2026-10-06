@@ -19,6 +19,7 @@
     salaryOf, wants, holder, vacancies, debtLimit, assets, netAssets, runway,
     cardById, fillNames, successChance, teachCost, institutionCost, institutionStatus, canRetire, overCause,
     wishStatus, wishDef, kakun, kakunDef, heirCap, expectedChildKaku,
+    projectDef, projectCost, projectOptions, bestBugyo, projectLeft,
   } = E;
 
   // ルールの側の操作。状態を変えたあと、保存して描き直す（commit）
@@ -47,6 +48,7 @@
   const establish = act(E.establish);
   const chooseTestament = act(E.chooseTestament);
   const chooseWish = act(E.chooseWish);
+  const startProject = act(E.startProject);
 
   // 宿願の進み具合を短い文にする（上の帯と政務の間）
   function wishLine(w) {
@@ -675,6 +677,7 @@
     if (vacancies().length) items.push('空いている役職');
     if (state.retainers.some((r) => r.unhappy)) items.push('不満を漏らす家臣');
     if (shipDue() || state.ships.arriving) items.push('異国船への備え');
+    if (!state.project && projectOptions().some((def) => state.fin.cash >= projectCost(def))) items.push('始められる普請');
     return items;
   }
 
@@ -707,7 +710,7 @@
       const short = state.fin.cash < cost;
       nodes.push(el('div', { class: 'iy-round' }, [
         el('p', { class: 'iy-round__title', text: `第${b.round + 1}の勝負：${r.name}（${r.desc}）` }),
-        el('p', { class: 'iy-hint', text: `${p.post.name}・${p.holder ? p.holder.name : '空席'}の${RETAINER_LABELS[p.post.stat]}${p.value}　＋　将軍の${ABILITY_LABELS[r.stat]}÷4（${p.shogun}）${p.nagasaki ? `　＋　長崎奉行（${p.nagasaki}）` : ''}${p.kakun ? `　＋　海防の家訓（${p.kakun}）` : ''}　＝　力${p.power}（難しさ${ship.difficulty}）` }),
+        el('p', { class: 'iy-hint', text: `${p.post.name}・${p.holder ? p.holder.name : '空席'}の${RETAINER_LABELS[p.post.stat]}${p.value}　＋　将軍の${ABILITY_LABELS[r.stat]}÷4（${p.shogun}）${p.nagasaki ? `　＋　長崎奉行（${p.nagasaki}）` : ''}${p.kakun ? `　＋　海防の家訓（${p.kakun}）` : ''}${p.works ? `　＋　普請（${p.works}）` : ''}　＝　力${p.power}（難しさ${ship.difficulty}）` }),
       ]));
       nodes.push(el('div', { class: 'iy-options' }, [
         el('button', { type: 'button', class: 'iy-option', onclick: () => fight(false) }, [
@@ -941,6 +944,8 @@
     nodes.push(el('h3', { text: '大奥' }));
     nodes.push(...okuNodes());
 
+    nodes.push(...projectNodes());
+
     // 制度の一覧は長いので、たたんでおく。整えられるものがあるときだけ開く
     const insts = DATA.institutions.filter((inst) => !inst.prologueOnly || hasInstitution(inst.id));
     const ready = insts.filter((inst) => institutionStatus(inst).ok).length;
@@ -1079,6 +1084,62 @@
     return nodes;
   }
 
+  // 普請の欄。進めている普請があればそのようす、なければ始められる普請の一覧（奉行を選んで始める）
+  function projectNodes() {
+    const nodes = [el('h3', { text: '普請' })];
+    const p = state.project;
+    if (p) {
+      const def = projectDef(p.id);
+      const bugyo = state.retainers.find((r) => r.id === p.bugyo);
+      nodes.push(el('p', { class: 'iy-hint', text: `「${def.name}」を進めている（奉行：${bugyo ? `${bugyo.name}・${RETAINER_LABELS[def.stat]}${bugyo.stats[def.stat]}` : '不在（完成のときは、いちばん向いた者が引き継ぐ）'}）。${projectLeft() <= 1 ? 'この暮れに完成する。' : `あと${projectLeft()}年で完成する。`}完成すると、大名・町人・朝廷・寺社が評定をつける。` }));
+      return nodes;
+    }
+    const options = projectOptions();
+    if (options.length === 0) {
+      nodes.push(el('p', { class: 'iy-hint', text: 'いま始められる普請はない。時代が進むと、新しい普請ができるようになる。' }));
+      return nodes;
+    }
+    const affordable = options.filter((def) => state.fin.cash >= projectCost(def)).length;
+    nodes.push(el('p', { class: 'iy-hint', text: '数年かけて進める大きな事業。1つずつしか進められない。奉行の腕が良いほど、完成のときの評定が高く、効き目も大きい（0.6〜1.5倍）。' }));
+    const list = el('details', { class: 'iy-institutions' });
+    if (affordable > 0) list.open = true;
+    list.append(el('summary', { text: `普請を始める（始められるもの${options.length}件）` }));
+    const likeText = (likes) => DATA.projectJudges.filter((j) => (likes[j.key] || 0) >= 2).map((j) => j.label).join('・');
+    for (const def of options) {
+      const cost = projectCost(def);
+      const best = bestBugyo(def);
+      const select = el('select', { class: 'iy-heir__adopt', 'aria-label': `${def.name}の奉行` },
+        [...state.retainers].sort((a, b) => b.stats[def.stat] - a.stats[def.stat]).map((r) => el('option', {
+          value: String(r.id), text: `奉行：${r.name}（${RETAINER_LABELS[def.stat]}${r.stats[def.stat]}）`, selected: best && r.id === best.id,
+        })));
+      const effect = Object.entries(def.on).map(([k, v]) => k === 'shipPower' ? `異国船の力+${v}` : `${STATE_LABELS[k] || (E.FIN_LABELS[k] && E.FIN_LABELS[k][0]) || E.OTHER_LABELS[k] || k}+${v}`).join('・');
+      list.append(el('div', { class: 'iy-inst' }, [
+        el('p', { class: 'iy-inst__name' }, [el('strong', { text: def.name }), `（${cost}万両・${def.years}年）`]),
+        el('p', { class: 'iy-hint', text: `${def.desc} 完成すると：${effect}。${likeText(def.likes) ? `${likeText(def.likes)}に喜ばれる。` : ''}` }),
+        state.retainers.length ? select : null,
+        el('button', {
+          type: 'button', text: state.fin.cash < cost ? `現金が${cost}万両必要` : '始める', disabled: state.fin.cash < cost || !best,
+          onclick: () => startProject(def.id, Number(select.value)),
+        }),
+      ]));
+    }
+    nodes.push(list);
+    return nodes;
+  }
+
+  // 普請の評定（決算報告に出す）
+  function projectReviewNodes(pr) {
+    return [
+      el('div', { class: 'iy-review' }, [
+        sceneArt(pr.scene, true, pr.total >= 26 ? 'good' : pr.total < 20 ? 'bad' : null),
+        el('p', { class: 'iy-review__title', text: `普請「${pr.name}」が成った${pr.bugyo ? `（奉行：${pr.bugyo}）` : ''}` }),
+        el('dl', { class: 'iy-kpis iy-judges' }, pr.scores.map((x) => el('div', {}, [el('dt', { text: x.label }), el('dd', { text: `${x.value}点` })]))),
+        el('p', { class: 'iy-rating' }, ['評定 ', el('strong', { text: `${pr.total}点` }), ' / 40　', el('strong', { text: pr.title })]),
+        changeList(pr.changes),
+      ]),
+    ];
+  }
+
   function viewSuccession() {
     const { reason, mode, candidates } = state.succession;
     const intro = {
@@ -1154,6 +1215,7 @@
     const comment = (() => {
       if (r.omen) return '……海の向こうが騒がしい。役目の者どもを鍛え、金を蓄えて備えよ。';
       if (r.wish) return '宿願を果たしたか。よくやった。この家訓は、子や孫の代まで残るぞ。';
+      if (r.project) return r.project.total >= 26 ? '見事な普請じゃ。後の世まで語り継がれよう。' : r.project.total < 20 ? '……出来は今ひとつか。奉行の腕も、考えものじゃな。' : 'うむ、普請が成った。次は何を手がけるかのう。';
       if (r.honors.length) return `栄誉「${r.honors.join('」「')}」とは、めでたい。この調子じゃ。`;
       if (bestBirth >= 4) return 'おお、これは良い器の子じゃ。しっかり育てよ。';
       if (r.op < 0) return '年貢と経費だけで赤字じゃ。このままでは金蔵がもたぬぞ。';
@@ -1181,6 +1243,7 @@
         el('p', { text: r.omen.text }),
         el('p', { class: 'iy-muted', text: `あと${r.omen.years}年で来る。役職の腕を上げ、将軍を鍛え、金を蓄えて備えよ（政務の間に、備えのようすが出る）。` }),
       ]) : null,
+      ...(r.project ? projectReviewNodes(r.project) : []),
       r.births && r.births.length ? el('div', { class: 'iy-births' }, r.births.map(birthCard)) : null,
       r.honors.length ? el('p', { class: 'iy-honor-line', text: `栄誉を得た：${r.honors.join('、')}` }) : null,
       r.wish ? el('p', { class: 'iy-honor-line', text: `宿願「${r.wish.label}」を果たした。家訓「${r.wish.kakun}」が${r.wish.level}段になった（${r.wish.desc}）。` }) : null,
@@ -1244,6 +1307,7 @@
       insts.length ? el('p', { class: 'iy-hint', text: `整えた制度：${insts.join('、')}${syns.length ? `（組み合わせの妙：${syns.join('、')}）` : ''}` }) : null,
       ships.length ? el('p', { class: 'iy-hint', text: `異国船：${ships.join('、')}` }) : null,
       kakunList().length ? el('p', { class: 'iy-hint', text: `家訓：${kakunList().join('、')}` }) : null,
+      state.projectsDone.length ? el('p', { class: 'iy-hint', text: `普請：${state.projectsDone.map((p) => `${projectDef(p.id).name}（${p.year}年・${p.total}点）`).join('、')}` }) : null,
       honors.length ? el('p', { class: 'iy-honor-line', text: `この幕府で得た栄誉：${honors.join('、')}` }) : null,
     ];
   }
