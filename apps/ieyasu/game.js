@@ -400,7 +400,7 @@
         el('span', { class: 'iy-kaku', id: 'kaku', title: '将軍の格（政務・武威・人徳の合計）', text: `格${shogunKaku()}` }),
       ]),
       state.crisis
-        ? el('p', { class: 'iy-crisis', role: 'alert', text: `倒幕の危機：あと${state.crisis.years}年で立て直せ（威光・民心・朝廷を${CONFIG.CRISIS_SAFE}より上、借入を上限以下に）` })
+        ? el('p', { class: 'iy-crisis', role: 'alert', text: `倒幕の危機：あと${state.crisis.years}年で立て直せ（威光・民心・朝廷をすべて${CONFIG.CRISIS_SAFE}より上に）` })
         : null,
       state.ships.arriving && state.phase !== 'over'
         ? el('p', { class: 'iy-ship-alert', text: shipDue() ? `${DATA.ships[state.ships.next].name}が来航した`

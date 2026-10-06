@@ -199,7 +199,7 @@ function playOne(seed, policy, fuseki) {
   const { dev, data } = g;
   const counts = { succession: {}, shogunKaku: [], warned: 0, left: 0, candidates: [], raises: 0,
     wives: {}, stars: [0, 0, 0, 0, 0, 0], daughters: 0, meddle: 0, balancedYears: 0, lowYears: 0, gaugeSum: 0, shipsArrived: [], ending: null,
-    events: 0, repeats: 0, talks: 0 };
+    events: 0, repeats: 0, talks: 0, purse: {} };
   // 決算報告の「その年の出来事」から数える
   const NOTE_PATTERNS = { warned: /不満を漏らしている/, left: /見切りをつけて去った/ };
 
@@ -231,6 +231,10 @@ function playOne(seed, policy, fuseki) {
       policy.manage(g);
       if (dev.state.phase === "manage") {
         dev.endYear();
+        if (counts.firstKien === undefined && dev.state.kien > 0) counts.firstKien = dev.state.year - 1 - FOUNDED;
+        // 年の暮れの現金と借入（開府100年・200年のようすを見る）
+        const closed = dev.state.year - 1 - FOUNDED;
+        if (closed === 100 || closed === 200) counts.purse[closed] = { cash: dev.state.fin.cash, debt: dev.state.fin.debt };
         if (dev.branchesBalanced()) counts.balancedYears += 1;
         // 威光・民心・朝廷のいちばん低いもの（20を切った年の数と、ならした値）
         const lowest = Math.min(...Object.values(dev.state.gauges));
@@ -288,13 +292,11 @@ function playOne(seed, policy, fuseki) {
   }
 
   const s = dev.state;
-  const limit = Math.round(s.fin.lastRevenue * dev.CONFIG.DEBT_LIMIT);
   const causes = [];
   if (s.phase === "over") {
     for (const [key, label] of [["ikou", "威光"], ["minshin", "民心"], ["chotei", "朝廷"]]) {
       if (s.gauges[key] <= dev.CONFIG.CRISIS_SAFE) causes.push(label);
     }
-    if (s.fin.debt > limit) causes.push("財政");
   }
   return {
     years: s.year - FOUNDED,
@@ -325,6 +327,9 @@ function playOne(seed, policy, fuseki) {
     blackFall: s.overReason === "black",
     repeatRate: counts.repeats / Math.max(1, counts.events),
     talks: counts.talks,
+    kien: s.kien || 0,
+    purse: counts.purse,
+    firstKien: counts.firstKien,
   };
 }
 
@@ -396,6 +401,12 @@ function main() {
     const endings = results.filter((r) => r.ending !== null).map((r) => r.ending);
     console.log(`異国船: ${line}　黒船に屈して倒幕 ${pct(results.filter((r) => r.blackFall).length, n)}　結末（黒船を退けた）${pct(endings.length, n)}${endings.length ? `（平均 開府${Math.round(avg(endings))}年）` : ""}`);
   }
+  const kienGames = results.filter((r) => r.kien > 0);
+  for (const y of [100, 200]) {
+    const list = results.map((r) => r.purse[y]).filter(Boolean);
+    if (list.length) console.log(`開府${y}年の暮れ（届いた${pct(list.length, n)}）: 現金 平均${Math.round(avg(list.map((x) => x.cash)))}万両・中央${Math.round(quantile(list.map((x) => x.cash).sort((a, b) => a - b), 0.5))}　借入 平均${Math.round(avg(list.map((x) => x.debt)))}万両`);
+  }
+  console.log(`借金の棒引き（棄捐令）: 命じた回 ${pct(kienGames.length, n)}　1回あたり平均 ${avg(results.map((r) => r.kien)).toFixed(1)}回${kienGames.length ? `（はじめて命じた年 平均 開府${Math.round(avg(kienGames.map((r) => r.firstKien)))}年）` : ""}`);
   console.log(`出来事: 前に見たものの再登場 ${pct(avg(results.map((r) => r.repeatRate)) * 100, 100)}　時代の章・史実の節目の掛け合い: 1回あたり平均 ${avg(results.map((r) => r.talks)).toFixed(1)}回`);
   console.log(`損のない選択肢（いちばんお金になり、威光・民心・朝廷を下げず、成否の判定も続きの出来事もないもの）: ${lossFree(g0Data()).join('、') || 'なし'}`);
   console.log(`（${((Date.now() - started) / 1000).toFixed(1)}秒）`);

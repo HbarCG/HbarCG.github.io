@@ -45,12 +45,10 @@
     BALANCE_MIN: 30,        // 三家がそろってこの格以上で、
     BALANCE_SPREAD: 6,      // 格の差がこれ以内なら、互いに牽制して威光が毎年+1
     HEAD_CHANGE: 0.05,      // 分家の当主が、1年に代替わりする見込み（当主になって12年たってから）
-    // 異国船（白船・赤船・黒船の順）。予兆が出る見込みは、開府からの年数が SHIP_START を
-    // 超えた年数 × SHIP_RAMP（上限 SHIP_MAX）。幕府が長く続くほど来やすい
-    SHIP_START: [40, 100, 160],
-    SHIP_RAMP: 0.001,
-    SHIP_MAX: 0.3,
-    SHIP_GAP: 15,           // 前の船が去ってから、次の船の予兆が出るまでの最短の年数
+    // 異国船（白船・赤船・黒船の順）。来航の年は、SHIP_YEARS の前後 SHIP_JITTER 年のどこか（周回のはじめに決める）。
+    // 黒船は史実どおり1853年ごろ。これが1周の大きなゴール
+    SHIP_YEARS: [1700, 1777, 1853],
+    SHIP_JITTER: 2,
     SHIP_NOTICE: [3, 5],    // 予兆から来航までの年数
     SHIP_BOOST: 3,          // 軍資金を投じたときに上がる力
     CARD_COOLDOWN: 10,      // 同じ出来事は、この年数のあいだ出ない
@@ -59,12 +57,18 @@
     TRADE_DECAY: 0.06,      // 出来事で増えた運上金・交易が、毎年細る割合（流行り廃り。11年ほどで半分）
     DRIFT_SHIFT: -1,        // 威光と民心の毎年の自然な増減に足す値（マイナスなら、放っておくと下がる）
     GAUGE_PULL: 0.2,        // 50を超えたぶんのこの割合が、毎年自然に戻る（慢心）
-    MINSHIN_NENGU: 0.005,   // 民心が50から1離れるごとに、年貢の取れ高がこれだけ増減する
+    MINSHIN_NENGU: 0.005,
+    NENGU_PRICE: 0.3,       // 物価の上がりのうち、この割合だけ年貢の換金額（米価）も上がる。残りが、時代とともに重くなる財政の苦しさ   // 民心が50から1離れるごとに、年貢の取れ高がこれだけ増減する
     IKOU_CENTER: 50,        // 威光がこれより高ければ大名の献上が入り、低ければ見張りの費えがかかる
     IKOU_DAIMYO: 0.4,       // 威光が IKOU_CENTER から1離れるごとに、大名の献上（または見張りの費え）がこれだけ増減する（万両/年、物価を反映）
     CHOTEI_COURT: 0.05,     // 朝廷が50を1下回るごとに、朝廷・寺社への費えがこの割合で増える
     CRISIS_YEARS: 3,        // 危機になってから立て直すまでの猶予
-    CRISIS_SAFE: 10,        // 威光・民心・朝廷がすべてこれを超え、借入が上限以下なら危機を脱する
+    CRISIS_SAFE: 10,        // 威光・民心・朝廷がすべてこれを超えれば危機を脱する
+    // 借入が上限を超えても、幕府は倒れない。商人に借金の棒引きを命じ（棄捐令）、借入を上限の KIEN_KEEP まで減らす。
+    // そのかわり、威光と民心が下がり、出来事で増やした交易の上がりが KIEN_TRADE の割合だけ残る（商人が離れる）
+    KIEN_KEEP: 0.6,
+    KIEN_EFFECTS: { ikou: -4, minshin: -3 },
+    KIEN_TRADE: 0.5,
     INTEREST: 0.08,         // 借入の利息（年）
     DEBT_LIMIT: 2,          // 借りられる上限は、その年の歳入のこの倍まで
     LOAN_STEP: 20,          // 財務画面で1回に借りる・返す額（万両）
@@ -191,6 +195,11 @@
     }
     saved.daughters = saved.daughters || [];
     saved.ships = saved.ships || { next: 0, arriving: null, last: null, won: [], lost: [] };
+    if (!saved.ships.plan) {
+      // 来る年を決めていなかったころの保存データ。過ぎてしまった船は、いまから数年後に来ることにする
+      saved.ships.plan = planShips().map((p, i) => (i < saved.ships.next || p.omen > saved.year ? p
+        : { omen: saved.year, arrive: saved.year + 1 + CONFIG.SHIP_NOTICE[0] }));
+    }
     if (!saved.branches) {
       // 御三家を代々続く家にする前の保存データ。布石で御三家を固めていたら、血筋の強い状態で始める
       const strong = (saved.institutions || []).includes('gosanke');
@@ -277,7 +286,8 @@
       // 御三家（と、のちに立つ御三卿）。血筋・当主・家風を持って代々続く
       branches: DATA.branches.map((def) => makeBranch(def, 'sanke', CONFIG.BLOOD_START, 1616)),
       // 異国船。next: 次に来る船（DATA.ships の何番目か） / arriving: 予兆が出た船の来航の年 / last: 前の船が去った年
-      ships: { next: 0, arriving: null, last: null, won: [], lost: [] },
+      // plan: 船ごとの { omen: 予兆が出る年, arrive: 来航の年 }
+      ships: { next: 0, arriving: null, last: null, won: [], lost: [], plan: planShips() },
       battle: null,     // 異国船との勝負のようす
       endless: false,   // 黒船を退けたあとも続けているか
       overReason: null, // 倒幕のわけ（黒船に屈したなら 'black'）
@@ -296,6 +306,7 @@
       era: null,        // いまの時代（cards.js の eras の id）
       succession: null,
       crisis: null,
+      kien: 0,          // 借入が上限を超えて、借金の棒引き（棄捐令）を命じた回数
       ledger: { year: CONFIG.START_YEAR, items: [] },
       books: [],
       family: [],
@@ -773,22 +784,24 @@
 
   // ─────────────────────────────── 異国船（白船・赤船・黒船）
 
-  // 次の船の予兆が出る見込み（1年あたり）。幕府が長く続くほど上がる
-  function shipChance() {
-    const sh = state.ships;
-    if (sh.next >= DATA.ships.length || sh.arriving) return 0;
-    if (sh.last !== null && state.year - sh.last < CONFIG.SHIP_GAP) return 0;
-    const over = bakufuYears() - CONFIG.SHIP_START[sh.next];
-    return over > 0 ? Math.min(CONFIG.SHIP_MAX, over * CONFIG.SHIP_RAMP) : 0;
+  // 周回のはじめに、船ごとの来航の年と、予兆が出る年を決める（来航の数年前に予兆が出る）
+  function planShips() {
+    return CONFIG.SHIP_YEARS.map((year) => {
+      const arrive = year + rand(-CONFIG.SHIP_JITTER, CONFIG.SHIP_JITTER);
+      return { omen: arrive - 1 - rand(CONFIG.SHIP_NOTICE[0], CONFIG.SHIP_NOTICE[1]), arrive };
+    });
   }
 
-  // 年の暮れに、次の船の予兆が出るかを決める。出たら、決算報告に出す中身を返す
+  // 年の暮れに、次の船の予兆が出る年なら、予兆を出す。出たら、決算報告に出す中身を返す
   function rollShip() {
-    if (Math.random() >= shipChance()) return null;
-    const ship = DATA.ships[state.ships.next];
-    const years = rand(CONFIG.SHIP_NOTICE[0], CONFIG.SHIP_NOTICE[1]);
-    state.ships.arriving = { year: state.year + 1 + years };   // 決算のあとで年が1つ進むので、その年から数える
-    return { name: ship.name, years, text: ship.omen };
+    const sh = state.ships;
+    if (sh.next >= DATA.ships.length || sh.arriving) return null;
+    const plan = sh.plan[sh.next];
+    if (state.year < plan.omen) return null;
+    const ship = DATA.ships[sh.next];
+    sh.arriving = { year: plan.arrive };
+    // 決算のあとで年が1つ進むので、その年から数える
+    return { name: ship.name, years: plan.arrive - (state.year + 1), text: ship.omen };
   }
 
   function shipDue() {
@@ -1126,9 +1139,11 @@
     const kanjo = postValue('kanjo');
 
     const g = state.gauges;
-    // 民心しだいで年貢の取れ高が変わる（民心50でもとの取れ高。0で7割、100で13割ほど）
+    // 民心しだいで年貢の取れ高が変わる（民心50でもとの取れ高。0で7割、100で13割ほど）。
+    // 米価は物価につれて上がるが、物価ほどには上がらない（NENGU_PRICE）
+    const ricePrice = 1 + (inflation - 1) * CONFIG.NENGU_PRICE;
     const nengu = Math.round(f.kokudaka * 0.25 * (0.825 + (g.minshin - 50) * CONFIG.MINSHIN_NENGU) * (0.9 + s.stats.seimu / 100)
-      * (1 + (kanjo - 10) * 0.015) * (hasInstitution('kanjo') ? 1.08 : 1));
+      * (1 + (kanjo - 10) * 0.015) * (hasInstitution('kanjo') ? 1.08 : 1) * ricePrice);
     const mine = Math.round(f.mine);
     // 商いは時代とともに大きくなる（交易の上がりは年々増える）。尾張家の華美な家風なら、さらに15%
     const trade = Math.round(f.trade * (1 + (state.year - CONFIG.START_YEAR) / 250) * (s.house === 'owari' ? 1.15 : 1));
@@ -1179,6 +1194,20 @@
       cash: Math.round(f.cash), debt: Math.round(f.debt), net: Math.round(netAssets()), limit: debtLimit(),
     });
     state.books = state.books.slice(0, CONFIG.BOOKS_KEPT);
+  }
+
+  // 棄捐令。借入を上限の KIEN_KEEP まで棒引きにさせる。決算報告に出す一文を返す
+  function kienrei() {
+    const f = state.fin;
+    const before = Math.round(f.debt);
+    f.debt = Math.round(debtLimit() * CONFIG.KIEN_KEEP);
+    const floor = Math.min(f.trade, tradeBase());
+    f.trade = floor + (f.trade - floor) * CONFIG.KIEN_TRADE;
+    applyEffects(CONFIG.KIEN_EFFECTS);
+    state.kien = (state.kien || 0) + 1;
+    addLog(`借入が上限を超え、商人に借金の棒引き（棄捐令）を命じた（借入 ${before}→${f.debt}万両）。`);
+    return `借入が上限を超えた。商人に借金の棒引き（棄捐令）を命じ、借入を${before}万両から${f.debt}万両に減らした。`
+      + '幕府の信用は落ち（威光・民心が下がる）、商人たちは離れていった（交易の上がりが細る）。';
   }
 
   // ─────────────────────────────── 出来事
@@ -1287,6 +1316,8 @@
         }
         unit = '万両';
       } else if (key === 'borrow') {
+        // 返す（マイナス）ときは、いまある借入より多くは返さない（借入がマイナスになり、利息が入ってこないように）
+        if (v < 0) v = -Math.min(-v, Math.max(0, Math.round(f.debt)));
         borrow(v);
         unit = '万両';
       } else if (FIN_LABELS[key]) {
@@ -1592,16 +1623,17 @@
       }
     }
 
-    // 異国船の予兆（幕府が長く続くほど出やすい）。決算報告では、別の枠で見せる
+    // 異国船の予兆（来航の数年前）。決算報告では、別の枠で見せる
     const omen = rollShip();
 
-    // 倒幕の危機
+    // 借入が上限を超えたら、商人に借金の棒引きを命じる（幕府は倒れないが、威光と民心と商いが痛む）
+    if (state.fin.debt > debtLimit()) notes.push(kienrei());
+
+    // 倒幕の危機（威光・民心・朝廷のどれかが尽きたとき）
     let crisisBegan = false;
-    const broke = state.fin.debt > debtLimit();
     const low = Object.keys(state.gauges).filter((k) => state.gauges[k] <= 0).map((k) => STATE_LABELS[k]);
-    if (broke) low.push('財政（借入が上限超え）');
     if (state.crisis) {
-      const safe = Object.values(state.gauges).every((v) => v > CONFIG.CRISIS_SAFE) && !broke;
+      const safe = Object.values(state.gauges).every((v) => v > CONFIG.CRISIS_SAFE);
       if (safe) {
         state.crisis = null;
         notes.push('幕府は危機を脱した。');
@@ -1783,12 +1815,9 @@
     beginYear();
   }
 
-  // 何が尽きて倒れたか（cards.js の endings の名前）。0まで落ちたゲージがあればそれ、なければ財政
+  // 何が尽きて倒れたか（cards.js の endings の名前）。いちばん低いゲージ
   function overCause() {
-    const low = Object.keys(state.gauges).sort((a, b) => state.gauges[a] - state.gauges[b]);
-    if (state.gauges[low[0]] <= 0) return low[0];
-    if (state.fin.debt > debtLimit()) return 'finance';
-    return state.gauges[low[0]] <= CONFIG.CRISIS_SAFE ? low[0] : 'finance';
+    return Object.keys(state.gauges).sort((a, b) => state.gauges[a] - state.gauges[b])[0];
   }
 
   // reason: 'black' なら黒船に屈した倒幕。省くと、尽きたものから決める
