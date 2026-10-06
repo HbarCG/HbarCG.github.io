@@ -31,7 +31,10 @@
     OFFER_WAIT: 3,          // 縁談を断ると、次に来るまでの年数
     MAX_CONCUBINES: 3,
     CONCUBINE_UPKEEP: 2,    // 側室1人ごとの大奥の費え（万両/年）
-    INHERIT_RATE: 0.45,     // 生まれた子の能力は、父と母の能力の平均のこの割合（＋少しの運と素質）
+    INHERIT_RATE: 0.75,     // 生まれた子の能力は、父と母の能力の平均のこの割合（＋少しの運と素質）
+    INHERIT_LUCK: [-1, 2],  // 生まれた子の能力に足される運
+    HEIR_ROOM: 3,           // 若君の伸びしろ。天井 ＝ 生まれたときの能力 ＋ これ ＋ 素質の★の数（教育でも天井は越えない）
+    BRIDE_LIFT: [30, 8],    // 将軍の格が [0] を [1] 上回るごとに、縁談の姫の能力が1上がる（-1〜+3）
     DAUGHTER_MARRY_AGE: 13, // 姫を嫁がせられる歳
     ADOPT_OUT_COST: 10,     // 若君を大名家へ養子に出すときの支度金（万両）
     // 御三家・御三卿の血筋（跡継ぎの候補の能力の目安。政務・武威・人徳それぞれの値）
@@ -432,6 +435,7 @@
       addLog('遺訓により、金蔵には150万両が蓄えられていた。');
     } else if (bonus === 'heir') {
       for (const k of Object.keys(heir.stats)) heir.stats[k] = clamp(heir.stats[k] + 3, 1, CONFIG.ABILITY_MAX);
+      for (const k of Object.keys(heir.cap)) heir.cap[k] = clamp(heir.cap[k] + 3, 1, CONFIG.ABILITY_MAX);
       addLog('遺訓により、若君の養育の手はずが整っていた。');
     } else if (bonus === 'kokudaka') {
       state.fin.kokudaka += 60;
@@ -516,8 +520,12 @@
   function makeChild(mother, name) {
     const s = state.shogun;
     const star = rollStars();
-    const inherit = (k) => clamp(Math.round((s.stats[k] + mother.stats[k]) / 2 * CONFIG.INHERIT_RATE) + rand(1, 4) + star.bonus,
-      1, CONFIG.ABILITY_MAX);
+    const inherit = (k) => clamp(Math.round((s.stats[k] + mother.stats[k]) / 2 * CONFIG.INHERIT_RATE)
+      + rand(CONFIG.INHERIT_LUCK[0], CONFIG.INHERIT_LUCK[1]) + star.bonus, 1, CONFIG.ABILITY_MAX);
+    const stats = { seimu: inherit('seimu'), bui: inherit('bui'), jintoku: inherit('jintoku') };
+    // 伸びしろの天井。生まれ（血筋）と素質で決まり、教育でも越えない
+    const cap = {};
+    for (const k of Object.keys(stats)) cap[k] = clamp(stats[k] + CONFIG.HEIR_ROOM + star.stars, 1, CONFIG.ABILITY_MAX);
     const used = state.heirs.map((h) => h.name);
     const heirName = name || pick(CHILD_NAMES.filter((n) => !used.includes(n)));
     const trait = Math.random() < 0.5 ? s.trait : pick(TRAITS);
@@ -532,14 +540,31 @@
       skill,
       stars: star.stars,
       mother: mother.label,
-      stats: {
-        seimu: inherit('seimu'),
-        bui: inherit('bui'),
-        jintoku: inherit('jintoku'),
-        kenko: clamp(Math.round(mother.stats.kenko * 0.5) + rand(3, 8), 1, CONFIG.ABILITY_MAX),
-      },
+      stats: { ...stats, kenko: clamp(Math.round(mother.stats.kenko * 0.5) + rand(3, 8), 1, CONFIG.ABILITY_MAX) },
+      cap,
       taughtYear: null,
     };
+  }
+
+  // 若君の能力の天井（政務・武威・人徳。健康には天井はない）。天井を入れる前の保存データの若君は、上限まで
+  function heirCap(heir, k) {
+    return heir.cap && heir.cap[k] !== undefined ? heir.cap[k] : CONFIG.ABILITY_MAX;
+  }
+
+  // 若君の能力を v だけ動かす。上げるときは天井で止まる（もとから天井を超えていれば、そのまま）
+  function moveHeirStat(heir, k, v) {
+    const cur = heir.stats[k];
+    const next = v > 0 ? Math.min(cur + v, Math.max(cur, heirCap(heir, k))) : cur + v;
+    heir.stats[k] = clamp(next, 1, CONFIG.ABILITY_MAX);
+    return heir.stats[k] - cur;
+  }
+
+  // 正室の能力と父（いまの将軍）から見た、生まれる若君の格の見込み（素質が並で、運がならしのとき）
+  function expectedChildKaku(motherStats) {
+    const s = state.shogun;
+    const luck = (CONFIG.INHERIT_LUCK[0] + CONFIG.INHERIT_LUCK[1]) / 2;
+    return ['seimu', 'bui', 'jintoku'].reduce((sum, k) => sum
+      + clamp(Math.round((s.stats[k] + motherStats[k]) / 2 * CONFIG.INHERIT_RATE + luck), 1, CONFIG.ABILITY_MAX), 0);
   }
 
   function makeDaughter(mother) {
@@ -593,13 +618,14 @@
 
   // 三家から1人ずつ、縁談の相手をつくる
   function makeBrides() {
-    const range = ([min, max]) => rand(min, max);
+    const lift = clamp(Math.floor((shogunKaku() - CONFIG.BRIDE_LIFT[0]) / CONFIG.BRIDE_LIFT[1]), -1, 3);
+    const lifted = ([min, max]) => clamp(rand(min, max) + lift, 1, CONFIG.ABILITY_MAX);
     return DATA.brides.kinds.map((kind) => {
       const name = kind.id === 'kashin' ? pick(DATA.brides.musume) : pick(DATA.brides.hime);
       return {
         kind: kind.id, name, house: pick(kind.houses), upkeep: kind.upkeep, seed: rand(0, 99),
         skill: Math.random() < 0.15 ? pick(DATA.skills).id : null,
-        stats: { seimu: range(kind.stats.seimu), bui: range(kind.stats.bui), jintoku: range(kind.stats.jintoku), kenko: range(kind.stats.kenko) },
+        stats: { seimu: lifted(kind.stats.seimu), bui: lifted(kind.stats.bui), jintoku: lifted(kind.stats.jintoku), kenko: rand(...kind.stats.kenko) },
       };
     });
   }
@@ -740,7 +766,7 @@
     const grow = heir.stars ? starInfo(heir.stars).grow : 0.5;
     const extra = heir.age < CONFIG.ADULT_AGE ? Math.round(((CONFIG.ADULT_AGE - heir.age) * grow) / 3) : 0;
     const out = {};
-    for (const k of ['seimu', 'bui', 'jintoku']) out[k] = clamp(heir.stats[k] + extra, 1, CONFIG.ABILITY_MAX);
+    for (const k of ['seimu', 'bui', 'jintoku']) out[k] = clamp(Math.min(heir.stats[k] + extra, Math.max(heir.stats[k], heirCap(heir, k))), 1, CONFIG.ABILITY_MAX);
     return out;
   }
 
@@ -1327,8 +1353,8 @@
         const heir = eldestHeir();
         if (!heir) continue;
         for (const [stat, v] of Object.entries(raw)) {
-          heir.stats[stat] = clamp(heir.stats[stat] + v, 1, CONFIG.ABILITY_MAX);
-          changes.push({ label: `${heir.name}の${ABILITY_LABELS[stat]}`, delta: v });
+          const d = moveHeirStat(heir, stat, v);
+          if (d !== 0) changes.push({ label: `${heir.name}の${ABILITY_LABELS[stat]}`, delta: d });
         }
         continue;
       }
@@ -1461,13 +1487,14 @@
   function teach(heirIndex, stat) {
     const heir = state.heirs[heirIndex];
     if (!heir || heir.taughtYear === state.year) return;
+    if (heir.stats[stat] >= heirCap(heir, stat)) return;   // 天井に届いていれば、師をつけても伸びない
     const cost = teachCost();
     state.fin.cash -= cost;
     book('op', '若君の教育費', -cost);
     const gain = 2 + (hasInstitution('gakumon') ? 1 : 0) + (hasSkill('gakumonzuki') ? 1 : 0) + (testament() === 'gaku' ? 1 : 0) + kakun('yoiku');
-    heir.stats[stat] = clamp(heir.stats[stat] + gain, 1, CONFIG.ABILITY_MAX);
+    const d = moveHeirStat(heir, stat, gain);
     heir.taughtYear = state.year;
-    addLog(`若君・${heir.name}に${TEACH_LABELS[stat]}の師をつけた（${ABILITY_LABELS[stat]}+${gain}、${cost}万両）。`);
+    addLog(`若君・${heir.name}に${TEACH_LABELS[stat]}の師をつけた（${ABILITY_LABELS[stat]}+${d}、${cost}万両）。`);
   }
 
   function institutionCost(inst) {
@@ -1623,7 +1650,7 @@
       const grow = (heir.stars ? starInfo(heir.stars).grow : 0.5) + kakun('teio') * 0.1;
       if (heir.age < CONFIG.ADULT_AGE && Math.random() < grow) {
         const stat = pick(['seimu', 'bui', 'jintoku']);
-        heir.stats[stat] = clamp(heir.stats[stat] + 1, 1, CONFIG.ABILITY_MAX);
+        moveHeirStat(heir, stat, 1);
       }
     }
     for (const d of state.daughters) d.age += 1;
@@ -2155,5 +2182,7 @@
     closeEnthrone, chooseTestament, testament,
     // 宿願と家訓
     chooseWish, wishStatus, wishDef, kakun, kakunDef,
+    // 血筋
+    heirCap, expectedChildKaku,
   };
 })();

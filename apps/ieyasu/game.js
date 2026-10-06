@@ -18,7 +18,7 @@
     shipDue, roundParts, roundChance, boostCost,
     salaryOf, wants, holder, vacancies, debtLimit, assets, netAssets, runway,
     cardById, fillNames, successChance, teachCost, institutionCost, institutionStatus, canRetire, overCause,
-    wishStatus, wishDef, kakun, kakunDef,
+    wishStatus, wishDef, kakun, kakunDef, heirCap, expectedChildKaku,
   } = E;
 
   // ルールの側の操作。状態を変えたあと、保存して描き直す（commit）
@@ -788,6 +788,7 @@
         el('span', { class: 'iy-option__text' }, [
           el('span', { class: 'iy-option__how', text: `${kind.label}・${b.house}` }),
           el('strong', { text: `${b.name}（格${kakuOf(b.stats)}）` }),
+          el('span', { class: 'iy-option__hint', text: `生まれる若君の見込み：格${expectedChildKaku(b.stats)}前後（素質が並のとき）` }),
           el('span', { text: Object.keys(ABILITY_LABELS).map((k) => `${ABILITY_LABELS[k]}${b.stats[k]}`).join('　') }),
           sk ? el('span', { class: 'iy-skill__name', text: `特技「${sk.name}」${sk.desc}` }) : null,
           el('span', { text: terms }),
@@ -798,7 +799,7 @@
       el('p', { class: 'iy-year', text: `${state.year}年` }),
       el('h2', { text: '縁組' }),
       sceneArt('palanquin'),
-      el('p', { text: `将軍・${s.name}（${s.age}歳）に、正室を迎える縁談が三つ来ている。正室の能力と特技は、生まれてくる子に受け継がれる。` }),
+      el('p', { text: `将軍・${s.name}（${s.age}歳）に、正室を迎える縁談が三つ来ている。正室の能力と特技は、生まれてくる子に受け継がれる。将軍の格が高いほど、良い縁談が来る。` }),
       ieyasuSays(el('p', { class: 'iy-voice', text: '「嫁取りは、家と家を結ぶもの。じゃが、生まれてくる子の器も母しだいじゃ。……金のかかり方もな。」' })),
       list,
       el('button', { type: 'button', class: 'iy-secondary', text: `今は迎えない（${CONFIG.OFFER_WAIT}年後に、また縁談が来る）`, onclick: declineMarriage }),
@@ -818,12 +819,14 @@
       ]),
       starTag(heir.stars, heir.mother ? `　母：${heir.mother}` : ''),
       statBars(heir.stats, ABILITY_LABELS),
+      el('p', { class: 'iy-hint', text: `天井：${['seimu', 'bui', 'jintoku'].map((k) => `${ABILITY_LABELS[k]}${heirCap(heir, k)}`).join('・')}（格${['seimu', 'bui', 'jintoku'].reduce((a, k) => a + heirCap(heir, k), 0)}）。生まれと素質で決まり、教育でもここまでしか伸びない。` }),
       skillTag(heir.skill, '（将軍になると働く）'),
       canTeach
         ? el('p', { class: 'iy-hint', text: taught ? '今年はもう師をつけた。' : `師をつける（教育費 ${teachCost()}万両・1年に1回）` })
         : el('p', { class: 'iy-hint', text: '成人したので、教育は終わった。' }),
       canTeach ? el('div', { class: 'iy-teach' }, Object.keys(TEACH_LABELS).map((stat) => el('button', {
-        type: 'button', text: TEACH_LABELS[stat], disabled: taught, onclick: () => teach(index, stat),
+        type: 'button', text: stat !== 'kenko' && heir.stats[stat] >= heirCap(heir, stat) ? `${TEACH_LABELS[stat]}（天井）` : TEACH_LABELS[stat],
+        disabled: taught || (stat !== 'kenko' && heir.stats[stat] >= heirCap(heir, stat)), onclick: () => teach(index, stat),
       }))) : null,
       // 養子に出す先。御三家・御三卿へ出すと、その家の血筋が若君の見込みまで上がる
       el('select', {
