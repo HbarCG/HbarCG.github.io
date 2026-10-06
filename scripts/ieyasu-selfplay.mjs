@@ -190,11 +190,32 @@ POLICIES.money = {
   choose: (g, card) => card.options.reduce((best, o, i) => (moneyValue(o.effects) > moneyValue(card.options[best].effects) ? i : best), 0),
 };
 
+// cards.js だけを読み込んだデータ（損のない選択肢を数えるため）
+function g0Data() {
+  const ctx = vm.createContext({});
+  ctx.window = ctx;
+  vm.runInContext(CODE.find(([f]) => f === "cards.js")[1], ctx);
+  return ctx.IEYASU_DATA;
+}
+
+// お金がいちばん増える選択肢なのに、ゲージを1つも下げず、成否の判定も、あとで来る続きの出来事（flag）もないカード。
+// こういう「損のない正解」が多いと、お金だけ見て選べば勝ててしまう。お金が増えないもの（0以下）は数えない
+function lossFree(data) {
+  return data.cards.filter((card) => {
+    const best = card.options.reduce((b, o, i) => (moneyValue(o.effects) > moneyValue(card.options[b].effects) ? i : b), 0);
+    const o = card.options[best];
+    const hurts = ["ikou", "minshin", "chotei"].some((k) => (o.effects[k] || 0) < 0);
+    return moneyValue(o.effects) > 0 && !hurts && !o.check && !o.flag && !(o.effects.stress > 0) && !(o.effects.health < 0)
+      && !(o.effects.borrow < 0); // 借入の返済は、いま現金を払うので「損のない」には数えない
+  }).map((card) => card.id);
+}
+
 function playOne(seed, policy, fuseki) {
   const g = createGame(seed);
   const { dev, data } = g;
   const counts = { succession: {}, shogunKaku: [], warned: 0, left: 0, candidates: [], raises: 0,
-    wives: {}, stars: [0, 0, 0, 0, 0, 0], daughters: 0, meddle: 0, balancedYears: 0, lowYears: 0, gaugeSum: 0, shipsArrived: [], ending: null };
+    wives: {}, stars: [0, 0, 0, 0, 0, 0], daughters: 0, meddle: 0, balancedYears: 0, lowYears: 0, gaugeSum: 0, shipsArrived: [], ending: null,
+    events: 0, repeats: 0, talks: 0 };
   // 決算報告の「その年の出来事」から数える
   const NOTE_PATTERNS = { warned: /不満を漏らしている/, left: /見切りをつけて去った/ };
 
@@ -215,6 +236,9 @@ function playOne(seed, policy, fuseki) {
     if (s.phase === "event") {
       const card = data.cards.find((c) => c.id === s.card.id);
       if (card.id === "branch-meddle") counts.meddle += 1;
+      // 同じ回の中で、前に見た出来事がまた出たか
+      counts.events += 1;
+      if (s.seen[card.id] !== undefined) counts.repeats += 1;
       dev.choose(policy.choose(g, card));
     } else if (s.phase === "result") {
       s.phase = "manage";
@@ -262,6 +286,10 @@ function playOne(seed, policy, fuseki) {
       dev.continueAfterEnding();
     } else if (s.phase === "report") {
       dev.closeReport();
+    } else if (s.phase === "talk") {
+      // 時代の章・史実の節目の掛け合い（読むだけ）
+      counts.talks += 1;
+      dev.closeTalk();
     } else if (s.phase === "succession") {
       const { mode, candidates } = s.succession;
       const pickIndex = policy.crown(g);
@@ -311,6 +339,8 @@ function playOne(seed, policy, fuseki) {
     shipsWon: s.ships ? s.ships.won : [],
     ending: counts.ending,
     blackFall: s.overReason === "black",
+    repeatRate: counts.repeats / Math.max(1, counts.events),
+    talks: counts.talks,
   };
 }
 
@@ -382,6 +412,8 @@ function main() {
     const endings = results.filter((r) => r.ending !== null).map((r) => r.ending);
     console.log(`異国船: ${line}　黒船に屈して倒幕 ${pct(results.filter((r) => r.blackFall).length, n)}　結末（黒船を退けた）${pct(endings.length, n)}${endings.length ? `（平均 開府${Math.round(avg(endings))}年）` : ""}`);
   }
+  console.log(`出来事: 前に見たものの再登場 ${pct(avg(results.map((r) => r.repeatRate)) * 100, 100)}　時代の章・史実の節目の掛け合い: 1回あたり平均 ${avg(results.map((r) => r.talks)).toFixed(1)}回`);
+  console.log(`損のない選択肢（いちばんお金になり、威光・民心・朝廷を下げず、成否の判定も続きの出来事もないもの）: ${lossFree(g0Data()).join('、') || 'なし'}`);
   console.log(`（${((Date.now() - started) / 1000).toFixed(1)}秒）`);
 }
 

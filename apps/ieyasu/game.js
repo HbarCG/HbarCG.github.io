@@ -219,6 +219,10 @@
     }
     if (saved.shogun && saved.shogun.stress === undefined) saved.shogun.stress = 0;
     if (saved.shogun && saved.shogun.skill === undefined) saved.shogun.skill = null;
+    saved.lastChoice = saved.lastChoice || {};
+    // 結果の画面は政務の間にまとめた
+    if (saved.phase === 'result') saved.phase = 'manage';
+    if (saved.era === undefined) saved.era = saved.phase === 'prologue' ? null : eraAt(saved.year).id;
     return saved;
   }
 
@@ -315,6 +319,10 @@
       seen: {},
       card: null,
       result: null,
+      lastChoice: {},   // 出来事ごとの、前回選んだ選択肢（2回目の書き出しに使う）
+      brief: null,      // 静かな年の決算を、翌年の出来事の上に1行で出すときの中身
+      talk: null,       // 時代の章・史実の節目の掛け合い（{ era, history }）
+      era: null,        // いまの時代（cards.js の eras の id）
       succession: null,
       crisis: null,
       ledger: { year: CONFIG.START_YEAR, items: [] },
@@ -403,6 +411,7 @@
     addLog(`家光の忘れ形見、若君・${heir.name}が生まれた（素質${starText(heir.stars)} ${starInfo(heir.stars).label}）。`);
     applyLegacy(heir);
     for (const id of state.institutions) applyInstitutionOn(id);
+    state.era = eraAt(state.year).id;
     state.yearStart = snapshot();
     drawCard();
   }
@@ -585,7 +594,31 @@
   }
 
   // 年のはじめの場面を決める。正室のいない将軍には、まず縁談が来る
+  // 年のはじめ。時代が変わった年や、史実の節目の年は、まず家康と家光の掛け合いを見せる
   function beginYear() {
+    const era = eraAt(state.year);
+    const history = DATA.history.find((h) => h.year === state.year);
+    const newEra = era.id !== state.era;
+    state.era = era.id;
+    if (newEra || history) {
+      state.talk = { era: newEra ? era.id : null, history: history ? history.year : null };
+      state.phase = 'talk';
+      return;
+    }
+    continueYear();
+  }
+
+  function eraAt(year) {
+    return DATA.eras.filter((e) => e.from <= year).pop() || DATA.eras[0];
+  }
+
+  function closeTalk() {
+    state.talk = null;
+    continueYear();
+    commit();
+  }
+
+  function continueYear() {
     if (needsMarriage()) {
       state.oku.offers = makeBrides();
       state.phase = 'marriage';
@@ -1234,6 +1267,7 @@
     const view = { ...state, shogunate: state.gauges, strongBranch: strongBranch() };
     const usable = (card, useCooldown) => {
       if (card.minYear && state.year < card.minYear) return false;
+      if (card.maxYear && state.year > card.maxYear) return false;
       if (card.when && !card.when(view)) return false;
       const last = state.seen[card.id];
       if (last === undefined) return true;
@@ -1387,6 +1421,8 @@
     else state.tension = Math.max(0, state.tension - 1);
 
     state.seen[card.id] = state.year;
+    state.lastChoice[card.id] = option.label;
+    state.brief = null;
     state.result = {
       title: card.title,
       choice: option.label,
@@ -1396,7 +1432,8 @@
       growth,
     };
     addLog(`${card.title}：「${option.label}」${success ? '' : '……しくじった'}`);
-    state.phase = 'result';
+    // 結果は政務の間の頭に出す（結果の画面と政務の間を1つにして、1年の操作を減らす）
+    state.phase = 'manage';
     commit();
   }
 
@@ -1607,7 +1644,7 @@
         state.heirs.push(child);
         const star = starInfo(child.stars);
         const sk = skillById(child.skill);
-        births.push({ sex: 'm', name: child.name, mother: child.mother, trait: child.trait, stars: child.stars, label: star.label,
+        births.push({ sex: 'm', name: child.name, mother: child.mother, trait: child.trait, stars: child.stars, label: star.label, seed: child.personId,
           skill: child.skill,
           text: `若君・${child.name}が生まれた（素質${starText(child.stars)} ${star.label}${sk ? `・特技「${sk.name}」` : ''}・母：${child.mother}）。` });
       }
@@ -1617,6 +1654,7 @@
     const omen = rollShip();
 
     // 倒幕の危機
+    let crisisBegan = false;
     const broke = state.fin.debt > debtLimit();
     const low = Object.keys(state.gauges).filter((k) => state.gauges[k] <= 0).map((k) => STATE_LABELS[k]);
     if (broke) low.push('財政（借入が上限超え）');
@@ -1638,6 +1676,7 @@
     } else if (low.length > 0) {
       state.crisis = { years: CONFIG.CRISIS_YEARS };
       notes.push(`${low.join('・')}が尽きた。倒幕の危機！${CONFIG.CRISIS_YEARS}年のうちに立て直さねばならぬ。`);
+      crisisBegan = true;
     }
 
     notes.forEach(addLog);
@@ -1657,12 +1696,32 @@
       births,
       omen,
       honors: honors.map((h) => h.name),
+      // 節目の掛け合い（cards.js の talks）。何番目のせりふかを決めておき、描き直しても変わらないようにする
+      talk: crisisBegan ? talkPick('crisis') : births.some((b) => (b.stars || 0) >= 4) ? talkPick('star') : null,
     };
+    state.result = null;
+
+    // 何も起きなかった年は、決算の画面を出さずに次の年へ進み、翌年の出来事の上に1行で知らせる
+    const run = runway();
+    const quiet = !died && notes.length === 0 && births.length === 0 && !omen && honors.length === 0
+      && !state.crisis && closed.op >= 0 && !(run && run.years <= 15);
+    const report = state.report;
 
     state.year += 1;
     state.ledger = { year: state.year, items: [] };
     ui.bookYear = String(state.year - 1);
 
+    if (quiet) {
+      state.report = null;
+      state.brief = { year: report.year, op: report.op, cash: report.cash, debt: report.debt, gauges: report.gauges };
+      state.phase = 'event';
+      drawCard();
+      state.yearStart = snapshot();
+      beginYear();
+      commit();
+      return;
+    }
+    state.brief = null;
     if (died) {
       addLog(`将軍・${s.name}が${s.age}歳で世を去った。`);
       startSuccession('death');
@@ -1674,6 +1733,17 @@
     state.nextPhase = state.phase;
     state.phase = 'report';
     commit();
+  }
+
+  // 節目の掛け合いを1つ選ぶ（{ kind, i }）。cards.js の talks[kind] の何番目か
+  function talkPick(kind) {
+    const list = DATA.talks[kind] || [];
+    return list.length ? { kind, i: Math.floor(Math.random() * list.length) } : null;
+  }
+
+  function talkLines(t) {
+    const pair = t && (DATA.talks[t.kind] || [])[t.i];
+    return pair ? pair.map((l) => lineOf(l)) : [];
   }
 
   function closeReport() {
@@ -1821,10 +1891,15 @@
   function soundFor(phase) {
     if (phase === 'event') {
       const card = cardById(state.card.id);
+      // 静かな年は決算の画面を飛ばすので、年越しの拍子木をここで鳴らす
+      if (state.brief) AUDIO.cue('year');
       if (card.trial) AUDIO.cue('drum');
       AUDIO.phrase(card.trial || ieyasuMood() === 'worry' ? 'worry' : 'calm');
-    } else if (phase === 'result') {
-      AUDIO.cue(state.result.failed ? 'fail' : 'select');
+    } else if (phase === 'manage') {
+      if (state.result) AUDIO.cue(state.result.failed ? 'fail' : 'select');
+    } else if (phase === 'talk') {
+      AUDIO.cue('year');
+      AUDIO.phrase('calm');
     } else if (phase === 'report') {
       const r = state.report;
       AUDIO.cue('year');
@@ -1859,8 +1934,9 @@
   }
 
   // compact … 出来事の画面では、スマホで絵を少し小さくして、選択肢を最初の画面に近づける
-  function sceneArt(name, compact = false) {
-    return art(ART.scene(name), compact ? 'iy-scene iy-scene--compact' : 'iy-scene');
+  // outcome … 'good' なら金の光、'bad' なら曇り空と雨を重ねる（結果の絵）
+  function sceneArt(name, compact = false, outcome = null) {
+    return art(ART.scene(name, outcome), compact ? 'iy-scene iy-scene--compact' : 'iy-scene');
   }
 
   // 話し手ごとの顔と名前
@@ -1902,14 +1978,21 @@
   }
 
   // 人物の顔。家康・将軍・若君・姫・御三家の人などで描き分ける
+  // 顔の描き分けには、人ごとの番号（seed）と歳を使う。世を去った人は、亡くなったときの歳で描く
   function faceOf(p, small) {
     const cls = `iy-face${small ? ' iy-face--small' : ''}`;
     if (p.gen === 1) return art(ART.ieyasu('calm'), cls);
     if (p.house && !p.gen) return art(ART.retainer(p.id || 0), cls);
-    const age = p.age !== undefined ? p.age : state.year - p.born;
-    if (p.sex === 'f') return art(ART.lady(p.id || 0, age < CONFIG.DAUGHTER_MARRY_AGE), cls);
-    if (!p.gen && age < CONFIG.ADULT_AGE) return art(ART.child(p.trait), cls);
-    return art(ART.shogun(p.trait || '慎重'), cls);
+    const age = p.age !== undefined ? p.age : p.to && p.endAge ? p.endAge : state.year - p.born;
+    const seed = p.personId || p.id || 0;
+    if (p.sex === 'f') return art(ART.lady(seed, age < CONFIG.DAUGHTER_MARRY_AGE), cls);
+    if (!p.gen && age < CONFIG.ADULT_AGE) return art(ART.child(p.trait, seed), cls);
+    return art(ART.shogun(p.trait || '慎重', seed, age), cls);
+  }
+
+  function shogunFace(cls) {
+    const s = state.shogun;
+    return art(ART.shogun(s.trait, s.personId, s.age), cls);
   }
 
   function retainerFace(r, small) {
@@ -2005,7 +2088,7 @@
     const overLimit = f.debt > debtLimit();
     $('topbar').replaceChildren(...[
       el('div', { class: 'iy-topbar__row' }, [
-        art(ART.shogun(s.trait), 'iy-face iy-face--tiny'),
+        shogunFace('iy-face iy-face--tiny'),
         el('p', { class: 'iy-topbar__title' }, [
           // 決算報告を見ているあいだは、まだその年の暮れとして出す（年はもう進んでいるが、報告と食い違わないように）
           el('strong', { text: state.phase === 'report' && state.report ? `${state.report.year}年の暮れ` : `${state.year}年` }),
@@ -2063,7 +2146,7 @@
 
   function renderSeimu() {
     const views = {
-      prologue: viewPrologue, event: viewEvent, result: viewResult, marriage: viewMarriage,
+      prologue: viewPrologue, event: viewEvent, marriage: viewMarriage, talk: viewTalk,
       manage: viewManage, succession: viewSuccession, over: viewOver, report: viewReport,
       ship: viewShip, ending: viewEnding,
     };
@@ -2186,9 +2269,47 @@
     return marks.length ? el('span', { class: 'iy-marks' }, marks) : null;
   }
 
+  // 時代の章・史実の節目の掛け合い。せりふは一度に並べ、1回押せば先へ進む
+  function viewTalk() {
+    const t = state.talk;
+    const era = t.era ? DATA.eras.find((e) => e.id === t.era) : null;
+    const history = t.history ? DATA.history.find((h) => h.year === t.history) : null;
+    const speech = (lines) => lines.map((l) => lineOf(l)).map((l) => says(l.who, el('p', { class: 'iy-voice', text: l.text }), l.mood));
+    const nodes = [
+      el('p', { class: 'iy-year', text: era ? `${state.year}年　第${DATA.eras.indexOf(era) + 1}章` : `${state.year}年　史実では` }),
+      el('h2', { text: era ? era.title : history.title }),
+      sceneArt(era ? era.scene : history.scene),
+    ];
+    if (era) nodes.push(el('p', { text: era.lead }), ...speech(era.lines));
+    // 章の始めと史実の節目が同じ年なら、続けて見せる
+    if (history && era) nodes.push(el('h3', { class: 'iy-talk-sub', text: `史実では：${history.title}` }));
+    if (history) nodes.push(...speech(history.lines));
+    nodes.push(el('button', { type: 'button', class: 'iy-primary', text: era ? 'この時代へ' : '次へ', onclick: closeTalk }));
+    return nodes;
+  }
+
+  // 静かな年の決算（決算の画面を飛ばした年）を、出来事の上に1行で出す
+  function briefNode() {
+    const b = state.brief;
+    if (!b || b.year !== state.year - 1) return null;
+    const gauges = b.gauges.map((g) => `${STATE_LABELS[g.key]}${g.after}（${signed(g.after - g.before)}）`).join(' ');
+    return el('p', { class: 'iy-brief' }, [
+      el('strong', { text: `${b.year}年の決算　` }),
+      `営業の収支${b.op > 0 ? "+" : ""}${money(b.op)}万両・現金${money(b.cash)}万両・${gauges}　`,
+      el('button', {
+        type: 'button', class: 'iy-link-button', text: '帳簿を見る',
+        onclick: () => { ui.tab = 'finance'; ui.bookYear = String(b.year); render(); scrollToGame(); },
+      }),
+    ]);
+  }
+
   function viewEvent() {
     const card = cardById(state.card.id);
     const s = state.shogun;
+    // 2回目以降は、書き出しを差し替える（{last} は前回選んだ選択肢）
+    const last = state.seen[card.id] !== undefined ? state.lastChoice[card.id] : null;
+    const text = card.again && state.seen[card.id] !== undefined && (last || !card.again.includes('{last}'))
+      ? card.again.replace('{last}', last) : card.text;
     const list = el('div', { class: 'iy-options' });
     card.options.forEach((option, i) => {
       const liked = option.tag === s.trait;
@@ -2203,10 +2324,11 @@
       ]));
     });
     return [
+      briefNode(),
       el('p', { class: 'iy-year', text: `${state.year}年${card.trial ? '　大きな試練' : ''}` }),
       el('h2', { text: card.title }),
       sceneArt(card.scene, true),
-      el('p', { text: fillNames(card.text) }),
+      el('p', { text: fillNames(text) }),
       ieyasuSays(el('p', { class: 'iy-voice', text: `「${fillNames(card.ieyasu)}」` }), card.trial ? 'worry' : ieyasuMood()),
       // 将軍の好みの説明は1行に縮め、選択肢をなるべく最初の画面に入れる（詳しくはガイド）
       el('p', { class: 'iy-intent' }, [
@@ -2218,22 +2340,35 @@
     ];
   }
 
-  function viewResult() {
+  // 出来事の結果。政務の間の頭に出す。しくじったか、悪い変化ばかりなら曇り空、良い変化ばかりなら金の光を絵に重ねる
+  function resultNodes() {
     const r = state.result;
     const card = cardById(state.card.id);
+    const good = r.changes.filter((c) => (c.good !== undefined ? c.good : c.delta > 0)).length;
+    const bad = r.changes.length - good;
+    const outcome = r.failed || (bad > 0 && good === 0) ? 'bad' : good > 0 && bad === 0 ? 'good' : null;
     return [
       el('p', { class: 'iy-year', text: `${state.year}年` }),
       el('h2', { text: `${r.title}：${r.choice}` }),
-      sceneArt(card.scene),
+      sceneArt(card.scene, true, outcome),
       el('p', { class: r.failed ? 'iy-failed' : '', text: r.text }),
       changeList(r.changes),
       r.growth ? el('p', { class: 'iy-note', text: r.growth }) : null,
       r.failed ? ieyasuSays(el('p', { class: 'iy-voice', text: '「……むう。」' }), 'worry') : null,
-      el('button', {
-        type: 'button', class: 'iy-primary', text: '政務の間へ',
-        onclick: () => { state.phase = 'manage'; state.result = null; commit(); },
-      }),
     ];
+  }
+
+  // 政務の間で手を打てること（結果のすぐ下に、年を越すボタンと並べて知らせる）
+  function pendingWork() {
+    const items = [];
+    const teachable = state.heirs.filter((h) => h.age < CONFIG.TEACH_AGE_LIMIT).length;
+    if (teachable) items.push(`教育できる若君${teachable}人`);
+    const ready = DATA.institutions.filter((inst) => !inst.prologueOnly && !hasInstitution(inst.id) && institutionStatus(inst).ok).length;
+    if (ready) items.push(`整えられる制度${ready}件`);
+    if (vacancies().length) items.push('空いている役職');
+    if (state.retainers.some((r) => r.unhappy)) items.push('不満を漏らす家臣');
+    if (shipDue() || state.ships.arriving) items.push('異国船への備え');
+    return items;
   }
 
   // 異国船との勝負。役職ごとの勝負を順に行い、決まった数だけ勝てば退けられる
@@ -2460,13 +2595,22 @@
   }
 
   function viewManage() {
-    const nodes = [
-      el('p', { class: 'iy-year', text: `${state.year}年` }),
-      el('h2', { text: '政務の間' }),
+    const nodes = [];
+    if (state.result) {
+      // 出来事の結果のすぐ下に「年を越す」を置く。手を打つことがあれば、その下の政務の間で
+      const work = pendingWork();
+      nodes.push(...resultNodes(), el('div', { class: 'iy-quick' }, [
+        el('button', { type: 'button', class: 'iy-primary', text: '年を越す（決算）', onclick: endYear }),
+        el('p', { class: 'iy-hint', text: work.length ? `政務の間（この下）で手を打てること：${work.join('・')}` : '政務の間（この下）で、教育・大奥・制度を見直せる。' }),
+      ]));
+    }
+    nodes.push(
+      state.result ? null : el('p', { class: 'iy-year', text: `${state.year}年` }),
+      el('h2', { class: state.result ? 'iy-manage-title' : '', text: '政務の間' }),
       el('p', { class: 'iy-hint', text: '若君の教育、大奥、制度の整備、代替わりを決める。財務と組織は下のメニューから。終わったら年を越す。' }),
       ...shipPrepNodes(),
       el('h3', { text: '若君' }),
-    ];
+    );
 
     if (state.heirs.length === 0) {
       nodes.push(el('p', { class: 'iy-hint', text: 'まだ若君がいない。正室や側室がいれば、いずれ生まれるだろう。' }));
@@ -2554,10 +2698,16 @@
     };
     const heirs = candidates.filter((c) => !c.branchId && !c.house);
     const others = candidates.filter((c) => c.branchId || c.house);
+    // 代替わりの掛け合い（年で選ぶので、描き直しても変わらない）
+    const talks = DATA.talks[reason === 'retire' ? 'retire' : 'death'] || [];
+    const talk = talks.length ? talkLines({ kind: reason === 'retire' ? 'retire' : 'death', i: state.year % talks.length }) : [];
+    // 跡継ぎが決まるまで、state.shogun は世を去った（職を譲った）将軍のまま
+    const fill = (text) => text.replace('{shogun}', state.shogun.name);
     return [
       el('p', { class: 'iy-year', text: `${state.year}年` }),
       el('h2', { text: reason === 'retire' ? '将軍職を譲る' : '将軍、世を去る' }),
       sceneArt(reason === 'retire' ? 'hall' : 'sickbed'),
+      ...talk.map((l) => says(l.who, el('p', { class: 'iy-voice', text: fill(l.text) }), l.mood)),
       el('p', { text: intro }),
       heirs.length ? el('h3', { text: '本家の若君' }) : null,
       heirs.length ? el('div', { class: 'iy-options' }, heirs.map(option)) : null,
@@ -2570,7 +2720,7 @@
   function birthCard(b) {
     const sk = skillById(b.skill);
     return el('div', { class: `iy-birth${b.stars >= 4 ? ' iy-birth--rare' : ''}` }, [
-      b.sex === 'f' ? art(ART.lady(b.seed || 0, true), 'iy-face') : art(ART.child(b.trait), 'iy-face'),
+      b.sex === 'f' ? art(ART.lady(b.seed || 0, true), 'iy-face') : art(ART.child(b.trait, b.seed), 'iy-face'),
       el('div', {}, [
         el('p', { class: 'iy-birth__title', text: b.sex === 'f' ? `姫・${b.name}が生まれた` : `若君・${b.name}が生まれた` }),
         b.stars ? el('p', {}, [el('span', { class: 'iy-stars', text: starText(b.stars) }), ` 素質：${b.label}`]) : null,
@@ -2625,7 +2775,9 @@
       r.notes.length ? el('ul', { class: 'iy-report-notes' }, r.notes.map((n) => el('li', { text: n }))) : null,
       // お金が尽きそうなら、早めに知らせる（財務の画面に、グラフと内訳がある）
       (runway() || { years: 99 }).years <= 15 ? runwayLine() : null,
-      ieyasuSays(el('p', { class: 'iy-voice', text: comment }), mood),
+      // 危機の始まりや、★の高い若君の誕生では、家康のひと言のかわりに家光との掛け合いを出す
+      ...(r.talk ? talkLines(r.talk).map((l) => says(l.who, el('p', { class: 'iy-voice', text: l.text }), l.mood))
+        : [ieyasuSays(el('p', { class: 'iy-voice', text: comment }), mood)]),
       el('button', { type: 'button', class: 'iy-primary', text: isSuccession ? '跡継ぎを決める' : '次の年へ', onclick: closeReport }),
     ];
   }
@@ -3001,7 +3153,7 @@
     $('tab-org').replaceChildren(
       panel('将軍', [
         el('div', { class: 'iy-heir__head' }, [
-          art(ART.shogun(s.trait), 'iy-face'),
+          shogunFace('iy-face'),
           el('p', {}, [el('strong', { text: `第${s.gen}代 ${s.name}` }), `（${s.age}歳・${s.trait}・健康${s.health}）`]),
         ]),
         statBars(s.stats, { seimu: '政務', bui: '武威', jintoku: '人徳' }),
@@ -3203,7 +3355,7 @@
   window.IEYASU_DEV = {
     get state() { return state; },
     CONFIG, POSTS,
-    startMain, choose, endYear, closeReport, crown, hire, autoAssign,
+    startMain, choose, endYear, closeReport, closeTalk, crown, hire, autoAssign,
     teach, teachCost, establish, institutionStatus, repay, retire, canRetire,
     shogunKaku, kakuOf, wants, raise,
     marry, declineMarriage, addConcubine, removeConcubine, marryDaughter, adoptOut, birthChance, ookuBase,

@@ -1416,3 +1416,55 @@ body.iy-coaching .iy-raise {
   text-align: left;
   font-size: 0.85rem;
 }
+
+/* 静かな年の決算（決算の画面を出さなかった年）を、翌年の出来事の上に1行で知らせる */
+.iy-stage > .iy-brief {
+  margin: 0 0 0.75rem;
+  padding: 0.45rem 0.7rem;
+  border-left: 3px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-text) 3%, var(--color-bg));
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.iy-brief strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.iy-panel .iy-brief .iy-link-button {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: var(--color-link);
+  text-decoration: underline;
+}
+
+/* 出来事の結果のすぐ下に置く「年を越す」と、政務の間で手を打てることの一覧 */
+.iy-quick {
+  margin: 0.25rem 0 0;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.iy-panel .iy-quick .iy-primary {
+  margin-top: 0.75rem;
+}
+
+.iy-quick .iy-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+}
+
+.iy-panel h2.iy-manage-title {
+  margin-top: 1.25rem;
+}
+
+/* 時代の章で、史実の節目が同じ年に重なったときの小見出し */
+.iy-panel h3.iy-talk-sub {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 0.92rem;
+  color: var(--color-text-muted);
+}

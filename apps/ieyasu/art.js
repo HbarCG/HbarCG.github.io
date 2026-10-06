@@ -3,9 +3,10 @@
 // 最後に和紙の質感と、ふちの陰り、細い額縁を重ねる。
 //
 //   IEYASU_ART.scene('fire')        … 出来事の場面（横長）。名前は SCENES の一覧を参照
+//   IEYASU_ART.scene('fire', 'bad') … 結果の絵。'good' なら金の光、'bad' なら曇り空と雨を重ねる
 //   IEYASU_ART.ieyasu('worry')      … 家康（神さま姿）の顔。'calm' / 'worry' / 'angry'
-//   IEYASU_ART.shogun('華美')        … 将軍の顔。性格で着物の色が変わる
-//   IEYASU_ART.child('慎重')         … 若君の顔
+//   IEYASU_ART.shogun('華美', 12, 55) … 将軍の顔。性格で着物の色が、人ごとの番号で顔つきが、歳で髪の白さとしわが変わる
+//   IEYASU_ART.child('慎重', 12)     … 若君の顔（番号で顔つきが少し変わる）
 //   IEYASU_ART.iemitsu()             … 霊体の家光の顔（チュートリアルとガイドの案内役）
 //   IEYASU_ART.retainer(3)           … 家臣の顔。数字で着物の色や顔つきが変わる
 window.IEYASU_ART = (() => {
@@ -454,6 +455,76 @@ window.IEYASU_ART = (() => {
       </g>`;
   }
 
+  // 米俵
+  function tawara(x, y, s = 1) {
+    return `<ellipse cx="${x}" cy="${y}" rx="${11 * s}" ry="${7 * s}" fill="#d8bf83" stroke="${C.earth2}" stroke-width="${0.7 * s}"/>
+      ${[-6, 0, 6].map((d) => `<line x1="${x + d * s}" y1="${y - 6.5 * s}" x2="${x + d * s}" y2="${y + 6.5 * s}" stroke="${C.earth2}" stroke-width="${0.9 * s}"/>`).join('')}
+      <ellipse cx="${x - 11 * s}" cy="${y}" rx="${2.4 * s}" ry="${6 * s}" fill="#c9ab6a" stroke="${C.earth2}" stroke-width="${0.6 * s}"/>`;
+  }
+
+  // 降る雪（同じ場面ではいつも同じ降り方になるよう、乱数は使わない）
+  function snowfall(n = 60, seed = 3) {
+    let out = '<g fill="#ffffff">';
+    for (let i = 0; i < n; i++) {
+      out += `<circle cx="${(i * 53 + seed * 17) % 320}" cy="${(i * 37 + seed * 11) % 150}" r="${0.8 + (i % 3) * 0.5}" opacity="${0.55 + (i % 4) * 0.1}"/>`;
+    }
+    return `${out}</g>`;
+  }
+
+  // 打ち上げ花火（中心と半径）
+  function firework(x, y, r, color) {
+    const glow = radial([[0, color, 0.35], [1, color, 0]]);
+    let out = `<defs>${glow.def}</defs><circle cx="${x}" cy="${y}" r="${r * 1.3}" fill="url(#${glow.id})"/>`;
+    for (let i = 0; i < 16; i++) {
+      const a = (Math.PI * 2 * i) / 16;
+      const x2 = x + Math.cos(a) * r;
+      const y2 = y + Math.sin(a) * r;
+      out += `<line x1="${x + Math.cos(a) * r * 0.25}" y1="${y + Math.sin(a) * r * 0.25}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="1.1" stroke-linecap="round" opacity="0.9"/>
+        <circle cx="${x2}" cy="${y2}" r="1.3" fill="${color}"/>`;
+    }
+    return out;
+  }
+
+  // 台車に載った大砲。dir が -1 なら左向き
+  function cannon(x, y, s = 1, dir = 1) {
+    return `<rect x="${x - 6 * s}" y="${y - 4 * s}" width="${12 * s}" height="${4 * s}" fill="${C.earth2}"/>
+      <circle cx="${x - 4 * s}" cy="${y}" r="${2.4 * s}" fill="${C.ink2}"/><circle cx="${x + 4 * s}" cy="${y}" r="${2.4 * s}" fill="${C.ink2}"/>
+      <path d="M${x - 5 * s * dir},${y - 7 * s} L${x + 14 * s * dir},${y - 10 * s} L${x + 14 * s * dir},${y - 6 * s} L${x - 5 * s * dir},${y - 3 * s} Z" fill="${C.ink}"/>`;
+  }
+
+  // 屋形船（ちょうちんを下げた川遊びの船）
+  function yakatabune(x, y, s = 1) {
+    return `<path d="M${x - 24 * s},${y - 6 * s} L${x + 24 * s},${y - 6 * s} L${x + 18 * s},${y} L${x - 20 * s},${y} Z" fill="${C.earth2}"/>
+      <rect x="${x - 15 * s}" y="${y - 16 * s}" width="${30 * s}" height="${10 * s}" fill="#f6e2b0" opacity="0.9"/>
+      ${roofShape(x - 17 * s, y - 21 * s, 34 * s, 5 * s, C.roof)}
+      ${[-10, 0, 10].map((d) => `<circle cx="${x + d * s}" cy="${y - 11 * s}" r="${2 * s}" fill="${C.red2}"/>`).join('')}`;
+  }
+
+  // 結果の絵。'good' は金の光と金雲、'bad' は曇り空と雨を、場面の上に重ねる
+  function outcomeLayer(outcome) {
+    if (outcome === 'good') {
+      let rays = '';
+      for (let i = 0; i < 10; i++) {
+        const a1 = (Math.PI * (28 + i * 13.5)) / 180;
+        const a2 = a1 + Math.PI / 60;
+        rays += `<path d="M160,-14 L${160 + Math.cos(a1) * 260},${-14 + Math.sin(a1) * 260} L${160 + Math.cos(a2) * 260},${-14 + Math.sin(a2) * 260} Z" fill="${C.gold2}" opacity="0.16"/>`;
+      }
+      return `${rays}${kasumi(-6, 4, 96, C.gold2, 0.9)}${kasumi(228, 8, 96, C.gold2, 0.9)}`;
+    }
+    if (outcome === 'bad') {
+      let rain = '';
+      for (let i = 0; i < 70; i++) {
+        const x = ((i * 41) % 330) - 5;
+        const y = (i * 23) % 160;
+        rain += `<line x1="${x}" y1="${y}" x2="${x - 4}" y2="${y + 12}" stroke="#c8d0d8" stroke-width="0.7" opacity="0.55"/>`;
+      }
+      const cloud = (cx, cy, s) => `<g fill="#4a4c56" opacity="0.85"><ellipse cx="${cx}" cy="${cy}" rx="${34 * s}" ry="${12 * s}"/>
+        <ellipse cx="${cx - 20 * s}" cy="${cy + 4 * s}" rx="${22 * s}" ry="${9 * s}"/><ellipse cx="${cx + 22 * s}" cy="${cy + 3 * s}" rx="${24 * s}" ry="${10 * s}"/></g>`;
+      return `<rect width="320" height="160" fill="#2a2c36" opacity="0.3"/>${cloud(70, 8, 1.2)}${cloud(220, 4, 1.4)}${rain}`;
+    }
+    return '';
+  }
+
   // 場面の仕上げ：和紙の質感、ふちの陰り、細い額縁
   function wrap(body, label) {
     const paper = id('paper');
@@ -625,11 +696,59 @@ window.IEYASU_ART = (() => {
       + `<circle cx="160" cy="132" r="30" fill="${C.red2}" opacity="0.25"/>` + flames(160, 134, 0.8)
       + flag(60, 128, 64, C.red) + flag(100, 124, 60, C.blue) + flag(220, 124, 60, C.green2) + flag(260, 128, 64, C.purple)
       + crowd(158, 4, { color: '#0e0d12', topknot: true, sword: true }, 70, 60)],
+
+    volcano: ['火を噴く山', () => sky('#4a2e2a', '#c9a27c')
+      + `<path d="M30,150 L128,84 Q150,76 172,84 L290,150 Z" fill="#5a4a44"/><path d="M128,84 Q150,76 172,84 L196,100 Q150,92 104,100 Z" fill="#6e5c54"/>`
+      + smoke(120, 52, 2) + smoke(150, 40, 1.6)
+      + `<path d="M140,86 Q120,118 100,150 L114,150 Q130,120 148,88 Z M160,86 Q182,116 200,150 L186,150 Q172,120 154,88 Z" fill="${C.red}" opacity="0.85"/>`
+      + flames(150, 78, 1.2) + ground(138, '#6f6258')
+      + Array.from({ length: 44 }, (_, i) => `<circle cx="${(i * 47) % 320}" cy="${(i * 29) % 136}" r="${0.8 + (i % 3) * 0.4}" fill="#3a302c" opacity="0.5"/>`).join('')
+      + house(24, 152, 40, 16, '#4a4440') + house(254, 154, 44, 16, '#4a4440') + crowd(156, 3, { color: C.ink2, kasa: true }, 92, 30)],
+
+    snow: ['雪の夜の屋敷', () => sky('#1a2238', '#56607a') + `<rect x="0" y="118" width="320" height="42" fill="#e9eef2"/>`
+      + `<rect x="0" y="92" width="320" height="28" fill="${C.wall}"/>` + roofShape(-6, 84, 332, 9, C.roof)
+      + `<path d="M-6,84 L326,84" stroke="#ffffff" stroke-width="2.4" opacity="0.85"/>`
+      + `<rect x="128" y="76" width="64" height="44" fill="${C.earth2}"/><rect x="134" y="84" width="24" height="36" fill="${C.ink2}"/><rect x="162" y="84" width="24" height="36" fill="${C.ink2}"/>`
+      + roofShape(118, 62, 84, 14, C.roof) + `<path d="M118,62.5 L202,62.5" stroke="#ffffff" stroke-width="2.4" opacity="0.85"/>`
+      + andon(100, 134, 0.9) + crowd(152, 6, { color: '#202838', sword: true, topknot: true, spear: true }, 36, 48)
+      + snowfall(70, 5)],
+
+    market: ['米相場のにぎわい', () => `<rect width="320" height="160" fill="#efe2c4"/>` + `<rect x="0" y="112" width="320" height="48" fill="#b8996a"/>`
+      + Array.from({ length: 6 }, (_, i) => `<line x1="${i * 64}" y1="112" x2="${i * 64 - 24}" y2="160" stroke="#a58a5e" stroke-width="1"/>`).join('')
+      + `<rect x="18" y="16" width="284" height="66" fill="${C.wall}" stroke="${C.earth2}"/>`
+      + ['米', '六十', '値', '七十', '米'].map((t, i) => `<rect x="${32 + i * 56}" y="26" width="36" height="46" fill="${C.white}" stroke="${C.ink2}" stroke-width="0.8"/>
+        <text x="${50 + i * 56}" y="${t.length > 1 ? 54 : 58}" font-size="${t.length > 1 ? 11 : 18}" text-anchor="middle" fill="${C.ink}" font-family="serif">${t}</text>`).join('')
+      + tawara(44, 140, 1.1) + tawara(70, 148, 1.1) + tawara(56, 128, 1.1)
+      + crowd(152, 6, { color: C.earth2, topknot: true, face: true }, 120, 30)
+      + [126, 186, 246].map((x) => `<line x1="${x + 5}" y1="${132}" x2="${x + 9}" y2="${116}" stroke="${C.skin2}" stroke-width="2" stroke-linecap="round"/>`).join('')],
+
+    kawaraban: ['瓦版売りと町の人', () => sky('#d8e2e4', C.paper) + kasumi(170, 24, 120) + town(104, 9, C.roof, 0, 36) + ground(104, '#d8c7a4')
+      + person(160, 148, 1.7, { color: C.red, kasa: true })
+      + `<g transform="rotate(-10 184 112)"><rect x="170" y="102" width="28" height="20" fill="${C.white}" stroke="${C.ink2}" stroke-width="0.8"/>
+        ${[107, 111, 115, 119].map((y) => `<line x1="174" y1="${y}" x2="194" y2="${y}" stroke="${C.ink2}" stroke-width="0.7"/>`).join('')}</g>`
+      + crowd(152, 3, { color: C.blue, face: true, topknot: true }, 66, 28) + crowd(154, 3, { color: C.green2, face: true }, 214, 30)
+      + `<rect x="120" y="150" width="14" height="10" fill="${C.white}" stroke="${C.ink2}" stroke-width="0.5" transform="rotate(14 127 155)"/>`],
+
+    fireworks: ['隅田川の花火', () => sky('#0d1330', '#2a2f52') + firework(86, 42, 26, C.gold2) + firework(196, 28, 20, C.red2) + firework(262, 58, 16, '#9fd0ff')
+      + waves(116, '#1c2a4a', '#6f86b0')
+      + `<path d="M-4,114 Q160,86 324,114" stroke="${C.earth2}" stroke-width="5" fill="none"/><path d="M-4,108 Q160,80 324,108" stroke="${C.earth2}" stroke-width="1.6" fill="none"/>`
+      + [30, 90, 160, 230, 290].map((x) => { const y = 114 - 28 * (1 - ((x - 160) / 164) ** 2); return `<line x1="${x}" y1="${y}" x2="${x}" y2="${y + 22}" stroke="${C.earth2}" stroke-width="2"/>`; }).join('')
+      + yakatabune(70, 148, 1) + yakatabune(240, 152, 1.1)],
+
+    fort: ['海の台場', () => sky('#b8c8d2', C.paper) + sun(262, 36, 12, '#f2ead0') + kasumi(20, 30, 110, C.white, 0.7)
+      + gaisen(44, 100, 0.32, '#3a3a40', '#d8d4cc', 0) + waves(100, '#3d5f78')
+      + `<path d="M58,124 L252,124 L272,142 L38,142 Z" fill="${C.stone}"/><rect x="38" y="142" width="234" height="6" fill="${C.stone2}"/>`
+      + Array.from({ length: 9 }, (_, i) => `<line x1="${62 + i * 22}" y1="124" x2="${56 + i * 24}" y2="142" stroke="${C.stone2}" stroke-width="0.7"/>`).join('')
+      + cannon(92, 124, 1.3, -1) + cannon(146, 124, 1.3, -1) + cannon(200, 124, 1.3, -1)
+      + person(120, 124, 0.9, { color: C.blue, topknot: true }) + person(174, 124, 0.9, { color: C.blue, topknot: true })
+      + flag(236, 124, 44, C.red)],
   };
 
-  function scene(name) {
+  // outcome … 'good' / 'bad' を渡すと、結果の絵として光や曇りを重ねる
+  function scene(name, outcome = null) {
     const entry = SCENES[name] || SCENES.castle;
-    return wrap(entry[1](), entry[0]);
+    const label = entry[0] + (outcome === 'good' ? '（うまくいった）' : outcome === 'bad' ? '（うまくいかなかった）' : '');
+    return wrap(entry[1]() + outcomeLayer(outcome), label);
   }
 
   // ─────────────────────────────── 顔（四角い小さな絵）
@@ -645,18 +764,24 @@ window.IEYASU_ART = (() => {
       <rect x="0.5" y="0.5" width="63" height="63" rx="9.5" fill="none" stroke="${frame}" stroke-width="1" opacity="0.6"/></svg>`;
   }
 
-  // 顔。目・眉・口は表情で変わる。opts: cheeks（頬の赤み）/ beard（白いひげ）/ young（子どもの大きな目）
+  // 顔。目・眉・口は表情で変わる。opts: cheeks（頬の赤み）/ beard（白いひげ）/ young（子どもの大きな目）/
+  //   wide（輪郭の横幅の倍率）/ eyes（穏やかなときの目：'closed' 細めた目・'open' 開いた目・'narrow' 一文字の目）/
+  //   thickBrow・thinBrow（眉の太さ）/ hairColor（口ひげの色）/ beardColor（あごひげの色）/ wrinkles（しわ）
   function face(x, y, r, mood = 'calm', opts = {}) {
     const skin = radial([[0, C.skin], [0.85, C.skin], [1, C.skin2]]);
-    const browW = opts.thickBrow ? 1.9 : 1.4;
+    const browW = opts.thickBrow ? 1.9 : opts.thinBrow ? 1 : 1.4;
+    const rx = r * (opts.wide || 1);
     const brow = {
       calm: `<path d="M${x - 8},${y - 5.5} q3,-2.2 6,-0.4 M${x + 2},${y - 5.9} q3,-1.8 6,0.4" stroke="${C.ink}" stroke-width="${browW}" fill="none" stroke-linecap="round"/>`,
       worry: `<path d="M${x - 8},${y - 4} q3,-3.5 6,-5.5 M${x + 2},${y - 9.5} q3,1.5 6,5.5" stroke="${C.ink}" stroke-width="${browW}" fill="none" stroke-linecap="round"/>`,
       angry: `<path d="M${x - 8.5},${y - 8.5} l6.5,3.2 M${x + 8.5},${y - 8.5} l-6.5,3.2" stroke="${C.ink}" stroke-width="${browW + 0.3}" fill="none" stroke-linecap="round"/>`,
     }[mood];
     let eyes;
-    if (mood === 'calm' && !opts.young) {
+    const calmEyes = opts.eyes || 'closed';
+    if (mood === 'calm' && !opts.young && calmEyes === 'closed') {
       eyes = `<path d="M${x - 7.2},${y - 0.4} q2.6,2.4 5.2,0 M${x + 2},${y - 0.4} q2.6,2.4 5.2,0" stroke="${C.ink}" stroke-width="1.4" fill="none" stroke-linecap="round"/>`;
+    } else if (mood === 'calm' && !opts.young && calmEyes === 'narrow') {
+      eyes = `<path d="M${x - 7},${y + 0.4} l5,-0.6 M${x + 2},${y - 0.2} l5,0.6" stroke="${C.ink}" stroke-width="1.6" fill="none" stroke-linecap="round"/>`;
     } else {
       const er = opts.young ? 2.1 : 1.7;
       eyes = [-4.5, 4.5].map((dx) => `<ellipse cx="${x + dx}" cy="${y}" rx="${er + 0.6}" ry="${er}" fill="#ffffff"/>
@@ -668,14 +793,19 @@ window.IEYASU_ART = (() => {
       angry: `<path d="M${x - 4},${y + 8.4} q4,-1.6 8,0" stroke="#8a4a3a" stroke-width="1.5" fill="none" stroke-linecap="round"/>`,
     }[mood];
     let out = `<defs>${skin.def}</defs>
-      <ellipse cx="${x - r + 0.6}" cy="${y + 1}" rx="2.2" ry="3.2" fill="${C.skin2}"/><ellipse cx="${x + r - 0.6}" cy="${y + 1}" rx="2.2" ry="3.2" fill="${C.skin2}"/>
-      <ellipse cx="${x}" cy="${y}" rx="${r}" ry="${r * 1.05}" fill="url(#${skin.id})"/>
+      <ellipse cx="${x - rx + 0.6}" cy="${y + 1}" rx="2.2" ry="3.2" fill="${C.skin2}"/><ellipse cx="${x + rx - 0.6}" cy="${y + 1}" rx="2.2" ry="3.2" fill="${C.skin2}"/>
+      <ellipse cx="${x}" cy="${y}" rx="${rx}" ry="${r * 1.05}" fill="url(#${skin.id})"/>
       ${brow}${eyes}<path d="M${x - 0.4},${y + 1.6} q1.2,2.4 1.4,3" stroke="${C.skin2}" stroke-width="1.1" fill="none" stroke-linecap="round"/>${mouth}`;
+    if (opts.wrinkles) {
+      out += `<path d="M${x - 5},${y - 10} q5,-1.4 10,0 M${x - 3.5},${y - 12} q3.5,-1 7,0" stroke="${C.skin2}" stroke-width="0.8" fill="none" stroke-linecap="round"/>
+        <path d="M${x - 4.6},${y + 3} q-1.4,2.6 -0.4,5 M${x + 4.6},${y + 3} q1.4,2.6 0.4,5" stroke="${C.skin2}" stroke-width="0.9" fill="none" stroke-linecap="round"/>`;
+    }
     if (opts.cheeks) out += `<ellipse cx="${x - 8}" cy="${y + 4.5}" rx="2.6" ry="1.7" fill="#e8907c" opacity="0.55"/><ellipse cx="${x + 8}" cy="${y + 4.5}" rx="2.6" ry="1.7" fill="#e8907c" opacity="0.55"/>`;
-    if (opts.mustache) out += `<path d="M${x - 5},${y + 5.6} q2.5,-1.6 5,0 q2.5,-1.6 5,0" stroke="${C.ink}" stroke-width="1.2" fill="none"/>`;
+    if (opts.mustache) out += `<path d="M${x - 5},${y + 5.6} q2.5,-1.6 5,0 q2.5,-1.6 5,0" stroke="${opts.hairColor || C.ink}" stroke-width="1.2" fill="none"/>`;
     if (opts.beard) {
-      out += `<path d="M${x - 7},${y + 8} Q${x},${y + 21} ${x + 7},${y + 8} Q${x},${y + 13} ${x - 7},${y + 8} Z" fill="#f6f1e6" stroke="#cfc6b6" stroke-width="0.6"/>
-        <path d="M${x - 6},${y + 5.4} q3,-2 6,0.4 q3,-2.4 6,-0.4" stroke="#f6f1e6" stroke-width="2.2" fill="none" stroke-linecap="round"/>`;
+      const bc = opts.beardColor || '#f6f1e6';
+      out += `<path d="M${x - 7},${y + 8} Q${x},${y + 21} ${x + 7},${y + 8} Q${x},${y + 13} ${x - 7},${y + 8} Z" fill="${bc}" stroke="${shade(bc, -0.18)}" stroke-width="0.6"/>
+        <path d="M${x - 6},${y + 5.4} q3,-2 6,0.4 q3,-2.4 6,-0.4" stroke="${bc}" stroke-width="2.2" fill="none" stroke-linecap="round"/>`;
     }
     return out;
   }
@@ -720,12 +850,40 @@ window.IEYASU_ART = (() => {
 
   const TRAIT_COLORS = { 慎重: C.blue, 豪胆: C.red, 寛大: C.green, 倹約: C.earth, 華美: C.purple };
 
-  function shogun(trait) {
+  // 0〜1の決まった数（同じ seed と n なら、いつも同じ値）。顔つきを人ごとに変えるのに使う
+  function hash(seed, n) {
+    let v = (seed * 374761393 + n * 668265263) | 0;
+    v = Math.imul(v ^ (v >>> 13), 1274126177);
+    return ((v ^ (v >>> 16)) >>> 0) / 4294967296;
+  }
+
+  // 髪の色。歳をとるほど白くなる
+  function hairOf(age) {
+    return age >= 60 ? '#a8a29a' : age >= 48 ? '#5e5a58' : C.ink;
+  }
+
+  // 将軍の顔。性格で着物の色が変わり、seed（人ごとの番号）で輪郭・目・眉・ひげが、age（歳）で髪の白さとしわが変わる
+  function shogun(trait, seed = 0, age = 30) {
     const color = TRAIT_COLORS[trait] || C.blue;
-    return portrait(`${robe(color)}
-      ${face(32, 31, 13, trait === '豪胆' ? 'angry' : 'calm', { thickBrow: trait === '豪胆' })}
-      <path d="M19.5,27 Q19,17 26,15 L38,15 Q45,17 44.5,27 Q42,20 32,20 Q22,20 19.5,27 Z" fill="${C.ink}"/>
-      ${eboshi()}`, `将軍（${trait}）`);
+    const hair = hairOf(age);
+    const brow = hash(seed, 2);
+    const look = {
+      wide: 0.95 + hash(seed, 1) * 0.12,
+      eyes: ['closed', 'open', 'narrow'][Math.floor(hash(seed, 3) * 3)],
+      thickBrow: trait === '豪胆' || brow < 0.3,
+      thinBrow: trait !== '豪胆' && brow > 0.75,
+      mustache: age >= 22 && hash(seed, 4) < 0.4,
+      beard: age >= 35 && hash(seed, 5) < 0.25,
+      hairColor: hair,
+      beardColor: hair,
+      wrinkles: age >= 50,
+      cheeks: age < 18,
+    };
+    const inner = [C.white, '#eadcb4', '#d9e2ea'][Math.floor(hash(seed, 6) * 3)];
+    return portrait(`${robe(color, inner)}
+      ${face(32, 31, 13, trait === '豪胆' ? 'angry' : 'calm', look)}
+      <path d="M19.5,27 Q19,17 26,15 L38,15 Q45,17 44.5,27 Q42,20 32,20 Q22,20 19.5,27 Z" fill="${hair}"/>
+      ${eboshi()}`, `将軍（${trait}・${age}歳）`);
   }
 
   // 霊体の家光（チュートリアルとガイドの案内役）。光の輪と霞をまとう
@@ -738,16 +896,19 @@ window.IEYASU_ART = (() => {
       ${kasumi(0, 55, 22, C.white, 0.95)}${kasumi(40, 57, 24, C.white, 0.95)}`, '家光（霊体）', '#ecdcef');
   }
 
-  function child(trait) {
+  // 若君の顔。seed で輪郭と髪の結い方、着物の柄が少しずつ変わる
+  function child(trait, seed = 0) {
     const color = TRAIT_COLORS[trait] || C.blue;
     const g = linear([[0, shade(color, 0.2)], [1, shade(color, -0.1)]]);
+    const tuft = 4.6 + hash(seed, 7) * 2;
+    const dots = [[20, 56], [30, 60], [42, 55], [47, 61], [25, 62], [37, 58]].filter((_, i) => hash(seed, 10 + i) < 0.7);
     return portrait(`<defs>${g.def}</defs>
       <path d="M12,64 L15,49 Q32,43 49,49 L52,64 Z" fill="url(#${g.id})"/>
-      ${[[20, 56], [30, 60], [42, 55], [47, 61]].map(([cx, cy]) => `<circle cx="${cx}" cy="${cy}" r="1.6" fill="${C.white}" opacity="0.7"/>`).join('')}
+      ${dots.map(([cx, cy]) => `<circle cx="${cx}" cy="${cy}" r="1.6" fill="${C.white}" opacity="0.7"/>`).join('')}
       <path d="M25,46 L32,56 L39,46" stroke="${C.red}" stroke-width="3" fill="none"/>
-      ${face(32, 33, 12.5, 'calm', { cheeks: true, young: true })}
+      ${face(32, 33, 12.5, 'calm', { cheeks: true, young: true, wide: 0.96 + hash(seed, 8) * 0.1, thickBrow: hash(seed, 9) < 0.3 })}
       <path d="M19.6,31 Q18,17 32,16 Q46,17 44.4,31 Q42,23 37,22 L32,25 L27,22 Q22,23 19.6,31 Z" fill="${C.ink}"/>
-      <ellipse cx="32" cy="15.5" rx="5.5" ry="3.4" fill="${C.ink}"/>
+      <ellipse cx="32" cy="15.5" rx="${tuft}" ry="3.4" fill="${C.ink}"/>
       <path d="M28,14.6 q4,-2 8,0" stroke="#5a5050" stroke-width="0.8" fill="none"/>`, `若君（${trait}）`, '#f3e7cf');
   }
 
