@@ -12,12 +12,12 @@
   // ルールの側から借りるもの（状態と、状態を読むだけの道具）。state は engine.js と同じ入れ物
   const {
     state, DATA, CONFIG, STATE_LABELS, ABILITY_LABELS, RETAINER_LABELS, TEACH_LABELS, POSTS,
-    institution, hasInstitution, bakufuYears, scaledCost, loadHonors, loadBest,
-    kakuOf, shogunKaku, skillById, starInfo, starText, person,
+    institution, hasInstitution, bakufuYears, scaledCost, loadHonors, loadBest, formatRyo,
+    kakuOf, shogunKaku, constitution, constitutionWear, abilityDrift, abilityJisseki, skillById, starInfo, starText, person,
     brideKind, ookuBase, birthChance, branchById, bloodKaku, branchDef, projectedBlood, strongBranch, branchesBalanced,
     shipDue, roundParts, roundChance, boostCost,
-    salaryOf, wants, holder, vacancies, debtLimit, assets, netAssets, runway,
-    cardById, fillNames, successChance, teachCost, institutionCost, institutionStatus, canRetire, overCause,
+    salaryOf, wants, holder, postValue, vacancies, debtLimit, assets, netAssets, runway,
+    cardById, fillNames, checkAbility, successChance, teachCost, institutionCost, institutionStatus, canRetire, overCause,
     wishStatus, wishDef, kakun, kakunDef, heirCap, expectedChildKaku,
     projectDef, projectCost, projectOptions, bestBugyo, projectLeft,
     banzukeTable, townView, loadZukan,
@@ -135,7 +135,15 @@
   // ─────────────────────────────── 小さな道具
 
   const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : '±0');
-  const money = (n) => `${n < 0 ? '−' : ''}${Math.abs(Math.round(n)).toLocaleString('ja-JP')}`;
+  // 表の中の金額（単位は万両）。千両の位まで、小数1けたで出す
+  const money = (n) => `${Math.round(n * 10) < 0 ? '−' : ''}${Math.abs(n).toLocaleString('ja-JP', { maximumFractionDigits: 1 })}`;
+  // 文の中の金額（「12万5千両」の形）
+  const ryo = formatRyo;
+  // 毎年の増減など、端数のある数（小数1けた。例：+0.4、−1.2）
+  const signed1 = (n) => {
+    const v = Math.round(n * 10) / 10;
+    return v > 0 ? `+${v}` : v < 0 ? `−${Math.abs(v)}` : '±0';
+  };
 
   function el(tag, attrs = {}, children = []) {
     const node = document.createElement(tag);
@@ -356,6 +364,47 @@
     }));
   }
 
+  // 将軍の能力が、いま何にどれだけ効いているか（将軍の札と組織の画面に出す）
+  function abilityEffects() {
+    const s = state.shogun;
+    const d = abilityDrift();
+    const j = abilityJisseki();
+    // 出来事の成否で、担当の役職がどれだけ助けているか
+    const help = (stat, postName) => {
+      const v = checkAbility({ stat }) - s.stats[stat];
+      return v > 0 ? `（${postName}が+${Math.round(v * 10) / 10}助ける）` : `（${postName}の腕が9を超えると助ける）`;
+    };
+    const pct = (n) => `${n > 0 ? '+' : n < 0 ? '−' : '±'}${Math.abs(Math.round(n))}%`;
+    const rows = [
+      ['seimu', `年貢${pct(s.stats.seimu - 10)}（1につき1%）・実績 毎年${signed1(j.shogun)}・出来事の成否${help('seimu', '老中')}`],
+      ['bui', `威光 毎年${signed1(d.ikou.shogun)}（10を超えた1につき+0.2）・出来事の成否${help('bui', '大目付')}`],
+      ['jintoku', `民心 毎年${signed1(d.minshin.shogun)}（10を超えた1につき+0.2）・出来事の成否${help('jintoku', '町奉行')}`],
+      ['kenko', `歳による健康の衰え ×${constitutionWear().toFixed(2)}（体質10で1倍。高いほど衰えにくい）`],
+    ];
+    return el('details', { class: 'iy-rules' }, [
+      el('summary', { text: '能力の働き（いまの効き目）' }),
+      el('ul', { class: 'iy-hint' }, rows.map(([k, text]) => el('li', {}, [el('strong', { text: `${ABILITY_LABELS[k]}${k === 'kenko' ? constitution() : s.stats[k]}` }), `　${text}`]))),
+      el('p', { class: 'iy-hint', text: '毎年の増減の端数は年をまたいでたまり、1になった年に効く。三つの能力の合計が「格」で、家臣の集まり方と去就を決める。異国船との勝負では、能力の4分の1が力に足される。' }),
+    ]);
+  }
+
+  // 役職の家臣が、いま何にどれだけ効いているか（組織の画面に出す）
+  function postEffect(postId) {
+    const v = postValue(postId);
+    const j = abilityJisseki();
+    const helpCheck = Math.round(Math.max(0, (v - 9) / 3) * 10) / 10;
+    const pct = (n) => `${n > 0 ? '+' : n < 0 ? '−' : '±'}${Math.abs(Math.round(n * 10) / 10)}%`;
+    const text = {
+      roju: `政務の成否 +${helpCheck}・実績 毎年${signed1(j.post)}`,
+      kanjo: `年貢${pct((v - 10) * 1.5)}・経費${pct(-(v - 10))}`,
+      machi: `民心 毎年${signed1((v - 10) / 4)}・人徳の成否 +${helpCheck}`,
+      ometsuke: `威光 毎年${signed1((v - 10) / 4)}・武威の成否 +${helpCheck}`,
+      shoshidai: `朝廷 毎年${signed1((v - 10) / 4)}`,
+      jisha: `威光・民心 毎年 各${signed1((v - 10) / 8)}`,
+    }[postId];
+    return el('p', { class: 'iy-hint', text: `いまの効き目：${text}` });
+  }
+
   // 特技の札。note は、いまは働いていない特技に添える一言（「将軍になると働く」など）
   function skillTag(id, note = '') {
     const sk = skillById(id);
@@ -389,7 +438,7 @@
   function changeList(changes) {
     if (changes.length === 0) return null;
     return el('ul', { class: 'iy-changes' }, changes.map((c) =>
-      el('li', { class: (c.good !== undefined ? c.good : c.delta > 0) ? 'iy-up' : 'iy-down', text: `${c.label} ${signed(c.delta)}${c.unit || ''}` })));
+      el('li', { class: (c.good !== undefined ? c.good : c.delta > 0) ? 'iy-up' : 'iy-down', text: c.unit === '万両' ? `${c.label} ${c.delta > 0 ? '+' : ''}${ryo(c.delta)}` : `${c.label} ${signed(c.delta)}${c.unit || ''}` })));
   }
 
   function panel(title, children, cls = '') {
@@ -454,7 +503,7 @@
       ]),
       el('div', { class: 'iy-topbar__gauges' }, gauges),
       el('p', { class: 'iy-topbar__money' }, [
-        el('span', { text: `現金 ${money(f.cash)}万両` }),
+        el('span', { text: `現金 ${ryo(f.cash)}` }),
         el('span', { class: overLimit ? 'iy-warn' : '', text: `借入 ${money(f.debt)}/${money(debtLimit())}` }),
         el('span', { text: `実績 ${state.jisseki}` }),
         el('span', { class: 'iy-kaku', id: 'kaku', title: '将軍の格（政務・武威・人徳の合計）', text: `格${shogunKaku()}` }),
@@ -637,7 +686,7 @@
     const gauges = b.gauges.map((g) => `${STATE_LABELS[g.key]}${g.after}（${signed(g.after - g.before)}）`).join(' ');
     return el('p', { class: 'iy-brief' }, [
       el('strong', { text: `${b.year}年の決算　` }),
-      `営業の収支${b.op > 0 ? "+" : ""}${money(b.op)}万両・現金${money(b.cash)}万両・${gauges}　`,
+      `営業の収支${b.op > 0 ? "+" : ""}${ryo(b.op)}・現金${ryo(b.cash)}・${gauges}　`,
       el('button', {
         type: 'button', class: 'iy-link-button', text: '帳簿を見る',
         onclick: () => { ui.tab = 'finance'; ui.bookYear = String(b.year); render(); scrollToGame(); },
@@ -1040,7 +1089,8 @@
           el('span', { class: 'iy-kaku', text: `格${shogunKaku()}` }),
         ]),
       ]),
-      statBars(s.stats, { seimu: '政務', bui: '武威', jintoku: '人徳' }),
+      statBars({ ...s.stats, kenko: constitution() }, { seimu: '政務', bui: '武威', jintoku: '人徳', kenko: '体質' }),
+      abilityEffects(),
       skillTag(s.skill),
       kafuLine(s.house),
       will ? el('p', { class: 'iy-skill' }, [el('span', { class: 'iy-skill__name', text: `先代の遺言「${will.label}」` }), ` ${will.desc}`]) : null,
@@ -1277,11 +1327,11 @@
       el('p', { class: 'iy-year', text: `${r.year}年の暮れ` }),
       el('h2', { text: `${r.year}年の決算` }),
       el('dl', { class: 'iy-kpis' }, [
-        kpi('営業の収支', `${money(r.op)}万両`, r.op >= 0),
-        kpi('現金の増減', `${money(total)}万両`, total >= 0),
-        kpi('純資産の増減', `${money(r.netChange)}万両`, r.netChange >= 0),
-        kpi('年末の現金', `${money(r.cash)}万両`),
-        kpi('年末の借入', `${money(r.debt)}万両`),
+        kpi('営業の収支', ryo(r.op), r.op >= 0),
+        kpi('現金の増減', ryo(total), total >= 0),
+        kpi('純資産の増減', ryo(r.netChange), r.netChange >= 0),
+        kpi('年末の現金', ryo(r.cash)),
+        kpi('年末の借入', ryo(r.debt)),
       ]),
       el('ul', { class: 'iy-changes' }, r.gauges.map((g) => {
         const d = g.after - g.before;
@@ -1478,7 +1528,7 @@
       if (will) nodes.push(el('p', { class: 'iy-hint', text: `受けた遺言：「${will.label}」` }));
       if (p.insts.length) nodes.push(el('p', { class: 'iy-hint', text: `整えた制度：${p.insts.join('、')}` }));
       if (p.endGauges) {
-        nodes.push(el('p', { class: 'iy-hint', text: `退任時の幕府：${Object.entries(STATE_LABELS).map(([k, l]) => `${l}${p.endGauges[k]}`).join('　')}　純資産 ${money(p.endNet)}万両` }));
+        nodes.push(el('p', { class: 'iy-hint', text: `退任時の幕府：${Object.entries(STATE_LABELS).map(([k, l]) => `${l}${p.endGauges[k]}`).join('　')}　純資産 ${ryo(p.endNet)}` }));
       }
     } else if (heir) {
       nodes.push(el('h3', { text: `若君の能力（格${kakuOf(heir.stats)}）` }));
@@ -1509,7 +1559,7 @@
     const bars = books.map((b, i) => {
       const h = Math.max(1, (Math.abs(b.op) / opMax) * half);
       const y = b.op >= 0 ? mid - h : mid;
-      return `<rect class="${b.op >= 0 ? 'iy-chart__up' : 'iy-chart__down'}" x="${(i * step + 1).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1, step - 2).toFixed(1)}" height="${h.toFixed(1)}"><title>${b.year}年 営業の収支 ${money(b.op)}万両</title></rect>`;
+      return `<rect class="${b.op >= 0 ? 'iy-chart__up' : 'iy-chart__down'}" x="${(i * step + 1).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1, step - 2).toFixed(1)}" height="${h.toFixed(1)}"><title>${b.year}年 営業の収支 ${ryo(b.op)}</title></rect>`;
     }).join('');
     // 下の段：借入（実線）と上限（点線）
     const base = 132, tall = 52;
@@ -1593,7 +1643,7 @@
 
     $('tab-finance').replaceChildren(...[
       panel('財務', [
-        el('p', { class: 'iy-hint', text: '金額の単位はすべて万両。年を越すときに決算をする。' }),
+        el('p', { class: 'iy-hint', text: '表の金額の単位は万両（0.1万両＝千両）。年を越すときに決算をする。' }),
         el('dl', { class: 'iy-kpis' }, [
           ['現金', money(f.cash)], ['借入（上限）', `${money(f.debt)}（${money(limit)}）`], ['純資産', money(netAssets())],
           ['天領の石高', `${Math.round(f.kokudaka)}万石`], ['昨年の歳入', money(f.lastRevenue)], ['大奥の費え', `${Math.round(ookuBase())}/年`],
@@ -1625,14 +1675,14 @@
     const k = shogunKaku();
     const w = wants(r);
     if (w <= k) return el('p', { class: 'iy-loyalty iy-muted', text: `求める格${w}` });
-    const next = Math.max(1, Math.round(salaryOf(r.stats) * (1 + CONFIG.RAISE_RATE * ((r.raises || 0) + 1))));
+    const next = Math.max(1, Math.round(salaryOf(r.stats) * (1 + CONFIG.RAISE_RATE * ((r.raises || 0) + 1)) * 10) / 10);
     const text = !canRaise ? `求める格${w}：将軍の格${k}では足りない（召し抱えると、暮れに不満を漏らす）`
       : r.unhappy ? `不満：求める格${w}・将軍の格${k}。この暮れに去る`
         : `求める格${w}：将軍の格${k}では足りない。暮れに不満を漏らす`;
     return el('div', { class: 'iy-loyalty' }, [
       el('p', { class: 'iy-warn', text }),
       canRaise ? el('button', {
-        type: 'button', text: `加増する（俸禄${r.salary}→${next}万両・求める格−${CONFIG.RAISE_WANTS}）`, onclick: () => raise(r.id),
+        type: 'button', text: `加増する（俸禄${ryo(r.salary)}→${ryo(next)}・求める格−${CONFIG.RAISE_WANTS}）`, onclick: () => raise(r.id),
       }) : null,
     ]);
   }
@@ -1642,7 +1692,7 @@
       retainerFace(r, true),
       el('div', {}, [
         r.renowned ? el('p', { class: 'iy-renowned' }, [el('strong', { text: '名のある人物' }), ` ${r.renowned}`]) : null,
-        el('p', { class: 'iy-retainer__name', text: `${retainerName(r)}（${r.age}歳・俸禄${r.salary}万両）` }),
+        el('p', { class: 'iy-retainer__name', text: `${retainerName(r)}（${r.age}歳・俸禄${ryo(r.salary)}）` }),
         retainerStats(r),
         loyaltyLine(r, canRaise),
       ]),
@@ -1653,7 +1703,7 @@
   function renderOrg() {
     const s = state.shogun;
     const over = state.phase === 'over';
-    const salaries = state.retainers.reduce((sum, r) => sum + (r.post ? r.salary : Math.ceil(r.salary / 2)), 0);
+    const salaries = state.retainers.reduce((sum, r) => sum + (r.post ? r.salary : r.salary / 2), 0);
     const k = shogunKaku();
     const steps = CONFIG.CANDIDATE_STEPS.slice(1).map(([min, n]) => `${min}以上で${n}人`).join('、');
 
@@ -1672,11 +1722,12 @@
         el('p', { class: 'iy-post__name' }, [el('strong', { text: post.name }), el('span', { class: 'iy-muted', text: `　見る能力：${RETAINER_LABELS[post.stat]}` })]),
         h
           ? el('div', { class: 'iy-retainer' }, [retainerFace(h, true), el('div', {}, [
-            el('p', { class: 'iy-retainer__name', text: `${retainerName(h)}（${h.age}歳・俸禄${h.salary}万両）` }),
+            el('p', { class: 'iy-retainer__name', text: `${retainerName(h)}（${h.age}歳・俸禄${ryo(h.salary)}）` }),
             retainerStats(h, post.stat),
             loyaltyLine(h, !over),
           ])])
           : el('p', { class: 'iy-warn', text: '空席' }),
+        postEffect(post.id),
         select,
       ]);
     });
@@ -1688,7 +1739,8 @@
           shogunFace('iy-face'),
           el('p', {}, [el('strong', { text: `第${s.gen}代 ${s.name}` }), `（${s.age}歳・${s.trait}・健康${s.health}）`]),
         ]),
-        statBars(s.stats, { seimu: '政務', bui: '武威', jintoku: '人徳' }),
+        statBars({ ...s.stats, kenko: constitution() }, { seimu: '政務', bui: '武威', jintoku: '人徳', kenko: '体質' }),
+        abilityEffects(),
         el('p', { class: 'iy-kaku-line' }, [el('strong', { text: `将軍の格 ${k}` }), '（政務・武威・人徳の合計）']),
         el('p', { class: 'iy-hint', text: `格が高いほど、登用の候補が多く、腕の立つ者が集まる（候補は格${steps}）。格${CONFIG.RENOWN_KAKU}以上なら、名のある人物がまれに仕官を願い出る。` }),
         skillTag(s.skill),
@@ -1696,7 +1748,7 @@
         el('p', { class: (s.stress || 0) >= 60 ? 'iy-warn' : 'iy-hint', text: `気苦労 ${s.stress || 0} / 100（60を超えると体を壊しはじめる。好みに合う裁きや、鷹狩り・湯治で晴れる）` }),
       ]),
       panel('役職', [
-        el('p', { class: 'iy-hint', text: `家臣 ${state.retainers.length}人・俸禄の合計 年${salaries}万両（控えの家臣は半額）` }),
+        el('p', { class: 'iy-hint', text: `家臣 ${state.retainers.length}人・俸禄の合計 年${ryo(salaries)}（控えの家臣は半額）` }),
         // 決まりごとと役職の説明は長いので、たたんでおく（スマホで組織の画面が長くなりすぎないように）
         el('details', { class: 'iy-rules' }, [
           el('summary', { text: '役職と家臣の決まり' }),

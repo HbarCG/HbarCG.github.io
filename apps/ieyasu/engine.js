@@ -58,7 +58,7 @@
     // 威光・民心・朝廷とお金のつながり。ゲージを損ねると、数年かけてお金で返ってくる
     TRADE_START: 5,         // はじめの運上金・交易（万両/年）。これと制度で得たぶんは細らない
     TRADE_DECAY: 0.06,      // 出来事で増えた運上金・交易が、毎年細る割合（流行り廃り。11年ほどで半分）
-    DRIFT_SHIFT: -1,        // 威光と民心の毎年の自然な増減に足す値（マイナスなら、放っておくと下がる）
+    DRIFT_SHIFT: -1.4,      // 威光と民心の毎年の自然な増減に足す値（マイナスなら、放っておくと下がる）。端数は持ち越す
     GAUGE_PULL: 0.2,        // 50を超えたぶんのこの割合が、毎年自然に戻る（慢心）
     MINSHIN_NENGU: 0.005,
     NENGU_PRICE: 0.2,       // 物価の上がりのうち、この割合だけ年貢の換金額（米価）も上がる。残りが、時代とともに重くなる財政の苦しさ   // 民心が50から1離れるごとに、年貢の取れ高がこれだけ増減する
@@ -108,7 +108,7 @@
   };
 
   const STATE_LABELS = { ikou: '威光', minshin: '民心', chotei: '朝廷' };
-  const ABILITY_LABELS = { seimu: '政務', bui: '武威', jintoku: '人徳', kenko: '健康' };
+  const ABILITY_LABELS = { seimu: '政務', bui: '武威', jintoku: '人徳', kenko: '体質' };
   const RETAINER_LABELS = { seimu: '政務', sanyo: '算用', bui: '武威', jinbo: '人望' };
   const TEACH_LABELS = { seimu: '学問', bui: '武芸', jintoku: '人の道', kenko: '養生' };
   const FIN_LABELS = {
@@ -157,6 +157,17 @@
   const rand = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
   const pick = (list) => list[Math.floor(Math.random() * list.length)];
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+  // 金額は千両（0.1万両）まで持つ
+  const r1 = (n) => Math.round(n * 10) / 10;
+  // 金額（万両）を「1,234万5千両」の形の文にする。千両より細かいところは四捨五入
+  function formatRyo(n) {
+    const sen = Math.round(Math.abs(n) * 10);
+    const man = Math.floor(sen / 10);
+    const rest = sen % 10;
+    const sign = n < 0 && sen > 0 ? '−' : '';
+    if (man === 0) return rest ? `${sign}${rest}千両` : '0両';
+    return `${sign}${man.toLocaleString('ja-JP')}万${rest ? `${rest}千` : ''}両`;
+  }
 
   function institution(id) {
     return DATA.institutions.find((i) => i.id === id);
@@ -336,6 +347,7 @@
       // ooku は大奥のもとの費え。正室と側室のぶんは別に足す（ookuBase）
       fin: { cash: 250, rice: 60, debt: 0, kokudaka: 400, mine: 30, trade: 5, ooku: 6, infra: 200, lastRevenue: 120 },
       jisseki: 0,
+      carry: {},        // 毎年の増減の端数（威光・民心・朝廷・実績）。たまったら1として効く
       shogun: null,
       heirs: [],
       daughters: [],    // 将軍の娘（姫）
@@ -506,6 +518,17 @@
   // 格は、政務・武威・人徳の合計（将軍・若君・跡継ぎの候補で同じ数え方）
   function kakuOf(stats) {
     return stats.seimu + stats.bui + stats.jintoku;
+  }
+
+  // 将軍の体質。若君のときの「体質」を持ち越す（体質を持たない古い保存データや、はじめの将軍は10）
+  function constitution() {
+    const k = state.shogun.stats.kenko;
+    return k === undefined ? 10 : k;
+  }
+
+  // 歳による健康の衰えにかける倍率（体質10で1倍）
+  function constitutionWear() {
+    return clamp(1.5 - constitution() / 20, 0.5, 1.3);
   }
 
   function shogunKaku() {
@@ -922,12 +945,12 @@
     const h = holder(r.post);
     const parts = {
       post, holder: h, value: postValue(r.post),
-      shogun: Math.floor(state.shogun.stats[r.stat] / 4),
+      shogun: Math.round(state.shogun.stats[r.stat] / 4 * 10) / 10,
       nagasaki: hasInstitution('nagasaki') && (roundId === 'kaibo' || roundId === 'kosho') ? 2 : 0,
       kakun: kakun('kaibo'),
       works: state.shipPower || 0,
     };
-    parts.power = parts.value + parts.shogun + parts.nagasaki + parts.kakun + parts.works;
+    parts.power = Math.round((parts.value + parts.shogun + parts.nagasaki + parts.kakun + parts.works) * 10) / 10;
     return parts;
   }
 
@@ -1023,14 +1046,15 @@
 
   // ─────────────────────────────── 家臣
 
+  // 俸禄（万両/年）。能力の合計の12分の1を、千両まで刻む
   function salaryOf(stats) {
     const sum = Object.values(stats).reduce((a, b) => a + b, 0);
-    return Math.max(1, Math.round(sum / 12));
+    return Math.max(1, r1(sum / 12));
   }
 
   // 実際に払う俸禄。加増するたびに、もとの額の RAISE_RATE ぶん増える
   function payOf(r) {
-    return Math.max(1, Math.round(salaryOf(r.stats) * (1 + CONFIG.RAISE_RATE * (r.raises || 0))));
+    return Math.max(1, r1(salaryOf(r.stats) * (1 + CONFIG.RAISE_RATE * (r.raises || 0))));
   }
 
   // 家臣が将軍に求める格（腕の WANTS_RATE 倍）。加増や将軍の特技「人たらし」で下がる
@@ -1110,8 +1134,37 @@
     return holderValue(postId) + (sk && sk.post === postId ? sk.bonus : 0);
   }
 
+  // 役職の腕による毎年の上乗せ。腕10で0、div 上がるごとに+1（端数は年をまたいで持ち越すので、腕が1違えばそのぶん効く）
   function postBonus(postId, div = 4) {
-    return Math.round((postValue(postId) - 10) / div);
+    return (postValue(postId) - 10) / div;
+  }
+
+  // 将軍の能力と役職の腕による、威光・民心・朝廷の毎年の増減（端数つき）。
+  // 武威は威光を、人徳は民心を、10を超えた1につき毎年0.2ずつ押し上げる（10を下回れば押し下げる）
+  function abilityDrift() {
+    const s = state.shogun;
+    return {
+      ikou: { shogun: (s.stats.bui - 10) / 5, post: postBonus('ometsuke') + postBonus('jisha', 8) },
+      minshin: { shogun: (s.stats.jintoku - 10) / 5, post: postBonus('machi') + postBonus('jisha', 8) },
+      chotei: { shogun: 0, post: postBonus('shoshidai') },
+    };
+  }
+
+  // 毎年の実績のうち、将軍の政務と老中の腕によるぶん（どちらも8を超えた6につき1、最大2。端数は持ち越す）
+  function abilityJisseki() {
+    return {
+      shogun: clamp((state.shogun.stats.seimu - 8) / 6, 0, 2),
+      post: clamp((postValue('roju') - 8) / 6, 0, 2),
+    };
+  }
+
+  // 端数を持ち越して、整数ぶんだけを返す（key ごとに state.carry にためる）
+  function withCarry(key, value) {
+    const carry = state.carry || (state.carry = {});
+    const total = value + (carry[key] || 0);
+    const whole = Math.floor(total + 1e-9);
+    carry[key] = total - whole;
+    return whole;
   }
 
   function assign(retainerId, postId) {
@@ -1142,7 +1195,7 @@
     const c = state.candidates.splice(index, 1)[0];
     c.since = state.year;
     state.retainers.push(c);
-    addLog(`${c.name}を召し抱えた（俸禄 年${c.salary}万両）。`);
+    addLog(`${c.name}を召し抱えた（俸禄 年${formatRyo(c.salary)}）。`);
   }
 
   function dismiss(id) {
@@ -1159,7 +1212,7 @@
     r.raises = (r.raises || 0) + 1;
     r.salary = payOf(r);
     if (wants(r) <= shogunKaku()) r.unhappy = null;
-    addLog(`${r.name}を加増した（俸禄 年${r.salary}万両・求める格${wants(r)}）。`);
+    addLog(`${r.name}を加増した（俸禄 年${formatRyo(r.salary)}・求める格${wants(r)}）。`);
   }
 
   // 「老中の」のように、役職名を前につける（控えの家臣なら空）
@@ -1234,7 +1287,7 @@
     state.fin.cash -= amount;
     state.fin.debt -= amount;
     book('fin', '借入の返済', -amount);
-    addLog(`借入を${amount}万両返した。`);
+    addLog(`借入を${formatRyo(amount)}返した。`);
   }
 
   function borrowMore() {
@@ -1263,25 +1316,25 @@
     // 民心しだいで年貢の取れ高が変わる（民心50でもとの取れ高。0で7割、100で13割ほど）。
     // 米価は物価につれて上がるが、物価ほどには上がらない（NENGU_PRICE）
     const ricePrice = 1 + (inflation - 1) * CONFIG.NENGU_PRICE;
-    const nengu = Math.round(f.kokudaka * 0.25 * (0.825 + (g.minshin - 50) * CONFIG.MINSHIN_NENGU) * (0.9 + s.stats.seimu / 100)
+    const nengu = r1(f.kokudaka * 0.25 * (0.825 + (g.minshin - 50) * CONFIG.MINSHIN_NENGU) * (0.9 + s.stats.seimu / 100)
       * (1 + (kanjo - 10) * 0.015) * (hasInstitution('kanjo') ? 1.08 : 1) * ricePrice * (testament() === 'tami' ? 0.97 : 1) * (1 + kakun('kanjo') * 0.03));
-    const mine = Math.round(f.mine);
+    const mine = r1(f.mine);
     // 商いは時代とともに大きくなる（交易の上がりは年々増える）。尾張家の華美な家風なら、さらに15%
-    const trade = Math.round(f.trade * (1 + (state.year - CONFIG.START_YEAR) / 250) * (s.house === 'owari' ? 1.15 : 1));
+    const trade = r1(f.trade * (1 + (state.year - CONFIG.START_YEAR) / 250) * (s.house === 'owari' ? 1.15 : 1));
     // 紀伊家の倹約の家風なら、経費が5%減る
     // 遺言「倹約を守れ」でも5%減る
     const costRate = 1 - (kanjo - 10) * 0.01 - (hasInstitution('kanjo') ? 0.05 : 0) - (s.house === 'kii' ? 0.05 : 0)
       - (testament() === 'ken' ? 0.05 : 0) - kakun('kenyaku') * 0.03;
-    const hatamoto = Math.round(60 * inflation * costRate * (testament() === 'bu' ? 1.05 : 1));
-    const salaries = Math.round(state.retainers.reduce((sum, r) => sum + (r.post ? r.salary : Math.ceil(r.salary / 2)), 0)
+    const hatamoto = r1(60 * inflation * costRate * (testament() === 'bu' ? 1.05 : 1));
+    const salaries = r1(state.retainers.reduce((sum, r) => sum + (r.post ? r.salary : r.salary / 2), 0)
       * (testament() === 'hito' ? 1.1 : 1));
-    const ooku = Math.round(ookuBase() * inflation * costRate * (s.house === 'owari' ? 1.3 : 1) * (testament() === 'ie' ? 1.2 : 1));
+    const ooku = r1(ookuBase() * inflation * costRate * (s.house === 'owari' ? 1.3 : 1) * (testament() === 'ie' ? 1.2 : 1));
     // 朝廷との仲が冷えるほど、官位の礼金や公家への付け届けがかさむ（朝廷50以上でもとの額）
-    const court = Math.round(5 * inflation * costRate * (1 + Math.max(0, 50 - g.chotei) * CONFIG.CHOTEI_COURT) * (testament() === 'kyo' ? 2 : 1));
+    const court = r1(5 * inflation * costRate * (1 + Math.max(0, 50 - g.chotei) * CONFIG.CHOTEI_COURT) * (testament() === 'kyo' ? 2 : 1));
     const upkeep = state.institutions.reduce((sum, id) => sum + (institution(id)?.upkeep || 0), 0);
-    const interest = Math.round(f.debt * CONFIG.INTEREST);
+    const interest = r1(f.debt * CONFIG.INTEREST);
     // 威光が高ければ大名の献上や手伝い普請が入り、低ければ大名を見張る費えがかさむ（威光50で差し引きなし）
-    const daimyo = Math.round((g.ikou - CONFIG.IKOU_CENTER) * CONFIG.IKOU_DAIMYO * inflation);
+    const daimyo = r1((g.ikou - CONFIG.IKOU_CENTER) * CONFIG.IKOU_DAIMYO * inflation);
 
     const regular = [
       ['op', '年貢', nengu], ['op', '金銀山', mine], ['op', '運上金・交易', trade],
@@ -1293,6 +1346,7 @@
       f.cash += amount;
       book(cf, label, amount);
     }
+    f.cash = r1(f.cash);
     f.lastRevenue = nengu + mine + trade;
 
     // 現金が尽きたら、商人から借りてしのぐ
@@ -1300,7 +1354,7 @@
       const need = Math.ceil(-f.cash) + 10;
       borrow(need, '商人からの借入（資金繰り）');
       applyEffects({ ikou: -2 });
-      addLog(`金蔵が空になり、商人から${need}万両を借りてしのいだ。`);
+      addLog(`金蔵が空になり、商人から${formatRyo(need)}を借りてしのいだ。`);
     }
 
     // 資産の目減り（金山は掘るほど細り、蔵米は傷み、普請は古びる）。
@@ -1315,7 +1369,7 @@
     state.books.unshift({
       year: state.year, items: state.ledger.items,
       op: total('op'), inv: total('inv'), fin: total('fin'),
-      cash: Math.round(f.cash), debt: Math.round(f.debt), net: Math.round(netAssets()), limit: debtLimit(),
+      cash: r1(f.cash), debt: r1(f.debt), net: r1(netAssets()), limit: debtLimit(),
     });
     state.books = state.books.slice(0, CONFIG.BOOKS_KEPT);
   }
@@ -1329,8 +1383,8 @@
     f.trade = floor + (f.trade - floor) * CONFIG.KIEN_TRADE;
     applyEffects(CONFIG.KIEN_EFFECTS);
     state.kien = (state.kien || 0) + 1;
-    addLog(`借入が上限を超え、商人に借金の棒引き（棄捐令）を命じた（借入 ${before}→${f.debt}万両）。`);
-    return `借入が上限を超えた。商人に借金の棒引き（棄捐令）を命じ、借入を${before}万両から${f.debt}万両に減らした。`
+    addLog(`借入が上限を超え、商人に借金の棒引き（棄捐令）を命じた（借入 ${formatRyo(before)}→${formatRyo(f.debt)}）。`);
+    return `借入が上限を超えた。商人に借金の棒引き（棄捐令）を命じ、借入を${formatRyo(before)}から${formatRyo(f.debt)}に減らした。`
       + '幕府の信用は落ち（威光・民心が下がる）、商人たちは離れていった（交易の上がりが細る）。';
   }
 
@@ -1389,7 +1443,8 @@
 
   function checkAbility(check) {
     const post = CHECK_POST[check.stat];
-    const bonus = post ? Math.max(0, Math.floor((postValue(post) - 8) / 3)) : 0;
+    // 担当の役職の腕が9を超えた3につき、能力1ぶん助ける（端数も見込みに効く）
+    const bonus = post ? Math.max(0, (postValue(post) - 9) / 3) : 0;
     return state.shogun.stats[check.stat] + bonus;
   }
 
@@ -1659,10 +1714,11 @@
 
     // 将軍と役職の働きによる自然な増減。時代が下るほど大名は幕府を恐れなくなる
     const era = Math.floor((state.year - CONFIG.START_YEAR) / 50);
+    const ad = abilityDrift();
     const drift = {
-      ikou: Math.floor(s.stats.bui / 5) - 2 - Math.floor(era / 2) + postBonus('ometsuke') + postBonus('jisha', 8),
-      minshin: Math.floor(s.stats.jintoku / 5) - 2 + postBonus('machi') + postBonus('jisha', 8),
-      chotei: postBonus('shoshidai') + (state.gauges.chotei > 60 ? -1 : 0),
+      ikou: ad.ikou.shogun + ad.ikou.post - Math.floor(era / 2),
+      minshin: ad.minshin.shogun + ad.minshin.post,
+      chotei: ad.chotei.post + (state.gauges.chotei > 60 ? -1 : 0),
     };
     // 分家から迎えた将軍の家風。尾張は民心、水戸は朝廷と実績（朝廷が強すぎると威光がかすむ）
     if (s.house === 'owari') drift.minshin += 1;
@@ -1689,8 +1745,11 @@
     for (const key of Object.keys(drift)) {
       if (state.gauges[key] > 50) drift[key] -= Math.round((state.gauges[key] - 50) * CONFIG.GAUGE_PULL);
     }
+    // 端数は持ち越して、たまったら1として効かせる
+    for (const key of Object.keys(drift)) drift[key] = withCarry(key, drift[key]);
     applyEffects(drift);
-    state.jisseki += 1 + (s.stats.seimu >= 12 ? 1 : 0) + (postValue('roju') >= 14 ? 1 : 0) + (s.house === 'mito' ? 1 : 0) + kakun('hosei');
+    const aj = abilityJisseki();
+    state.jisseki += 1 + withCarry('jisseki', aj.shogun + aj.post) + (s.house === 'mito' ? 1 : 0) + kakun('hosei');
     ageBranches();
 
     closeBooks();
@@ -1723,7 +1782,8 @@
 
     // 将軍が歳をとる（「頑健」なら衰えは半分）。気苦労がたまっていると体を壊し、城中にも苛立ちが広がる
     s.age += 1;
-    const wear = hasSkill('ganken') ? 0.5 : 1;
+    // 体質が10より高いほど衰えにくく、低いほど衰えやすい（体質20で半分、4以下で1.3倍）
+    const wear = (hasSkill('ganken') ? 0.5 : 1) * constitutionWear();
     if (s.age >= 60) s.health -= 4 * wear;
     else if (s.age >= 40) s.health -= 2 * wear;
     s.stress = clamp((s.stress || 0) - CONFIG.STRESS_DECAY, 0, 100);
@@ -2368,7 +2428,7 @@
     state.shogun = {
       personId: p.id, name, gen: prev.gen + 1, age: c.age, startYear: state.year, trait: c.trait,
       health: clamp(c.stats.kenko * 5, 20, 100),
-      stats: { ...p.start }, stress: 0, skill: c.skill || null,
+      stats: { ...p.start, kenko: c.stats.kenko }, stress: 0, skill: c.skill || null,
       house: branch ? branch.id : null,   // 分家から迎えた将軍は、その家の家風を持ち込む
       testament: will || null,            // 先代の遺言（この代のあいだ効く）
       ailing: null,                       // 病に伏しているか（御不例）。{ since: 伏した年 }
@@ -2465,13 +2525,13 @@
     // 名前と決まりごと
     STATE_LABELS, ABILITY_LABELS, RETAINER_LABELS, TEACH_LABELS, FIN_LABELS, OTHER_LABELS, LOWER_IS_BETTER, TRAITS, POSTS,
     // 小さな道具
-    clamp, institution, hasInstitution, bakufuYears, price, scaledCost,
+    clamp, formatRyo, institution, hasInstitution, bakufuYears, price, scaledCost,
     // 保存
     save, loadOrNew, newGame, loadHonors, loadBest,
     // プロローグ
     prologueLineTo, choosePrologue, nextPrologueStep, startMain,
     // 将軍・若君・人物
-    kakuOf, shogunKaku, skillById, hasSkill, starInfo, starText, person, eldestHeir, expectedAdult,
+    kakuOf, shogunKaku, constitution, constitutionWear, abilityDrift, abilityJisseki, skillById, hasSkill, starInfo, starText, person, eldestHeir, expectedAdult,
     // 大奥
     brideKind, ookuBase, birthChance, marry, declineMarriage, addConcubine, removeConcubine, marryDaughter, adoptOut,
     // 御三家と御三卿
@@ -2483,7 +2543,7 @@
     // 帳簿
     debtLimit, assets, netAssets, repay, borrowMore, sellRice, runway,
     // 出来事
-    cardById, fillNames, successChance, choose,
+    cardById, fillNames, checkAbility, successChance, choose,
     // 政務の間
     teachCost, teach, institutionCost, institutionStatus, establish, canRetire, retire,
     // 年を越す・場面を進める
