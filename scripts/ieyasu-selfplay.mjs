@@ -1,5 +1,5 @@
 // 家康の憂鬱（apps/ieyasu/）を自動で遊ばせて、幕府が何年続くかを数える開発用ツール。
-// サイトの公開には関係しない。仕組みや数値（game.js の CONFIG、cards.js）を直したあと、
+// サイトの公開には関係しない。仕組みや数値（engine.js の CONFIG、cards.js）を直したあと、
 // 釣り合いが崩れていないかを確かめるのに使う。
 //
 // 使い方（リポジトリのルートで実行。Node.js 18以上）:
@@ -15,31 +15,17 @@
 //   --seed N    : 乱数の種の始まり（同じ種なら同じ結果になる）
 //   --fuseki F  : プロローグの「最後の布石」。random / gosanke / kinzan / konin（初期値: random）
 //
-// ブラウザ用のスクリプトをそのまま読み込み、画面（document など）だけ何もしない物に差し替えて動かす。
-// ゲームの中の関数は、game.js の最後にある window.IEYASU_DEV から呼んでいる。
+// ブラウザ用のスクリプトのうち、データ（cards.js）とルール（engine.js）だけを読み込んで動かす。画面（game.js）は使わない。
+// ゲームの中の関数は、engine.js の最後にある window.IEYASU_ENGINE から呼んでいる。
 // 周回をまたいで残る栄誉は、1回ごとに空から始める（遺訓は選ばない）。
 
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
 const APP_DIR = new URL("../apps/ieyasu/", import.meta.url);
-const CODE = ["art.js", "cards.js", "game.js"].map((file) => [file, readFileSync(new URL(file, APP_DIR), "utf8")]);
+const CODE = ["cards.js", "engine.js"].map((file) => [file, readFileSync(new URL(file, APP_DIR), "utf8")]);
 const FOUNDED = 1603;
 const MAX_YEARS = 600; // これより長く続いたら打ち切る
-
-// 何を読んでも何を呼んでもエラーにならない、画面（document など）の代わり
-function dummy() {
-  return new Proxy(function () {}, {
-    get(_, key) {
-      if (key === Symbol.iterator) return function* () {};
-      if (key === Symbol.toPrimitive) return () => "";
-      if (key === "then") return undefined;
-      return dummy();
-    },
-    set() { return true; },
-    apply() { return dummy(); },
-  });
-}
 
 // 種から決まる乱数（mulberry32）
 function seededRandom(seed) {
@@ -66,14 +52,12 @@ function memoryStorage() {
 function createGame(seed) {
   const math = Object.create(Math);
   math.random = seededRandom(seed);
-  const context = vm.createContext({ console, Math: math, document: dummy(), localStorage: memoryStorage() });
+  const context = vm.createContext({ console, Math: math, localStorage: memoryStorage() });
   context.window = context;
-  context.confirm = () => true;
-  context.scrollTo = () => {};
-  context.scrollY = 0;
-  context.innerHeight = 800;
   for (const [file, code] of CODE) vm.runInContext(code, context, { filename: file });
-  return { dev: context.IEYASU_DEV, data: context.IEYASU_DATA, rand: math.random };
+  const dev = context.IEYASU_ENGINE;
+  dev.loadOrNew(); // 保存データはないので、はじめから
+  return { dev, data: context.IEYASU_DATA, rand: math.random };
 }
 
 const sum3 = (st) => st.seimu + st.bui + st.jintoku;
