@@ -6,10 +6,13 @@
 
   const DATA = window.IEYASU_DATA;
   const ART = window.IEYASU_ART;
+  // 音（audio.js）。読み込まれていない環境（自動プレイの道具など）では、何もしない代わりを使う
+  const AUDIO = window.IEYASU_AUDIO || { cue() {}, phrase() {}, setOn: () => false, isOn: () => false };
 
   const CONFIG = {
     START_YEAR: 1637,       // 本編が始まる年（東照宮完成の翌年）
     BAKUFU_FOUNDED: 1603,   // 幕府を開いた年（何年続いたかの起点）
+    HISTORY_YEARS: 265,     // 史実の幕府が続いた年数（目安として画面に出す）
     ABILITY_MAX: 20,
     ADULT_AGE: 15,          // これ未満で将軍になると「幼い将軍」
     TEACH_AGE_LIMIT: 20,    // この歳までは教育できる
@@ -47,6 +50,15 @@
     SHIP_NOTICE: [3, 5],    // 予兆から来航までの年数
     SHIP_BOOST: 3,          // 軍資金を投じたときに上がる力
     CARD_COOLDOWN: 10,      // 同じ出来事は、この年数のあいだ出ない
+    // 威光・民心・朝廷とお金のつながり。ゲージを損ねると、数年かけてお金で返ってくる
+    TRADE_START: 5,         // はじめの運上金・交易（万両/年）。これと制度で得たぶんは細らない
+    TRADE_DECAY: 0.06,      // 出来事で増えた運上金・交易が、毎年細る割合（流行り廃り。11年ほどで半分）
+    DRIFT_SHIFT: -1,        // 威光と民心の毎年の自然な増減に足す値（マイナスなら、放っておくと下がる）
+    GAUGE_PULL: 0.2,        // 50を超えたぶんのこの割合が、毎年自然に戻る（慢心）
+    MINSHIN_NENGU: 0.005,   // 民心が50から1離れるごとに、年貢の取れ高がこれだけ増減する
+    IKOU_CENTER: 50,        // 威光がこれより高ければ大名の献上が入り、低ければ見張りの費えがかかる
+    IKOU_DAIMYO: 0.4,       // 威光が IKOU_CENTER から1離れるごとに、大名の献上（または見張りの費え）がこれだけ増減する（万両/年、物価を反映）
+    CHOTEI_COURT: 0.05,     // 朝廷が50を1下回るごとに、朝廷・寺社への費えがこの割合で増える
     CRISIS_YEARS: 3,        // 危機になってから立て直すまでの猶予
     CRISIS_SAFE: 10,        // 威光・民心・朝廷がすべてこれを超え、借入が上限以下なら危機を脱する
     INTEREST: 0.08,         // 借入の利息（年）
@@ -77,6 +89,8 @@
     ryo: ['現金', '万両'], borrow: ['借入', '万両'], rice: ['蔵米', '万両'], kokudaka: ['天領の石高', '万石'],
     mine: ['金銀山の産出', '万両/年'], trade: ['運上金・交易', '万両/年'], ooku: ['大奥の費え', '万両/年'],
   };
+  // 減るほうが良い項目（結果の一覧で、減ったときに青で出す）
+  const LOWER_IS_BETTER = ['stress', 'ooku', 'borrow', 'debtCut'];
   const OTHER_LABELS = { jisseki: '実績', health: '将軍の健康', stress: '将軍の気苦労', recruit: '登用の候補', debtCut: '借入の帳消し' };
   const TRAITS = ['慎重', '豪胆', '寛大', '倹約', '華美'];
   const CHILD_NAMES = ['竹千代', '長松', '徳松', '亀松', '鶴松', '国松', '万寿丸', '虎松', '福松', '松千代'];
@@ -836,6 +850,8 @@
     const losses = b.results.length - wins;
     if (wins >= ship.need) finishBattle(true);
     else if (losses > ship.rounds.length - ship.need) finishBattle(false);
+    // 勝負ごとの音。決着がついたら、勝ち負けの節
+    AUDIO.cue(b.done ? (b.victory ? 'good' : 'bad') : b.results[b.results.length - 1].win ? 'select' : 'fail');
     commit();
   }
 
@@ -1064,6 +1080,13 @@
     state.ledger.items.push({ cf, label, amount: Math.round(amount) });
   }
 
+  // 細らない商いの上がり（万両/年）：もとの5万両と、制度や組み合わせの妙で得たぶん
+  function tradeBase() {
+    const inst = state.institutions.reduce((sum, id) => sum + ((institution(id)?.on || {}).trade || 0), 0);
+    const syn = state.synergies.reduce((sum, id) => sum + ((DATA.synergies.find((x) => x.id === id)?.on || {}).trade || 0), 0);
+    return CONFIG.TRADE_START + inst + syn;
+  }
+
   function debtLimit() {
     return Math.round(state.fin.lastRevenue * CONFIG.DEBT_LIMIT);
   }
@@ -1122,7 +1145,9 @@
     const inflation = price();
     const kanjo = postValue('kanjo');
 
-    const nengu = Math.round(f.kokudaka * 0.25 * (0.7 + state.gauges.minshin / 400) * (0.9 + s.stats.seimu / 100)
+    const g = state.gauges;
+    // 民心しだいで年貢の取れ高が変わる（民心50でもとの取れ高。0で7割、100で13割ほど）
+    const nengu = Math.round(f.kokudaka * 0.25 * (0.825 + (g.minshin - 50) * CONFIG.MINSHIN_NENGU) * (0.9 + s.stats.seimu / 100)
       * (1 + (kanjo - 10) * 0.015) * (hasInstitution('kanjo') ? 1.08 : 1));
     const mine = Math.round(f.mine);
     // 商いは時代とともに大きくなる（交易の上がりは年々増える）。尾張家の華美な家風なら、さらに15%
@@ -1132,12 +1157,16 @@
     const hatamoto = Math.round(60 * inflation * costRate);
     const salaries = state.retainers.reduce((sum, r) => sum + (r.post ? r.salary : Math.ceil(r.salary / 2)), 0);
     const ooku = Math.round(ookuBase() * inflation * costRate * (s.house === 'owari' ? 1.3 : 1));
-    const court = Math.round(5 * inflation * costRate);
+    // 朝廷との仲が冷えるほど、官位の礼金や公家への付け届けがかさむ（朝廷50以上でもとの額）
+    const court = Math.round(5 * inflation * costRate * (1 + Math.max(0, 50 - g.chotei) * CONFIG.CHOTEI_COURT));
     const upkeep = state.institutions.reduce((sum, id) => sum + (institution(id)?.upkeep || 0), 0);
     const interest = Math.round(f.debt * CONFIG.INTEREST);
+    // 威光が高ければ大名の献上や手伝い普請が入り、低ければ大名を見張る費えがかさむ（威光50で差し引きなし）
+    const daimyo = Math.round((g.ikou - CONFIG.IKOU_CENTER) * CONFIG.IKOU_DAIMYO * inflation);
 
     const regular = [
       ['op', '年貢', nengu], ['op', '金銀山', mine], ['op', '運上金・交易', trade],
+      ['op', daimyo >= 0 ? '大名の献上・手伝い普請' : '大名を見張る費え', daimyo],
       ['op', '旗本・御家人の俸禄', -hatamoto], ['op', '家臣の俸禄', -salaries], ['op', '大奥の費え', -ooku],
       ['op', '朝廷・寺社への費え', -court], ['op', '制度の維持費', -upkeep], ['fin', '借入の利息', -interest],
     ];
@@ -1155,7 +1184,10 @@
       addLog(`金蔵が空になり、商人から${need}万両を借りてしのいだ。`);
     }
 
-    // 資産の目減り（金山は掘るほど細り、蔵米は傷み、普請は古びる）
+    // 資産の目減り（金山は掘るほど細り、蔵米は傷み、普請は古びる）。
+    // 出来事で増えた商いの上がりも、流行り廃りで少しずつ細る（制度で得たぶんと、もとの上がりは残る）
+    const tradeFloor = Math.min(f.trade, tradeBase());
+    f.trade = tradeFloor + (f.trade - tradeFloor) * (1 - CONFIG.TRADE_DECAY);
     f.mine = Math.max(0, f.mine * 0.985);
     f.rice = Math.max(0, f.rice * 0.95);
     f.infra = Math.max(0, f.infra * 0.99);
@@ -1164,7 +1196,7 @@
     state.books.unshift({
       year: state.year, items: state.ledger.items,
       op: total('op'), inv: total('inv'), fin: total('fin'),
-      cash: Math.round(f.cash), debt: Math.round(f.debt), net: Math.round(netAssets()),
+      cash: Math.round(f.cash), debt: Math.round(f.debt), net: Math.round(netAssets()), limit: debtLimit(),
     });
     state.books = state.books.slice(0, CONFIG.BOOKS_KEPT);
   }
@@ -1315,7 +1347,8 @@
         continue;
       }
       const label = STATE_LABELS[key] || (FIN_LABELS[key] && FIN_LABELS[key][0]) || OTHER_LABELS[key];
-      if (v !== 0) changes.push({ label, delta: v, unit });
+      // good … 画面で青（良い変化）にするか赤（悪い変化）にするか。気苦労や借入は、減るほうが良い
+      if (v !== 0) changes.push({ label, delta: v, unit, good: LOWER_IS_BETTER.includes(key) ? v < 0 : v > 0 });
     }
     return changes;
   }
@@ -1497,9 +1530,14 @@
     }
     // 御三家がそろって強く釣り合っていれば、互いに牽制して幕府の重しになる
     if (branchesBalanced()) drift.ikou += 1;
-    // 満ち足りた状態は長続きしない（慢心）
+    // 放っておくと、威光と民心は少しずつ下がる（手当てをしないと保てない）。
+    // 朝廷はもともと将軍の能力では伸びないので、ここでは下げない
+    drift.ikou += CONFIG.DRIFT_SHIFT;
+    drift.minshin += CONFIG.DRIFT_SHIFT;
+    // 満ち足りた状態は長続きしない（慢心）。50を超えたぶんの一部が、毎年自然に戻る。
+    // 高いほど強く戻るので、よい将軍と役職がそろっても100には張りつかず、悪い出来事が効き続ける
     for (const key of Object.keys(drift)) {
-      if (state.gauges[key] > 80) drift[key] -= 2;
+      if (state.gauges[key] > 50) drift[key] -= Math.round((state.gauges[key] - 50) * CONFIG.GAUGE_PULL);
     }
     applyEffects(drift);
     state.jisseki += 1 + (s.stats.seimu >= 12 ? 1 : 0) + (postValue('roju') >= 14 ? 1 : 0) + (s.house === 'mito' ? 1 : 0);
@@ -1744,10 +1782,18 @@
     commit();
   }
 
-  // reason: 'black' なら黒船に屈した倒幕
+  // 何が尽きて倒れたか（cards.js の endings の名前）。0まで落ちたゲージがあればそれ、なければ財政
+  function overCause() {
+    const low = Object.keys(state.gauges).sort((a, b) => state.gauges[a] - state.gauges[b]);
+    if (state.gauges[low[0]] <= 0) return low[0];
+    if (state.fin.debt > debtLimit()) return 'finance';
+    return state.gauges[low[0]] <= CONFIG.CRISIS_SAFE ? low[0] : 'finance';
+  }
+
+  // reason: 'black' なら黒船に屈した倒幕。省くと、尽きたものから決める
   function gameOver(reason = null) {
     state.phase = 'over';
-    state.overReason = reason;
+    state.overReason = reason || overCause();
     closeReign(reason === 'black' ? '黒船に屈し、幕府とともに倒れる。' : '倒幕により、幕府とともに倒れる。');
     addLog(`倒幕。徳川幕府は${bakufuYears()}年で幕を閉じた。`);
     saveBest(bakufuYears());
@@ -1766,13 +1812,43 @@
     if (state.phase !== lastPhase) {
       if (state.phase === 'prologue') $('stage').scrollIntoView({ block: 'start' });
       else if (ui.tab === 'seimu') scrollToGame();
+      soundFor(state.phase);
     }
     lastPhase = state.phase;
   }
 
+  // 場面が変わったときの音（音を切っていれば何も鳴らない）
+  function soundFor(phase) {
+    if (phase === 'event') {
+      const card = cardById(state.card.id);
+      if (card.trial) AUDIO.cue('drum');
+      AUDIO.phrase(card.trial || ieyasuMood() === 'worry' ? 'worry' : 'calm');
+    } else if (phase === 'result') {
+      AUDIO.cue(state.result.failed ? 'fail' : 'select');
+    } else if (phase === 'report') {
+      const r = state.report;
+      AUDIO.cue('year');
+      if ((r.births || []).some((b) => (b.stars || 0) >= 4)) AUDIO.cue('star');
+      else if (r.honors.length) AUDIO.cue('honor');
+      else if (r.omen || state.crisis) AUDIO.cue('drum');
+    } else if (phase === 'ship') {
+      AUDIO.cue('drum');
+    } else if (phase === 'marriage') {
+      AUDIO.phrase('calm');
+    } else if (phase === 'succession') {
+      AUDIO.phrase('worry');
+    } else if (phase === 'over') {
+      AUDIO.cue('over');
+    } else if (phase === 'ending') {
+      AUDIO.cue('ending');
+    }
+  }
+
+  // ゲームの頭（上の帯）を画面の上にそろえる。遊んでいるあいだはサイトの見出しを見せる必要がないので、
+  // 下にずれていても上にずれていても合わせる（スマホで、選択肢を最初の画面に入れるため）
   function scrollToGame() {
     const top = $('game').getBoundingClientRect().top + window.scrollY - 8;
-    if (window.scrollY > top) window.scrollTo(0, top);
+    if (Math.abs(window.scrollY - top) > 4) window.scrollTo(0, top);
   }
 
   // イラスト（art.js が作る固定のSVG文字列）を入れる箱
@@ -1782,8 +1858,9 @@
     return box;
   }
 
-  function sceneArt(name) {
-    return art(ART.scene(name), 'iy-scene');
+  // compact … 出来事の画面では、スマホで絵を少し小さくして、選択肢を最初の画面に近づける
+  function sceneArt(name, compact = false) {
+    return art(ART.scene(name), compact ? 'iy-scene iy-scene--compact' : 'iy-scene');
   }
 
   // 話し手ごとの顔と名前
@@ -1885,7 +1962,7 @@
   function changeList(changes) {
     if (changes.length === 0) return null;
     return el('ul', { class: 'iy-changes' }, changes.map((c) =>
-      el('li', { class: c.delta > 0 ? 'iy-up' : 'iy-down', text: `${c.label} ${signed(c.delta)}${c.unit || ''}` })));
+      el('li', { class: (c.good !== undefined ? c.good : c.delta > 0) ? 'iy-up' : 'iy-down', text: `${c.label} ${signed(c.delta)}${c.unit || ''}` })));
   }
 
   function panel(title, children, cls = '') {
@@ -1897,6 +1974,8 @@
   function render() {
     const playing = state.phase !== 'prologue';
     $('intro').hidden = playing;
+    // 紹介文の下のボタン。途中まで読んでいれば「続きから」にする
+    if (!playing) $('intro-start').textContent = state.prologueStep > 0 || state.prologueLine > 0 ? '物語の続きから' : '物語を始める';
     $('topbar').hidden = !playing;
     $('tabbar').hidden = !playing;
     document.body.classList.toggle('iy-has-tabbar', playing);
@@ -1928,8 +2007,18 @@
       el('div', { class: 'iy-topbar__row' }, [
         art(ART.shogun(s.trait), 'iy-face iy-face--tiny'),
         el('p', { class: 'iy-topbar__title' }, [
-          el('strong', { text: `${state.year}年` }),
+          // 決算報告を見ているあいだは、まだその年の暮れとして出す（年はもう進んでいるが、報告と食い違わないように）
+          el('strong', { text: state.phase === 'report' && state.report ? `${state.report.year}年の暮れ` : `${state.year}年` }),
           ` 第${s.gen}代 ${s.name}（${s.age}歳）`,
+        ]),
+        // 音を入れる・切る（はじめは切ってある）
+        el('button', {
+          type: 'button', class: 'iy-guide-btn iy-sound-btn', 'aria-pressed': AUDIO.isOn() ? 'true' : 'false',
+          'aria-label': AUDIO.isOn() ? '音を切る（いまは音が入っている）' : '音を入れる（いまは音を切っている）',
+          onclick: () => { AUDIO.setOn(!AUDIO.isOn()); renderTopbar(); },
+        }, [
+          el('span', { class: 'iy-guide-btn__mark', 'aria-hidden': 'true', text: '♪' }),
+          el('span', { class: 'iy-sound-btn__text', 'aria-hidden': 'true', text: AUDIO.isOn() ? '音 入' : '音 切' }),
         ]),
         el('button', { type: 'button', class: 'iy-guide-btn', id: 'guide-button', onclick: openGuide }, [
           el('span', { class: 'iy-guide-btn__mark', text: '?' }), 'ガイド',
@@ -2017,7 +2106,7 @@
     if (!atEnd) {
       nodes.push(el('button', {
         type: 'button', class: 'iy-primary', text: '次へ',
-        onclick: () => { state.prologueLine = index + 1; commit(); },
+        onclick: () => { state.prologueLine = index + 1; AUDIO.cue('next'); commit(); },
       }));
     } else if (step.choices) {
       // 栄誉を集めると、新しい布石（遺訓）が選べるようになる
@@ -2065,6 +2154,38 @@
     return hints.join('　');
   }
 
+  // 選ぶ前に「何が動くか」だけを見せる（Reigns の点と同じ考え方）。
+  // 点の数で動く量の大きさを示し、上がるか下がるかは伏せる。成否が分かれる選択肢は、大きいほうで数える
+  const MARK_GROUPS = [
+    { label: '威光', size: (e) => Math.abs(e.ikou || 0), steps: [4, 8] },
+    { label: '民心', size: (e) => Math.abs(e.minshin || 0), steps: [4, 8] },
+    { label: '朝廷', size: (e) => Math.abs(e.chotei || 0), steps: [4, 8] },
+    {
+      label: 'お金',
+      size: (e) => Math.abs(e.ryo || 0) + Math.abs(e.borrow || 0) * 0.5 + Math.abs(e.trade || 0) * 10 + Math.abs(e.kokudaka || 0) * 2.5
+        + Math.abs(e.mine || 0) * 8 + Math.abs(e.rice || 0) + Math.abs(e.ooku || 0) * 10 + Math.abs(e.debtCut || 0) * 0.5,
+      steps: [20, 45],
+    },
+    { label: '将軍', size: (e) => Math.abs(e.health || 0) + Math.abs(e.stress || 0) / 2, steps: [5, 10] },
+    { label: '若君', size: (e) => Object.values(e.heir || {}).reduce((a, b) => a + Math.abs(b), 0), steps: [1, 2] },
+  ];
+  const MARK_WORDS = ['少し', 'かなり', '大きく'];
+
+  function optionMarks(option) {
+    const marks = [];
+    for (const g of MARK_GROUPS) {
+      const size = Math.max(g.size(option.effects), option.fail ? g.size(option.fail) : 0);
+      if (size <= 0) continue;
+      const n = size <= g.steps[0] ? 1 : size <= g.steps[1] ? 2 : 3;
+      marks.push(el('span', { class: 'iy-mark' }, [
+        g.label,
+        el('span', { class: 'iy-mark__dots', 'aria-hidden': 'true', text: '●'.repeat(n) }),
+        el('span', { class: 'iy-sr', text: `（${MARK_WORDS[n - 1]}動く）` }),
+      ]));
+    }
+    return marks.length ? el('span', { class: 'iy-marks' }, marks) : null;
+  }
+
   function viewEvent() {
     const card = cardById(state.card.id);
     const s = state.shogun;
@@ -2078,22 +2199,22 @@
         liked ? el('span', { class: 'iy-option__how', text: '将軍の好み' }) : null,
         el('strong', { text: option.label }),
         hint ? el('span', { class: 'iy-option__hint', text: hint }) : null,
+        optionMarks(option),
       ]));
     });
     return [
       el('p', { class: 'iy-year', text: `${state.year}年${card.trial ? '　大きな試練' : ''}` }),
       el('h2', { text: card.title }),
-      sceneArt(card.scene),
+      sceneArt(card.scene, true),
       el('p', { text: fillNames(card.text) }),
       ieyasuSays(el('p', { class: 'iy-voice', text: `「${fillNames(card.ieyasu)}」` }), card.trial ? 'worry' : ieyasuMood()),
-      el('div', { class: 'iy-intent' }, [
-        art(ART.shogun(s.trait), 'iy-face iy-face--small'),
-        el('p', {}, [
-          `将軍・${s.name}は${s.trait}な性格。好みに合う裁きなら乗り気で取り組んで育ち、合わなければ気苦労がたまる。`,
-          el('span', { class: (s.stress || 0) >= 60 ? 'iy-warn' : 'iy-muted', text: `（気苦労 ${s.stress || 0}）` }),
-        ]),
+      // 将軍の好みの説明は1行に縮め、選択肢をなるべく最初の画面に入れる（詳しくはガイド）
+      el('p', { class: 'iy-intent' }, [
+        `将軍・${s.name}は${s.trait}。好みの裁きなら育ち、合わねば気苦労がたまる`,
+        el('span', { class: (s.stress || 0) >= 60 ? 'iy-warn' : 'iy-muted', text: `（気苦労 ${s.stress || 0}）` }),
       ]),
       list,
+      el('p', { class: 'iy-hint iy-marks-note', text: '●の数は、動く大きさ（上がるか下がるかは伏せてある）。' }),
     ];
   }
 
@@ -2181,6 +2302,7 @@
       el('p', { text: `黒船は去った。開府から${years}年、第${state.shogun.gen}代・${state.shogun.name}の代。徳川の幕府は、国を閉ざすことも、屈することもなく、新しい時代へ踏み出した。` }),
       ieyasuSays(el('p', { class: 'iy-voice', text: '「……やれやれ。これで、ようやく肩の荷が下りた。……肩はないが。」' })),
       iemitsuSays(el('p', { class: 'iy-voice', text: '「権現様、お見事にございました。この先の世は、子や孫たちに任せてもよいのではありませぬか。」' })),
+      ...chronicleNodes(),
       el('p', { class: 'iy-note', text: `記録：開府から${years}年（史実の幕府は約265年）。このまま幕府を続けることもできる（もう異国船は来ない）。` }),
       el('button', { type: 'button', class: 'iy-primary', text: 'このまま幕府を続ける', onclick: continueAfterEnding }),
       el('button', {
@@ -2501,24 +2623,61 @@
       r.births && r.births.length ? el('div', { class: 'iy-births' }, r.births.map(birthCard)) : null,
       r.honors.length ? el('p', { class: 'iy-honor-line', text: `栄誉を得た：${r.honors.join('、')}` }) : null,
       r.notes.length ? el('ul', { class: 'iy-report-notes' }, r.notes.map((n) => el('li', { text: n }))) : null,
+      // お金が尽きそうなら、早めに知らせる（財務の画面に、グラフと内訳がある）
+      (runway() || { years: 99 }).years <= 15 ? runwayLine() : null,
       ieyasuSays(el('p', { class: 'iy-voice', text: comment }), mood),
       el('button', { type: 'button', class: 'iy-primary', text: isSuccession ? '跡継ぎを決める' : '次の年へ', onclick: closeReport }),
     ];
   }
 
+  // 倒幕の結末。何が尽きたかで場面と言葉が変わり、最後に幕府の年表を出す
   function viewOver() {
     const years = bakufuYears();
-    const black = state.overReason === 'black';
+    const end = DATA.endings[state.overReason] || DATA.endings[overCause()];
+    const fill = (text) => text.replace('{years}', years).replace('{shogun}', `第${state.shogun.gen}代・${state.shogun.name}`);
+    const byYears = DATA.endingYears.find((e) => years < e.below);
     return [
       el('p', { class: 'iy-year', text: `${state.year}年` }),
-      el('h2', { text: black ? '倒幕（黒船）' : '倒幕' }),
-      sceneArt(black ? 'blackship' : 'fall'),
-      el('p', { text: `${black ? '黒船に屈し、' : ''}徳川の幕府は、開府から${years}年で幕を閉じた。最後の将軍は、第${state.shogun.gen}代・${state.shogun.name}。` }),
-      ieyasuSays(el('p', { class: 'iy-voice', text: black
-        ? '海の向こうの力を、甘く見ておった。霊体の権現様は長いため息をつき、家光とともに日光の山へ帰っていった。……次こそは。'
-        : '霊体の権現様は長いため息をつき、家光とともに日光の山へ帰っていった。……次こそは。' }), 'worry'),
-      el('p', { class: 'iy-note', text: `これまでの最長記録：${Math.max(years, loadBest())}年（史実の幕府は約265年）。家系図と財務の記録は、このまま見られる。` }),
+      el('h2', { text: `倒幕：${end.title}` }),
+      sceneArt(end.scene),
+      el('p', { text: fill(end.text) }),
+      ieyasuSays(el('p', { class: 'iy-voice', text: `「${end.ieyasu}」` }), 'worry'),
+      byYears ? iemitsuSays(el('p', { class: 'iy-voice', text: `「${byYears.text.replace('{rest}', CONFIG.HISTORY_YEARS - years)}」` })) : null,
+      el('p', { class: 'iy-note', text: '霊体の権現様は長いため息をつき、家光とともに日光の山へ帰っていった。……次こそは。' }),
+      ...chronicleNodes(),
+      el('p', { class: 'iy-note', text: `これまでの最長記録：${Math.max(years, loadBest())}年（史実の幕府は約${CONFIG.HISTORY_YEARS}年）。家系図と財務の記録は、このまま見られる。` }),
       el('button', { type: 'button', class: 'iy-primary', text: 'もう一度、最初から', onclick: restart }),
+    ];
+  }
+
+  // 幕府の年表：歴代将軍の在位と格、整えた制度、栄誉、異国船。結末の画面に出す（スクリーンショットで人に見せやすいように1か所にまとめる）
+  function chronicleNodes() {
+    const shoguns = state.family.filter((p) => p.gen).sort((a, b) => a.gen - b.gen);
+    const rows = shoguns.map((p) => {
+      const isCurrent = p.id === state.shogun.personId && !p.to;
+      const endKaku = p.end ? kakuOf(p.end) : isCurrent ? shogunKaku() : null;
+      return el('tr', {}, [
+        el('td', { text: `${p.gen}` }),
+        el('td', { text: `${p.name}${p.house ? `（${p.house}）` : ''}` }),
+        el('td', { text: `${p.from}〜${p.to || ''}（${(p.to || state.year) - p.from}年）` }),
+        el('td', { text: p.start ? `${kakuOf(p.start)}${endKaku !== null ? `→${endKaku}` : ''}` : '' }),
+      ]);
+    });
+    const insts = DATA.institutions.filter((i) => hasInstitution(i.id)).map((i) => i.name);
+    const syns = DATA.synergies.filter((x) => state.synergies.includes(x.id)).map((x) => x.name);
+    const honors = DATA.honors.filter((h) => state.honors.includes(h.id)).map((h) => h.name);
+    const ships = DATA.ships.filter((s) => state.ships.won.includes(s.id) || state.ships.lost.includes(s.id))
+      .map((s) => (state.ships.won.includes(s.id) ? `${s.name}を退けた` : `${s.name}に屈した`));
+    return [
+      el('h3', { text: '幕府の年表' }),
+      el('p', { class: 'iy-hint', text: `開府から${bakufuYears()}年・将軍${shoguns.length}代・制度${insts.length}・組み合わせの妙${syns.length}・栄誉${honors.length}` }),
+      el('div', { class: 'iy-scroll' }, el('table', { class: 'iy-table iy-table--chronicle' }, [
+        el('thead', {}, el('tr', {}, ['代', '将軍', '在位', '格'].map((h) => el('th', { text: h })))),
+        el('tbody', {}, rows),
+      ])),
+      insts.length ? el('p', { class: 'iy-hint', text: `整えた制度：${insts.join('、')}${syns.length ? `（組み合わせの妙：${syns.join('、')}）` : ''}` }) : null,
+      ships.length ? el('p', { class: 'iy-hint', text: `異国船：${ships.join('、')}` }) : null,
+      honors.length ? el('p', { class: 'iy-honor-line', text: `この幕府で得た栄誉：${honors.join('、')}` }) : null,
     ];
   }
 
@@ -2635,6 +2794,61 @@
 
   // ───── 財務
 
+  // このままのペースで、あと何年で借入が上限に届くか（ここ数年の「現金−借入」の減り方から見積もる）。
+  // 減っていなければ null。books は新しい年から並んでいる
+  function runway() {
+    const list = state.books.slice(0, 6);
+    if (list.length < 3) return null;
+    const pos = (b) => b.cash - b.debt;
+    const perYear = (pos(list[0]) - pos(list[list.length - 1])) / (list.length - 1);
+    if (perYear >= -1) return null;
+    const room = Math.max(0, state.fin.cash) + Math.max(0, debtLimit() - state.fin.debt);
+    return { years: Math.floor(room / -perYear), perYear: Math.round(-perYear) };
+  }
+
+  function runwayLine() {
+    const r = runway();
+    if (!r || r.years > 40) return null;
+    return el('p', { class: r.years <= 10 ? 'iy-warn' : 'iy-hint',
+      text: `このままのペースだと、あと約${r.years}年で借入が上限に届く（ここ数年、現金と借入の差し引きが年に約${r.perYear}万両ずつ減っている）。` });
+  }
+
+  // 過去30年の営業の収支（棒）と、借入と上限（線）の小さなグラフ。数字は下の表にある
+  function financeChart() {
+    const books = state.books.slice(0, CONFIG.BOOKS_KEPT).reverse();
+    if (books.length < 2) return null;
+    const W = 320, n = books.length, step = W / n;
+    const opMax = Math.max(10, ...books.map((b) => Math.abs(b.op)));
+    const debtMax = Math.max(10, ...books.map((b) => Math.max(b.debt, b.limit || 0)));
+    // 上の段：営業の収支（0の線から上下に伸びる棒）
+    const mid = 34, half = 26;
+    const bars = books.map((b, i) => {
+      const h = Math.max(1, (Math.abs(b.op) / opMax) * half);
+      const y = b.op >= 0 ? mid - h : mid;
+      return `<rect class="${b.op >= 0 ? 'iy-chart__up' : 'iy-chart__down'}" x="${(i * step + 1).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1, step - 2).toFixed(1)}" height="${h.toFixed(1)}"><title>${b.year}年 営業の収支 ${money(b.op)}万両</title></rect>`;
+    }).join('');
+    // 下の段：借入（実線）と上限（点線）
+    const base = 132, tall = 52;
+    const yOf = (v) => (base - (v / debtMax) * tall).toFixed(1);
+    const xOf = (i) => (i * step + step / 2).toFixed(1);
+    const debtPath = books.map((b, i) => `${i ? 'L' : 'M'}${xOf(i)},${yOf(b.debt)}`).join(' ');
+    const withLimit = books.map((b, i) => ({ b, i })).filter(({ b }) => b.limit);
+    const limitPath = withLimit.map(({ b, i }, k) => `${k ? 'L' : 'M'}${xOf(i)},${yOf(b.limit)}`).join(' ');
+    const svg = `<svg viewBox="0 0 ${W} 156" role="img" aria-label="過去${n}年の営業の収支と、借入と上限の移り変わり" xmlns="http://www.w3.org/2000/svg">
+      <text class="iy-chart__label" x="0" y="10">営業の収支（青は黒字、赤は赤字）</text>
+      <line class="iy-chart__axis" x1="0" x2="${W}" y1="${mid}" y2="${mid}"/>${bars}
+      <text class="iy-chart__label" x="0" y="${base - tall - 8}">借入（実線）と上限（点線）</text>
+      <line class="iy-chart__axis" x1="0" x2="${W}" y1="${base}" y2="${base}"/>
+      ${limitPath ? `<path class="iy-chart__limit" d="${limitPath}"/>` : ''}
+      <path class="iy-chart__debt" d="${debtPath}"/>
+      <text class="iy-chart__label" x="0" y="154">${books[0].year}年</text>
+      <text class="iy-chart__label" x="${W}" y="154" text-anchor="end">${books[n - 1].year}年</text>
+    </svg>`;
+    const box = el('div', { class: 'iy-chart' });
+    box.innerHTML = svg;
+    return box;
+  }
+
   function cfTable(items) {
     const sections = [
       ['op', '営業キャッシュフロー（年貢・経費など）'],
@@ -2706,6 +2920,8 @@
           el('button', { type: 'button', text: '蔵米を売る', disabled: f.rice < 1, onclick: sellRice }),
         ]),
         el('p', { class: 'iy-hint', text: `借入には年${CONFIG.INTEREST * 100}%の利息がつく。借入が上限（歳入の${CONFIG.DEBT_LIMIT}倍）を超えると財政破綻の危機になる。` }),
+        runwayLine(),
+        financeChart(),
       ]),
       panel('キャッシュフロー計算書', [select, cfTable(shown.items)]),
       panel('バランスシート（いま）', [bs]),
@@ -2770,7 +2986,6 @@
         }))));
       return el('div', { class: `iy-post${h ? '' : ' iy-post--vacant'}` }, [
         el('p', { class: 'iy-post__name' }, [el('strong', { text: post.name }), el('span', { class: 'iy-muted', text: `　見る能力：${RETAINER_LABELS[post.stat]}` })]),
-        el('p', { class: 'iy-hint', text: post.desc }),
         h
           ? el('div', { class: 'iy-retainer' }, [retainerFace(h, true), el('div', {}, [
             el('p', { class: 'iy-retainer__name', text: `${h.name}（${h.age}歳・俸禄${h.salary}万両）` }),
@@ -2798,7 +3013,12 @@
       ]),
       panel('役職', [
         el('p', { class: 'iy-hint', text: `家臣 ${state.retainers.length}人・俸禄の合計 年${salaries}万両（控えの家臣は半額）` }),
-        el('p', { class: 'iy-hint', text: `家臣は、自分の腕（いちばん高い能力）の${CONFIG.WANTS_RATE}倍の格を将軍に求める。足りないと暮れに不満を漏らし、次の暮れにも足りなければ去る。加増すれば、俸禄が上がるかわりに求める格が下がる。` }),
+        // 決まりごとと役職の説明は長いので、たたんでおく（スマホで組織の画面が長くなりすぎないように）
+        el('details', { class: 'iy-rules' }, [
+          el('summary', { text: '役職と家臣の決まり' }),
+          el('p', { class: 'iy-hint', text: `家臣は、自分の腕（いちばん高い能力）の${CONFIG.WANTS_RATE}倍の格を将軍に求める。足りないと暮れに不満を漏らし、次の暮れにも足りなければ去る。加増すれば、俸禄が上がるかわりに求める格が下がる。` }),
+          el('ul', { class: 'iy-hint' }, POSTS.map((p) => el('li', {}, [el('strong', { text: p.name }), `（${RETAINER_LABELS[p.stat]}）　${p.desc}`]))),
+        ]),
         vacancies().length && reserve.length && !over
           ? el('button', { type: 'button', class: 'iy-secondary', text: '空席に、いちばん向いている控えの家臣を就ける', onclick: autoAssign })
           : null,
@@ -2993,6 +3213,8 @@
 
   $('title-art').innerHTML = ART.scene('heaven');
   $('intro-guide').addEventListener('click', openGuide);
+  // 物語の場面（紹介文のすぐ下）まで送る
+  $('intro-start').addEventListener('click', () => $('stage').scrollIntoView({ behavior: 'smooth', block: 'start' }));
   state = load() || newGame();
   lastPhase = state.phase;
   render();

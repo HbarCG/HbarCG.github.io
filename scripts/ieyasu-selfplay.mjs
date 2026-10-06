@@ -10,6 +10,8 @@
 //   --policy P  : 遊び方（初期値: random）
 //                   random … 何も考えずに選ぶ。出来事はでたらめに選び、空いた役職だけは埋める
 //                   basic  … ひととおり考えて選ぶ。将軍の好みに合う裁き、若君の教育、制度の整備、借入の返済、隠居
+//                   money  … 出来事ではいつもいちばんお金になる選択肢を選ぶ（ほかは basic と同じ）。
+//                            これが basic より大きく長持ちするなら、お金だけ見れば勝てる釣り合いになっている
 //   --seed N    : 乱数の種の始まり（同じ種なら同じ結果になる）
 //   --fuseki F  : プロローグの「最後の布石」。random / gosanke / kinzan / konin（初期値: random）
 //
@@ -175,11 +177,24 @@ const POLICIES = {
   },
 };
 
+// 選択肢の「お金の値打ち」：現金＋毎年の収入を10年ぶん＋石高（年貢をおよそ10年ぶん）。借りる金は少し割り引く
+function moneyValue(e) {
+  return (e.ryo || 0) - (e.borrow ? 0.3 * e.borrow : 0) + (e.trade || 0) * 10 + (e.mine || 0) * 8
+    + (e.kokudaka || 0) * 2.5 + (e.rice || 0) - (e.ooku || 0) * 10;
+}
+
+// money … 出来事では、いつもいちばんお金になる選択肢を選ぶ（ほかは basic と同じ）。
+// 威光・民心・朝廷を見ずにお金だけで勝ててしまわないかを確かめるための遊び方
+POLICIES.money = {
+  ...POLICIES.basic,
+  choose: (g, card) => card.options.reduce((best, o, i) => (moneyValue(o.effects) > moneyValue(card.options[best].effects) ? i : best), 0),
+};
+
 function playOne(seed, policy, fuseki) {
   const g = createGame(seed);
   const { dev, data } = g;
   const counts = { succession: {}, shogunKaku: [], warned: 0, left: 0, candidates: [], raises: 0,
-    wives: {}, stars: [0, 0, 0, 0, 0, 0], daughters: 0, meddle: 0, balancedYears: 0, shipsArrived: [], ending: null };
+    wives: {}, stars: [0, 0, 0, 0, 0, 0], daughters: 0, meddle: 0, balancedYears: 0, lowYears: 0, gaugeSum: 0, shipsArrived: [], ending: null };
   // 決算報告の「その年の出来事」から数える
   const NOTE_PATTERNS = { warned: /不満を漏らしている/, left: /見切りをつけて去った/ };
 
@@ -209,6 +224,10 @@ function playOne(seed, policy, fuseki) {
       if (dev.state.phase === "manage") {
         dev.endYear();
         if (dev.branchesBalanced()) counts.balancedYears += 1;
+        // 威光・民心・朝廷のいちばん低いもの（20を切った年の数と、ならした値）
+        const lowest = Math.min(...Object.values(dev.state.gauges));
+        if (lowest < 20) counts.lowYears += 1;
+        counts.gaugeSum += lowest;
         const report = dev.state.report;
         if (report) {
           for (const note of report.notes) {
@@ -284,6 +303,8 @@ function playOne(seed, policy, fuseki) {
     daughters: counts.daughters,
     meddle: counts.meddle,
     balancedYears: counts.balancedYears,
+    lowYears: counts.lowYears,
+    gaugeAvg: counts.gaugeSum / Math.max(1, s.year - 1637),
     sankeKaku: s.branches ? avg(s.branches.filter((b) => b.kind === "sanke").map((b) => sum3(b.blood))) : 0,
     kyo: s.branches ? s.branches.some((b) => b.kind === "kyo") : false,
     shipsArrived: counts.shipsArrived,
@@ -328,6 +349,7 @@ function main() {
   console.log(`続いた年数（開府から）: 平均 ${Math.round(avg(years))} / 中央 ${quantile(years, 0.5)} / 下位10% ${quantile(years, 0.1)} / 上位10% ${quantile(years, 0.9)} / 最短 ${years[0]} / 最長 ${years[n - 1]}`);
   console.log(`史実（265年）を超えた: ${pct(years.filter((y) => y > 265).length, n)}　${MAX_YEARS}年で打ち切り: ${pct(n - fallen.length, n)}`);
   console.log(`倒れたときに尽きていたもの: ${Object.entries(causeCount).map(([c, k]) => `${c} ${pct(k, fallen.length)}`).join(" / ") || "なし"}`);
+  console.log(`威光・民心・朝廷のいちばん低いもの: ならして ${avg(results.map((r) => r.gaugeAvg)).toFixed(0)}　20を切った年 ${(avg(results.map((r) => r.lowYears / Math.max(1, r.years - 34))) * 100).toFixed(0)}%`);
   console.log(`将軍の代: 平均 ${avg(results.map((r) => r.gen)).toFixed(1)}　就任時の能力の合計: 平均 ${avg(results.flatMap((r) => r.shogunKaku)).toFixed(1)}`);
   console.log(`代替わりの形: ${Object.entries(succ).map(([m, k]) => `${SUCC_LABELS[m] || m} ${pct(k, succTotal)}`).join(" / ")}`);
   console.log(`生まれた若君: 1回あたり平均 ${avg(results.map((r) => r.heirsBorn)).toFixed(1)}人　栄誉: 平均 ${avg(results.map((r) => r.honors)).toFixed(1)}`);

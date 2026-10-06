@@ -27,6 +27,25 @@
   margin: 0 0 0.75rem;
 }
 
+/* 紹介文の下の「物語を始める」 */
+.iy-intro-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+}
+
+.iy-start {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.6rem 1.4rem;
+  border: 1px solid var(--color-link);
+  border-radius: 6px;
+  background: var(--color-link);
+  color: #fff;
+  cursor: pointer;
+}
+
 .iy-link-button {
   border: none;
   background: none;
@@ -191,16 +210,93 @@
   }
 }
 
-.iy-intent {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+.iy-stage > .iy-intent {
   margin: 0 0 0.5rem;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
 }
 
-.iy-intent p {
-  margin: 0;
+/* 選択肢の「何が動くか」（●の数で大きさだけ見せる） */
+.iy-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.75rem;
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.iy-mark__dots {
+  margin-left: 0.2em;
+  letter-spacing: 0.05em;
+  color: #b08a2e;
+}
+
+.iy-stage > .iy-marks-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.78rem;
+}
+
+/* 財務の小さなグラフ */
+.iy-chart {
+  margin: 0.5rem 0 0.25rem;
+  line-height: 0;
+}
+
+.iy-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.iy-chart__label {
+  font-size: 10px;
+  fill: var(--color-text-muted);
+}
+
+.iy-chart__axis {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.iy-chart__up {
+  fill: var(--color-link);
+}
+
+.iy-chart__down {
+  fill: var(--color-accent-bar);
+}
+
+.iy-chart__debt {
+  fill: none;
+  stroke: var(--color-text);
+  stroke-width: 1.5;
+}
+
+.iy-chart__limit {
+  fill: none;
+  stroke: var(--color-accent-bar);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+/* 読み上げソフトにだけ伝える文字 */
+.iy-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .iy-scene--compact {
+    max-width: 72%;
+    margin-left: auto;
+    margin-right: auto;
+  }
 }
 
 .iy-heir__head {
@@ -357,7 +453,8 @@
   padding: 0.5rem 0.2rem;
 }
 
-.iy-institutions summary {
+.iy-institutions summary,
+.iy-rules summary {
   cursor: pointer;
   font-size: 0.92rem;
   color: var(--color-link);
@@ -729,6 +826,22 @@ body.iy-has-tabbar {
   text-align: left;
 }
 
+/* 幕府の年表（結末の画面） */
+.iy-table--chronicle {
+  font-size: 0.82rem;
+}
+
+.iy-table--chronicle td:first-child,
+.iy-table--chronicle th:first-child {
+  width: 2em;
+  text-align: right;
+  color: var(--color-text-muted);
+}
+
+.iy-table--chronicle td:nth-child(3) {
+  white-space: nowrap;
+}
+
 /* ─── 組織 */
 .iy-post {
   padding: 0.75rem 0;
@@ -789,6 +902,32 @@ body.iy-has-tabbar {
 }
 
 /* ─── ガイドのボタン（上の帯の右端） */
+/* 音のボタンとガイドのボタンを右に並べる */
+.iy-topbar .iy-sound-btn + .iy-guide-btn {
+  margin-left: 0;
+}
+
+.iy-topbar .iy-sound-btn[aria-pressed="false"] {
+  color: var(--color-text-muted);
+}
+
+/* 音を切っているときは、♪に斜線を引く */
+.iy-sound-btn[aria-pressed="false"] .iy-guide-btn__mark {
+  background: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+/* スマホでは記号だけにして、上の帯が2行に折れないようにする */
+@media (max-width: 480px) {
+  .iy-topbar .iy-sound-btn {
+    padding-right: 0.3rem;
+  }
+
+  .iy-sound-btn__text {
+    display: none;
+  }
+}
+
 .iy-topbar .iy-guide-btn {
   display: inline-flex;
   align-items: center;

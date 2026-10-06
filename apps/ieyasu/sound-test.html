@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>家康の憂鬱 音の試聴 | HbarCG</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/apps/ieyasu/style.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <style>
+    .iy-sound-list { display: grid; gap: 0.5rem; padding: 0; list-style: none; }
+    .iy-sound-list li { display: flex; align-items: center; gap: 0.75rem; }
+    .iy-sound-list button { min-width: 7.5em; }
+  </style>
+</head>
+<body>
+  <!-- 非掲載の開発用ページ。「家康の憂鬱」の音（audio.js）を聞き比べるためのもの。ナビにもサイトマップにも載せない -->
+  <div class="page">
+    <main>
+      <p class="back-link"><a href="/apps/ieyasu/">← 家康の憂鬱</a></p>
+      <h1>音の試聴</h1>
+      <p>「家康の憂鬱」で鳴る音を、ひとつずつ聞けるページ（開発用）。音はすべてブラウザの中で合成していて、音のファイルは使っていない。気に入らない音は <code>apps/ieyasu/audio.js</code> の数値で直せる。</p>
+      <p><button type="button" id="power" class="iy-start">音を入れる</button></p>
+      <section class="iy-panel">
+        <h2>効果音と短い節</h2>
+        <ul class="iy-sound-list" id="cues"></ul>
+      </section>
+      <section class="iy-panel">
+        <h2>場面の調べ（毎回少し変わる）</h2>
+        <ul class="iy-sound-list">
+          <li><button type="button" data-phrase="calm">穏やかな年</button><span>陽音階（レミソラシ）の琴。出来事の画面の頭に流れる</span></li>
+          <li><button type="button" data-phrase="worry">苦しい年</button><span>都節（ミファラシド）の琴。試練や、お金・ゲージが危ういとき</span></li>
+        </ul>
+      </section>
+    </main>
+  </div>
+  <script src="/apps/ieyasu/audio.js"></script>
+  <script>
+    (() => {
+      'use strict';
+      const A = window.IEYASU_AUDIO;
+      // どの場面で鳴るか（audio.js の CUES と同じ名前）
+      const WHERE = {
+        select: '選択肢を選んだとき（琴を一音）', next: 'プロローグのせりふを送ったとき', fail: 'しくじったとき',
+        year: '年を越したとき（拍子木）', good: '異国船に勝ったとき', bad: '異国船に負けたとき',
+        star: '★4以上の若君が生まれたとき（りん＋琴）', honor: '栄誉を得たとき（りん）',
+        drum: '試練・異国船の来航・倒幕の危機（太鼓）', over: '倒幕（尺八ふうの息＋琴）', ending: '黒船を退けた結末',
+      };
+      const power = document.getElementById('power');
+      const list = document.getElementById('cues');
+      const label = () => { power.textContent = A.isOn() ? '音を切る' : '音を入れる'; };
+      for (const name of A.names) {
+        const li = document.createElement('li');
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = name;
+        b.addEventListener('click', () => { if (!A.isOn()) { A.setOn(true); label(); } A.cue(name); });
+        const span = document.createElement('span');
+        span.textContent = WHERE[name] || '';
+        li.append(b, span);
+        list.append(li);
+      }
+      document.querySelectorAll('[data-phrase]').forEach((b) => b.addEventListener('click', () => {
+        if (!A.isOn()) { A.setOn(true); label(); }
+        A.phrase(b.dataset.phrase);
+      }));
+      power.addEventListener('click', () => { A.setOn(!A.isOn()); label(); });
+      label();
+    })();
+  </script>
+</body>
+</html>
