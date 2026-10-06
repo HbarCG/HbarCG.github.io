@@ -81,6 +81,7 @@ const POLICIES = {
     marry: (g) => Math.floor(g.rand() * g.dev.state.oku.offers.length),
     boost: () => false,
     testament: (g) => Math.floor(g.rand() * g.dev.state.succession.offers.length),
+    wish: (g, offers) => Math.floor(g.rand() * offers.length),
   },
   basic: {
     choose(g, card) {
@@ -280,8 +281,9 @@ function playOne(seed, policy, fuseki) {
       counts.talks += 1;
       dev.closeTalk();
     } else if (s.phase === "enthrone") {
-      // 宣下の表紙（読むだけ）
-      dev.closeEnthrone();
+      // 宣下の表紙。宿願を選ぶ（候補がなければ、掲げずに始める）
+      const offers = s.reign.wishOffers || [];
+      dev.chooseWish(offers.length ? (policy.wish ? policy.wish(g, offers) : 0) : null);
     } else if (s.phase === "reignEnd") {
       // 御治世の評定と遺言
       const sc = s.succession;
@@ -340,6 +342,7 @@ function playOne(seed, policy, fuseki) {
     kien: s.kien || 0,
     purse: counts.purse,
     ratings: counts.ratings,
+    kakun: Object.values(s.kakun || {}).reduce((a, b) => a + b, 0),
     ends: counts.ends,
     firstKien: counts.firstKien,
   };
@@ -422,6 +425,15 @@ function main() {
     const endTotal = Object.values(ends).reduce((a, b) => a + b, 0);
     console.log(`御治世の評定: 平均${avg(ratings.map((x) => x.total)).toFixed(1)}/40　在位 平均${avg(ratings.map((x) => x.years)).toFixed(1)}年　`
       + Object.entries(titles).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${pct(v, ratings.length)}`).join(' / '));
+    const wished = ratings.filter((x) => x.wish);
+    const byWish = {};
+    for (const x of wished) {
+      byWish[x.wish.label] = byWish[x.wish.label] || [0, 0];
+      byWish[x.wish.label][0] += 1;
+      if (x.wish.done) byWish[x.wish.label][1] += 1;
+    }
+    console.log(`宿願: 果たした ${pct(wished.filter((x) => x.wish.done).length, Math.max(1, wished.length))}（`
+      + Object.entries(byWish).map(([k, [all, done]]) => `${k} ${pct(done, all)}`).join('・') + `）　終わりの家訓 平均${avg(results.map((r) => r.kakun)).toFixed(1)}段`);
     console.log(`代の終わり方: 病に伏したのち ${pct(ends.death || 0, endTotal)} / にわかに ${pct(ends.sudden || 0, endTotal)} / 職を譲る ${pct(ends.retire || 0, endTotal)}`);
   }
   const kienGames = results.filter((r) => r.kien > 0);

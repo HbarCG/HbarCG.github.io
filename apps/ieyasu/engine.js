@@ -93,6 +93,9 @@
     AILING_DEATH: 0.4,      // 御不例のあいだ、1年に世を去る見込み
     AILING_MAX: 4,          // 御不例は、長くともこの年数で終わる
     AILING_RECOVER: 50,     // 御不例のあいだに健康がここまで戻れば、病は癒える
+    WISH_OFFERS: 3,         // 宣下のときに出る宿願の数
+    KAKUN_MAX: 2,           // 家訓は、この段まで上がる
+    WISH_JUDGE: 1,          // 宿願を果たした代は、御治世の評定で、どの者も1点ずつ甘くつける
   };
 
   const STATE_LABELS = { ikou: '威光', minshin: '民心', chotei: '朝廷' };
@@ -214,6 +217,7 @@
     if (saved.shogun && saved.shogun.stress === undefined) saved.shogun.stress = 0;
     if (saved.shogun && saved.shogun.skill === undefined) saved.shogun.skill = null;
     saved.lastChoice = saved.lastChoice || {};
+    saved.kakun = saved.kakun || {};
     // 御治世の評定を入れる前の保存データ。いまの年から始まったことにする
     if (saved.reign === undefined && saved.shogun) {
       saved.reign = { from: saved.year, tags: {}, gauges: { ...saved.gauges }, net: null, kaku: kakuOf(saved.shogun.stats),
@@ -319,6 +323,7 @@
       crisis: null,
       kien: 0,          // 借入が上限を超えて、借金の棒引き（棄捐令）を命じた回数
       reign: null,      // いまの将軍の御治世（1章）の始まりの記録。評定に使う（beginReign）
+      kakun: {},        // 家訓の段（{ kenyaku: 1, ... }）。宿願を果たすと上がり、代をまたいで残る
       ledger: { year: CONFIG.START_YEAR, items: [] },
       books: [],
       family: [],
@@ -460,6 +465,11 @@
   // 働くのは、いまの将軍の特技だけ
   function hasSkill(id) {
     return state.shogun.skill === id;
+  }
+
+  // 家訓の段（0〜KAKUN_MAX）
+  function kakun(id) {
+    return (state.kakun && state.kakun[id]) || 0;
   }
 
   // いまの将軍に効いている、先代の遺言の id（なければ null）
@@ -764,7 +774,8 @@
   function ageBranches() {
     for (const b of state.branches) {
       for (const k of ['seimu', 'bui', 'jintoku']) {
-        b.blood[k] = Math.round((b.blood[k] + (CONFIG.BLOOD_BASE - b.blood[k]) * CONFIG.BLOOD_DECAY) * 100) / 100;
+        const decay = CONFIG.BLOOD_DECAY * Math.max(0, 1 - kakun('ichimon') * 0.5);
+        b.blood[k] = Math.round((b.blood[k] + (CONFIG.BLOOD_BASE - b.blood[k]) * decay) * 100) / 100;
       }
       if (state.year - b.since >= 12 && Math.random() < CONFIG.HEAD_CHANGE) changeHead(b);
     }
@@ -837,8 +848,9 @@
       post, holder: h, value: postValue(r.post),
       shogun: Math.floor(state.shogun.stats[r.stat] / 4),
       nagasaki: hasInstitution('nagasaki') && (roundId === 'kaibo' || roundId === 'kosho') ? 2 : 0,
+      kakun: kakun('kaibo'),
     };
-    parts.power = parts.value + parts.shogun + parts.nagasaki;
+    parts.power = parts.value + parts.shogun + parts.nagasaki + parts.kakun;
     return parts;
   }
 
@@ -940,7 +952,7 @@
   function wants(r) {
     const best = Math.max(...Object.values(r.stats));
     const eased = (r.raises || 0) + (hasSkill('hitotarashi') ? 1 : 0);
-    return best * CONFIG.WANTS_RATE - eased * CONFIG.RAISE_WANTS;
+    return best * CONFIG.WANTS_RATE - eased * CONFIG.RAISE_WANTS - kakun('toyo') * 3;
   }
 
   // seed.lift … 得意な能力の上乗せ / seed.cap … 能力の上限（将軍の格に見合わない腕の者は来ない）
@@ -1162,14 +1174,14 @@
     // 米価は物価につれて上がるが、物価ほどには上がらない（NENGU_PRICE）
     const ricePrice = 1 + (inflation - 1) * CONFIG.NENGU_PRICE;
     const nengu = Math.round(f.kokudaka * 0.25 * (0.825 + (g.minshin - 50) * CONFIG.MINSHIN_NENGU) * (0.9 + s.stats.seimu / 100)
-      * (1 + (kanjo - 10) * 0.015) * (hasInstitution('kanjo') ? 1.08 : 1) * ricePrice * (testament() === 'tami' ? 0.97 : 1));
+      * (1 + (kanjo - 10) * 0.015) * (hasInstitution('kanjo') ? 1.08 : 1) * ricePrice * (testament() === 'tami' ? 0.97 : 1) * (1 + kakun('kanjo') * 0.03));
     const mine = Math.round(f.mine);
     // 商いは時代とともに大きくなる（交易の上がりは年々増える）。尾張家の華美な家風なら、さらに15%
     const trade = Math.round(f.trade * (1 + (state.year - CONFIG.START_YEAR) / 250) * (s.house === 'owari' ? 1.15 : 1));
     // 紀伊家の倹約の家風なら、経費が5%減る
     // 遺言「倹約を守れ」でも5%減る
     const costRate = 1 - (kanjo - 10) * 0.01 - (hasInstitution('kanjo') ? 0.05 : 0) - (s.house === 'kii' ? 0.05 : 0)
-      - (testament() === 'ken' ? 0.05 : 0);
+      - (testament() === 'ken' ? 0.05 : 0) - kakun('kenyaku') * 0.03;
     const hatamoto = Math.round(60 * inflation * costRate * (testament() === 'bu' ? 1.05 : 1));
     const salaries = Math.round(state.retainers.reduce((sum, r) => sum + (r.post ? r.salary : Math.ceil(r.salary / 2)), 0)
       * (testament() === 'hito' ? 1.1 : 1));
@@ -1452,7 +1464,7 @@
     const cost = teachCost();
     state.fin.cash -= cost;
     book('op', '若君の教育費', -cost);
-    const gain = 2 + (hasInstitution('gakumon') ? 1 : 0) + (hasSkill('gakumonzuki') ? 1 : 0) + (testament() === 'gaku' ? 1 : 0);
+    const gain = 2 + (hasInstitution('gakumon') ? 1 : 0) + (hasSkill('gakumonzuki') ? 1 : 0) + (testament() === 'gaku' ? 1 : 0) + kakun('yoiku');
     heir.stats[stat] = clamp(heir.stats[stat] + gain, 1, CONFIG.ABILITY_MAX);
     heir.taughtYear = state.year;
     addLog(`若君・${heir.name}に${TEACH_LABELS[stat]}の師をつけた（${ABILITY_LABELS[stat]}+${gain}、${cost}万両）。`);
@@ -1573,6 +1585,10 @@
     if (testament() === 'tami') drift.minshin += 1;
     if (testament() === 'bu') drift.ikou += 1;
     if (testament() === 'kyo') drift.chotei += 1;
+    // 家訓
+    drift.ikou += kakun('buke');
+    drift.minshin += kakun('jinsei');
+    drift.chotei += kakun('kuge');
     drift.ikou += CONFIG.DRIFT_SHIFT;
     drift.minshin += CONFIG.DRIFT_SHIFT;
     // 満ち足りた状態は長続きしない（慢心）。50を超えたぶんの一部が、毎年自然に戻る。
@@ -1581,7 +1597,7 @@
       if (state.gauges[key] > 50) drift[key] -= Math.round((state.gauges[key] - 50) * CONFIG.GAUGE_PULL);
     }
     applyEffects(drift);
-    state.jisseki += 1 + (s.stats.seimu >= 12 ? 1 : 0) + (postValue('roju') >= 14 ? 1 : 0) + (s.house === 'mito' ? 1 : 0);
+    state.jisseki += 1 + (s.stats.seimu >= 12 ? 1 : 0) + (postValue('roju') >= 14 ? 1 : 0) + (s.house === 'mito' ? 1 : 0) + kakun('hosei');
     ageBranches();
 
     closeBooks();
@@ -1604,7 +1620,7 @@
     // 若君が育つ（素質が高いほど伸びやすい）。姫も歳をとる
     for (const heir of state.heirs) {
       heir.age += 1;
-      const grow = heir.stars ? starInfo(heir.stars).grow : 0.5;
+      const grow = (heir.stars ? starInfo(heir.stars).grow : 0.5) + kakun('teio') * 0.1;
       if (heir.age < CONFIG.ADULT_AGE && Math.random() < grow) {
         const stat = pick(['seimu', 'bui', 'jintoku']);
         heir.stats[stat] = clamp(heir.stats[stat] + 1, 1, CONFIG.ABILITY_MAX);
@@ -1705,6 +1721,8 @@
     births.forEach((b) => addLog(b.text));
     if (omen) addLog(`予兆：${omen.text}（${omen.name}の来航まで、あと${omen.years}年）`);
     const honors = checkHonors();
+    const wish = checkWish();
+    if (wish) notes.push(wish.text);
 
     // 一年の決算報告をつくる
     const closed = state.books[0];
@@ -1718,6 +1736,7 @@
       births,
       omen,
       honors: honors.map((h) => h.name),
+      wish,
       // 節目の掛け合い（cards.js の talks）。何番目のせりふかを決めておき、描き直しても変わらないようにする
       talk: crisisBegan ? talkPick('crisis') : fellIll ? talkPick('ailing') : births.some((b) => (b.stars || 0) >= 4) ? talkPick('star') : null,
     };
@@ -1725,7 +1744,7 @@
 
     // 何も起きなかった年は、決算の画面を出さずに次の年へ進み、翌年の出来事の上に1行で知らせる
     const run = runway();
-    const quiet = !died && notes.length === 0 && births.length === 0 && !omen && honors.length === 0
+    const quiet = !died && !wish && notes.length === 0 && births.length === 0 && !omen && honors.length === 0
       && !state.crisis && closed.op >= 0 && !(run && run.years <= 15);
     const report = state.report;
 
@@ -1769,12 +1788,122 @@
 
   // ─────────────────────────────── 世代交代
 
+  // ─────────────────────────────── 宿願と家訓
+
+  // 宿願ごとの決まり。ok: 宣下のときに候補に出るか / target: 目標の数（宣下のときに決める） / now: いまの数 /
+  // lower: 数が target 以下になれば果たしたことにする（借入）
+  const gaugeWish = (key) => ({
+    ok: () => state.gauges[key] < 85,
+    // いまより10上。ただし60より下の目標は出さない（朝廷は自然には伸びないので、70を超す目標は重すぎた）
+    target: () => clamp(state.gauges[key] + 10, 60, 85),
+    now: () => state.gauges[key],
+  });
+  const WISH_RULES = {
+    kura: {
+      ok: () => true,
+      target: () => Math.round((Math.max(0, state.fin.cash) + 150 * price()) / 10) * 10,
+      now: () => Math.round(state.fin.cash),
+    },
+    debt: { ok: () => state.fin.debt >= 20, target: () => 0, now: () => Math.round(state.fin.debt), lower: true },
+    ikou: gaugeWish('ikou'),
+    minshin: gaugeWish('minshin'),
+    chotei: gaugeWish('chotei'),
+    heir: {
+      ok: () => state.shogun.age <= 45 && !state.heirs.some((h) => kakuOf(h.stats) >= 44),
+      target: () => 44,
+      now: () => Math.max(0, ...state.heirs.map((h) => kakuOf(h.stats))),
+    },
+    inst: {
+      ok: () => DATA.institutions.filter((i) => !i.prologueOnly && !hasInstitution(i.id)).length >= 3,
+      target: () => 3,
+      now: () => (state.reign ? state.reign.insts : 0),
+    },
+    posts: {
+      ok: () => POSTS.some((p) => holderValue(p.id) < 14),
+      target: () => 14,
+      now: () => Math.min(...POSTS.map((p) => holderValue(p.id))),
+    },
+    sanke: {
+      ok: () => Math.min(...sanke().map(bloodKaku)) < 32,
+      target: () => 32,
+      now: () => Math.min(...sanke().map(bloodKaku)),
+    },
+    ship: {
+      // 次の船が、この代のうちに来そうなとき（20年以内）だけ
+      ok: () => state.ships.next < DATA.ships.length && !state.endless
+        && state.ships.plan[state.ships.next].arrive <= state.year + 20,
+      target: () => state.ships.won.length + 1,
+      now: () => state.ships.won.length,
+    },
+    kaku: {
+      ok: () => shogunKaku() <= 52,
+      target: () => shogunKaku() + 8,
+      now: () => shogunKaku(),
+    },
+  };
+
+  function wishDef(id) {
+    return DATA.wishes.find((w) => w.id === id) || null;
+  }
+
+  function kakunDef(id) {
+    return DATA.kakun.find((k) => k.id === id) || null;
+  }
+
+  // 宣下のときの宿願の候補（3つ）。家訓がもう上がりきっているものと、すでに果たしているものは出さない
+  function wishOffers() {
+    const pool = DATA.wishes.filter((w) => {
+      const rule = WISH_RULES[w.id];
+      if (!rule || !rule.ok() || kakun(w.kakun) >= CONFIG.KAKUN_MAX) return false;
+      const t = rule.target();
+      return rule.lower ? rule.now() > t : rule.now() < t;
+    });
+    const offers = [];
+    while (offers.length < CONFIG.WISH_OFFERS && pool.length) offers.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    return offers.map((w) => ({ id: w.id, target: WISH_RULES[w.id].target() }));
+  }
+
+  // いまの宿願の進み具合（なければ null）。{ id, label, goal, now, target, done }
+  function wishStatus() {
+    const w = state.reign && state.reign.wish;
+    if (!w) return null;
+    const def = wishDef(w.id);
+    return { ...w, label: def.label, goal: def.goal.replace('{target}', w.target), now: WISH_RULES[w.id].now() };
+  }
+
+  // 宿願を選ぶ（宣下の表紙で）。index が null なら、宿願を掲げずに始める
+  function chooseWish(index) {
+    const r = state.reign;
+    const offer = index === null ? null : r.wishOffers[index];
+    r.wish = offer ? { id: offer.id, target: offer.target, done: false } : null;
+    if (offer) addLog(`将軍・${state.shogun.name}は、宿願「${wishDef(offer.id).label}」（${wishDef(offer.id).goal.replace('{target}', offer.target)}）を掲げた。`);
+    closeEnthrone();
+  }
+
+  // 年の暮れに、宿願を果たしたかを確かめる。果たしたら家訓を1段上げ、決算報告に出す中身を返す
+  function checkWish() {
+    const w = state.reign && state.reign.wish;
+    if (!w || w.done) return null;
+    const rule = WISH_RULES[w.id];
+    const now = rule.now();
+    if (rule.lower ? now > w.target : now < w.target) return null;
+    w.done = true;
+    w.year = state.year;
+    const def = wishDef(w.id);
+    const k = kakunDef(def.kakun);
+    state.kakun[k.id] = Math.min(CONFIG.KAKUN_MAX, kakun(k.id) + 1);
+    const text = `宿願「${def.label}」を果たした。家訓「${k.name}」が${kakun(k.id)}段になった（${k.desc}）。`;
+    addLog(text);
+    return { label: def.label, kakun: k.name, level: kakun(k.id), desc: k.desc, text };
+  }
+
   // 御治世（1章）の始まりを記録し、宣下の表紙を出す。評定は、ここからの伸びで決まる
   function beginReign() {
     state.reign = {
       from: state.year, tags: {}, gauges: { ...state.gauges }, net: netAssets() / price(), kaku: shogunKaku(),
-      insts: 0, won: state.ships.won.length, lost: state.ships.lost.length, crisis: false,
+      insts: 0, won: state.ships.won.length, lost: state.ships.lost.length, crisis: false, wish: null,
     };
+    state.reign.wishOffers = wishOffers();
     state.phase = 'enthrone';
   }
 
@@ -1802,7 +1931,7 @@
     };
     // 倒幕の危機を招いた代は、どの者も1点ずつ辛くつける
     const scores = DATA.reignJudges.map((j) => ({ key: j.key, label: j.label,
-      value: clamp(Math.round(raw[j.key] - (r.crisis ? 1 : 0)), 1, 10) }));
+      value: clamp(Math.round(raw[j.key] - (r.crisis ? 1 : 0) + (r.wish && r.wish.done ? CONFIG.WISH_JUDGE : 0)), 1, 10) }));
     const total = scores.reduce((sum, x) => sum + x.value, 0);
     // あだ名：いちばん多く選んだ裁きの好み（同じ数なら将軍の性格を優先）。2回に満たなければ性格で決める
     const tags = Object.entries(r.tags)
@@ -1812,6 +1941,7 @@
     return {
       scores, total, title: DATA.reignRatings.find((x) => total >= x.min).label,
       nickname: nick.name, nickDesc: nick.desc, years: state.year - r.from,
+      wish: r.wish ? { id: r.wish.id, label: wishDef(r.wish.id).label, done: r.wish.done } : null,
     };
   }
 
@@ -2023,5 +2153,7 @@
     endYear, closeReport, closeTalk, eraAt, crown, overCause,
     // 将軍1代（章）
     closeEnthrone, chooseTestament, testament,
+    // 宿願と家訓
+    chooseWish, wishStatus, wishDef, kakun, kakunDef,
   };
 })();

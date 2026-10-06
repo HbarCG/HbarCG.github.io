@@ -18,6 +18,7 @@
     shipDue, roundParts, roundChance, boostCost,
     salaryOf, wants, holder, vacancies, debtLimit, assets, netAssets, runway,
     cardById, fillNames, successChance, teachCost, institutionCost, institutionStatus, canRetire, overCause,
+    wishStatus, wishDef, kakun, kakunDef,
   } = E;
 
   // ルールの側の操作。状態を変えたあと、保存して描き直す（commit）
@@ -44,8 +45,19 @@
   const sellRice = act(E.sellRice);
   const teach = act(E.teach);
   const establish = act(E.establish);
-  const closeEnthrone = act(E.closeEnthrone);
   const chooseTestament = act(E.chooseTestament);
+  const chooseWish = act(E.chooseWish);
+
+  // 宿願の進み具合を短い文にする（上の帯と政務の間）
+  function wishLine(w) {
+    if (w.done) return `宿願「${w.label}」を果たした（${w.year}年）`;
+    return `宿願「${w.label}」：${w.goal}（いま${w.now}）`;
+  }
+
+  // 家訓の一覧（段のあるものだけ）。なければ空
+  function kakunList() {
+    return DATA.kakun.filter((k) => kakun(k.id) > 0).map((k) => `${k.name}${kakun(k.id)}段（${k.desc}）`);
+  }
 
   // 遺言の決まり（cards.js の testaments）。id がなければ null
   function testamentDef(id) {
@@ -412,6 +424,9 @@
         el('span', { text: `実績 ${state.jisseki}` }),
         el('span', { class: 'iy-kaku', id: 'kaku', title: '将軍の格（政務・武威・人徳の合計）', text: `格${shogunKaku()}` }),
       ]),
+      wishStatus() && !['over', 'enthrone'].includes(state.phase)
+        ? el('p', { class: `iy-topbar__wish${wishStatus().done ? ' iy-topbar__wish--done' : ''}`, text: wishLine(wishStatus()) })
+        : null,
       state.crisis
         ? el('p', { class: 'iy-crisis', role: 'alert', text: `倒幕の危機：あと${state.crisis.years}年で立て直せ（威光・民心・朝廷をすべて${CONFIG.CRISIS_SAFE}より上に）` })
         : null,
@@ -692,7 +707,7 @@
       const short = state.fin.cash < cost;
       nodes.push(el('div', { class: 'iy-round' }, [
         el('p', { class: 'iy-round__title', text: `第${b.round + 1}の勝負：${r.name}（${r.desc}）` }),
-        el('p', { class: 'iy-hint', text: `${p.post.name}・${p.holder ? p.holder.name : '空席'}の${RETAINER_LABELS[p.post.stat]}${p.value}　＋　将軍の${ABILITY_LABELS[r.stat]}÷4（${p.shogun}）${p.nagasaki ? `　＋　長崎奉行（${p.nagasaki}）` : ''}　＝　力${p.power}（難しさ${ship.difficulty}）` }),
+        el('p', { class: 'iy-hint', text: `${p.post.name}・${p.holder ? p.holder.name : '空席'}の${RETAINER_LABELS[p.post.stat]}${p.value}　＋　将軍の${ABILITY_LABELS[r.stat]}÷4（${p.shogun}）${p.nagasaki ? `　＋　長崎奉行（${p.nagasaki}）` : ''}${p.kakun ? `　＋　海防の家訓（${p.kakun}）` : ''}　＝　力${p.power}（難しさ${ship.difficulty}）` }),
       ]));
       nodes.push(el('div', { class: 'iy-options' }, [
         el('button', { type: 'button', class: 'iy-option', onclick: () => fight(false) }, [
@@ -902,6 +917,8 @@
       el('p', { class: 'iy-hint', text: '若君の教育、大奥、制度の整備、代替わりを決める。財務と組織は下のメニューから。終わったら年を越す。' }),
       state.shogun.ailing ? el('p', { class: 'iy-warn-box', text: `将軍・${state.shogun.name}は病に伏している（御不例・${state.year - state.shogun.ailing.since + 1}年目）。残された時は長くないかもしれぬ。${canRetire() ? '成人した若君に、いまのうちに職を譲ることもできる。' : '跡継ぎの支度を急げ。'}健康が${CONFIG.AILING_RECOVER}まで戻れば、病は癒える。` }) : null,
       testamentDef(state.shogun.testament) ? el('p', { class: 'iy-hint', text: `先代の遺言「${testamentDef(state.shogun.testament).label}」：${testamentDef(state.shogun.testament).desc}` }) : null,
+      wishStatus() ? el('p', { class: 'iy-hint', text: wishLine(wishStatus()) }) : null,
+      kakunList().length ? el('p', { class: 'iy-hint', text: `家訓：${kakunList().join('、')}` }) : null,
       ...shipPrepNodes(),
       el('h3', { text: '若君' }),
     );
@@ -987,7 +1004,32 @@
       will ? el('p', { class: 'iy-skill' }, [el('span', { class: 'iy-skill__name', text: `先代の遺言「${will.label}」` }), ` ${will.desc}`]) : null,
       ieyasuSays(el('p', { class: 'iy-voice', text: `「${DATA.enthroneLines[s.trait] || 'さて、この代はどうなるかのう。'}」` })),
       el('p', { class: 'iy-hint', text: 'この将軍の代が、物語の一章になる。将軍が世を去るか職を譲ると、大名・旗本・町人・朝廷が御治世に点をつける。' }),
-      el('button', { type: 'button', class: 'iy-primary', text: '御治世を始める', onclick: closeEnthrone }),
+      ...wishChoiceNodes(),
+    ];
+  }
+
+  // 宿願を3つから1つ選ぶ。果たすと家訓が1段上がり、代をまたいで残る
+  function wishChoiceNodes() {
+    const offers = (state.reign && state.reign.wishOffers) || [];
+    if (offers.length === 0) {
+      return [el('button', { type: 'button', class: 'iy-primary', text: '御治世を始める', onclick: () => chooseWish(null) })];
+    }
+    const owned = kakunList();
+    return [
+      el('h3', { text: '宿願を選ぶ' }),
+      el('p', { class: 'iy-hint', text: 'この代のうちに果たすと、家訓が1段上がる（2段まで）。家訓は代をまたいで残り、黒船に挑む地力になる。果たした代は、評定も少し甘くなる。' }),
+      owned.length ? el('p', { class: 'iy-hint', text: `いまの家訓：${owned.join('、')}` }) : null,
+      el('div', { class: 'iy-options' }, offers.map((o, i) => {
+        const def = wishDef(o.id);
+        const k = kakunDef(def.kakun);
+        const lv = kakun(k.id);
+        return el('button', { type: 'button', class: 'iy-option', onclick: () => chooseWish(i) }, [
+          el('strong', { text: def.label }),
+          el('span', { text: def.goal.replace('{target}', o.target) }),
+          el('span', { class: 'iy-option__hint', text: `果たすと：${k.name} ${lv}段→${lv + 1}段（1段ごとに、${k.desc}）` }),
+        ]);
+      })),
+      el('button', { type: 'button', class: 'iy-secondary', text: '宿願を掲げずに始める', onclick: () => chooseWish(null) }),
     ];
   }
 
@@ -1014,6 +1056,8 @@
           el('dd', { text: `${x.value}点` }),
         ]))),
         el('p', { class: 'iy-rating' }, ['合わせて ', el('strong', { text: `${r.total}点` }), ` / 40　`, el('strong', { text: r.title })]),
+        r.wish ? el('p', { class: r.wish.done ? 'iy-honor-line' : 'iy-hint', text: r.wish.done
+          ? `宿願「${r.wish.label}」を果たした（どの者も1点ずつ甘くつけた）。` : `宿願「${r.wish.label}」は、果たせなかった。` }) : null,
         el('p', { class: 'iy-hint', text: DATA.reignJudges.map((j) => `${j.label}は${j.desc}`).join('、') + 'を見て点をつける。' }),
       );
     }
@@ -1106,6 +1150,7 @@
     // 家康のひと言（いちばん大事なことを1つだけ）
     const comment = (() => {
       if (r.omen) return '……海の向こうが騒がしい。役目の者どもを鍛え、金を蓄えて備えよ。';
+      if (r.wish) return '宿願を果たしたか。よくやった。この家訓は、子や孫の代まで残るぞ。';
       if (r.honors.length) return `栄誉「${r.honors.join('」「')}」とは、めでたい。この調子じゃ。`;
       if (bestBirth >= 4) return 'おお、これは良い器の子じゃ。しっかり育てよ。';
       if (r.op < 0) return '年貢と経費だけで赤字じゃ。このままでは金蔵がもたぬぞ。';
@@ -1135,7 +1180,9 @@
       ]) : null,
       r.births && r.births.length ? el('div', { class: 'iy-births' }, r.births.map(birthCard)) : null,
       r.honors.length ? el('p', { class: 'iy-honor-line', text: `栄誉を得た：${r.honors.join('、')}` }) : null,
-      r.notes.length ? el('ul', { class: 'iy-report-notes' }, r.notes.map((n) => el('li', { text: n }))) : null,
+      r.wish ? el('p', { class: 'iy-honor-line', text: `宿願「${r.wish.label}」を果たした。家訓「${r.wish.kakun}」が${r.wish.level}段になった（${r.wish.desc}）。` }) : null,
+      r.notes.filter((n) => !r.wish || n !== r.wish.text).length
+        ? el('ul', { class: 'iy-report-notes' }, r.notes.filter((n) => !r.wish || n !== r.wish.text).map((n) => el('li', { text: n }))) : null,
       // お金が尽きそうなら、早めに知らせる（財務の画面に、グラフと内訳がある）
       (runway() || { years: 99 }).years <= 15 ? runwayLine() : null,
       // 危機の始まりや、★の高い若君の誕生では、家康のひと言のかわりに家光との掛け合いを出す
@@ -1176,7 +1223,7 @@
         el('td', { text: `${p.name}${p.house ? `（${p.house}）` : ''}` }),
         el('td', { text: `${p.from}〜${p.to || ''}（${(p.to || state.year) - p.from}年）` }),
         el('td', { text: p.start ? `${kakuOf(p.start)}${endKaku !== null ? `→${endKaku}` : ''}` : '' }),
-        el('td', { text: p.rating ? `${p.rating.nickname} ${p.rating.total}点` : isCurrent ? '在位中' : '' }),
+        el('td', { text: p.rating ? `${p.rating.nickname} ${p.rating.total}点${p.rating.wish && p.rating.wish.done ? '・宿願' : ''}` : isCurrent ? '在位中' : '' }),
       ]);
     });
     const insts = DATA.institutions.filter((i) => hasInstitution(i.id)).map((i) => i.name);
@@ -1193,6 +1240,7 @@
       ])),
       insts.length ? el('p', { class: 'iy-hint', text: `整えた制度：${insts.join('、')}${syns.length ? `（組み合わせの妙：${syns.join('、')}）` : ''}` }) : null,
       ships.length ? el('p', { class: 'iy-hint', text: `異国船：${ships.join('、')}` }) : null,
+      kakunList().length ? el('p', { class: 'iy-hint', text: `家訓：${kakunList().join('、')}` }) : null,
       honors.length ? el('p', { class: 'iy-honor-line', text: `この幕府で得た栄誉：${honors.join('、')}` }) : null,
     ];
   }
@@ -1302,6 +1350,7 @@
           `　御治世の評定 ${p.rating.total}点 / 40（${p.rating.title}）　${p.rating.scores.map((x) => `${x.label}${x.value}`).join('・')}`,
         ]));
       }
+      if (p.rating && p.rating.wish) nodes.push(el('p', { class: 'iy-hint', text: `宿願「${p.rating.wish.label}」：${p.rating.wish.done ? '果たした' : '果たせなかった'}` }));
       const will = testamentDef(isCurrent ? state.shogun.testament : p.testament);
       if (will) nodes.push(el('p', { class: 'iy-hint', text: `受けた遺言：「${will.label}」` }));
       if (p.insts.length) nodes.push(el('p', { class: 'iy-hint', text: `整えた制度：${p.insts.join('、')}` }));

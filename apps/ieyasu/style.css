@@ -1495,3 +1495,15 @@ body.iy-coaching .iy-raise {
   border-radius: 8px;
   background: color-mix(in srgb, #d4a63a 18%, var(--color-bg));
 }
+
+/* ─── 宿願（上の帯） */
+.iy-topbar__wish {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.iy-topbar__wish--done {
+  color: #9a7420;
+  font-weight: 600;
+}
