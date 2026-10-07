@@ -11,6 +11,8 @@
 //   recruit: 1 … 有能な登用の候補が1人現れる / debtCut: 借入を帳消しにする額（万両）
 //   heir: { seimu: 2 } など … いちばん年上の若君の能力
 //   branchCurb: 1 … 突出した御三家の血筋を、能力ごとに1下げる / branchLift: 1 … ほかの二家の血筋を、能力ごとに1上げる
+//   oboe: { daimyo: -2 } など … 諸家の覚え（daimyo 大名・shonin 商人・kuge 朝廷）。プラスは恩、マイナスは恨み。
+//         覚えのわけには「（出来事の題）で「（選択肢）」と裁いた」が残り、のちの出来事の文中に出る
 //
 // ■ 選択肢（options）に書けるもの
 //   label: ボタンの文言
@@ -30,8 +32,12 @@
 //   once: true … 一度しか出ない
 //   tone: 'good' / 'bad' … 良い出来事・厳しい出来事。厳しい出来事が続くと良い出来事が来やすくなる
 //   followUp: true … 過去の選択の続き（出やすい）。clears: 'name' で、その印を消す
+//   grudge: 'daimyo' … その家に恨まれているほど出やすい / favor: 'daimyo' … その家に恩を売っているほど出やすい
+//   deep: { party: 'daimyo', side: 'urami' } … その家の覚えが深い（恨みなら−5以下、恩なら+5以上）ときだけ出る
+//   crisis: { party: 'daimyo', side: 'on' } … 倒幕の危機の年に、その家の覚えが深い（±3以上）ときだけ出る。出られるなら、ほかの出来事より先に出る
 //   文中の {roju} {kanjo} {machi} {ometsuke} {shoshidai} {jisha} は、その役職の家臣の名前に、{shogun} は将軍の名前に、
-//   {branch} は突出している御三家の名前になる
+//   {branch} は突出している御三家の名前に、{urami:daimyo} はその家がいちばん根に持っている幕府の仕打ちに、
+//   {on:daimyo} はいちばん恩に着ていることになる（「かつて{urami:daimyo}ことを」の形で使う）
 //   when(s) の s には、ゲームの状態に加えて shogunate（威光・民心・朝廷）と strongBranch（突出している御三家。なければ null）が入る
 
 window.IEYASU_DATA = {
@@ -267,12 +273,12 @@ window.IEYASU_DATA = {
       {
         id: 'kuge', label: '公家の姫', houses: ['近衛家', '九条家', '二条家', '一条家', '鷹司家'],
         stats: { seimu: [6, 13], bui: [2, 7], jintoku: [8, 15], kenko: [4, 10] },
-        on: { chotei: 8, ryo: -20 }, upkeep: 3,
+        on: { chotei: 8, ryo: -20, oboe: { kuge: 1 } }, upkeep: 3,
       },
       {
         id: 'daimyo', label: '大名の姫', houses: ['加賀の前田家', '薩摩の島津家', '仙台の伊達家', '長州の毛利家', '肥後の細川家', '土佐の山内家'],
         stats: { seimu: [5, 11], bui: [7, 14], jintoku: [5, 11], kenko: [7, 13] },
-        on: { ikou: 5, ryo: 20 }, upkeep: 2, flag: 'gaiseki',
+        on: { ikou: 5, ryo: 20, oboe: { daimyo: 1 } }, upkeep: 2, flag: 'gaiseki',
       },
       {
         id: 'kashin', label: '家臣の娘', houses: ['本多家', '酒井家', '阿部家', '堀田家', '水野家', '稲葉家', '青山家', '戸田家', '板倉家', '大久保家'],
@@ -288,9 +294,9 @@ window.IEYASU_DATA = {
     // 姫の嫁ぎ先。on: 嫁がせたときの効果（ryo のマイナスは婚礼の費え）
     // 将軍の姫を迎える屋敷（加賀前田家の赤門など）は、受ける側が建てるので、幕府の費えは軽い
     matches: [
-      { id: 'daimyo', label: '大名家へ嫁がせる', on: { ikou: 4, ryo: -8 },
+      { id: 'daimyo', label: '大名家へ嫁がせる', on: { ikou: 4, ryo: -8, oboe: { daimyo: 0.5 } },
         houses: ['加賀の前田家', '尾張の徳川家', '紀伊の徳川家', '水戸の徳川家', '会津の松平家', '福井の松平家', '広島の浅野家', '佐賀の鍋島家'] },
-      { id: 'kuge', label: '公家へ嫁がせる', on: { chotei: 5, ryo: -10 },
+      { id: 'kuge', label: '公家へ嫁がせる', on: { chotei: 5, ryo: -10, oboe: { kuge: 0.5 } },
         houses: ['近衛家', '九条家', '二条家', '一条家', '鷹司家', '有栖川宮家'] },
     ],
   },
@@ -339,11 +345,12 @@ window.IEYASU_DATA = {
     },
   ],
   // 異国船との勝負の中身。post: 腕を見る役職（game.js の POSTS） / stat: あわせて効く将軍の能力
+  // oboe: 力に響く諸家の覚え（覚えの 1/4。恩なら足され、恨みなら引かれる）
   shipRounds: {
-    kaibo: { name: '海防', post: 'ometsuke', stat: 'bui', desc: '砲台を築き、船の動きを抑える' },
+    kaibo: { name: '海防', post: 'ometsuke', stat: 'bui', oboe: 'daimyo', desc: '砲台を築き、船の動きを抑える' },
     kosho: { name: '交渉', post: 'roju', stat: 'seimu', desc: '使者と渡り合い、無理な要求を退ける' },
-    gunshi: { name: '軍資金', post: 'kanjo', stat: 'seimu', desc: '備えの金を、滞りなく回す' },
-    chotei: { name: '朝廷', post: 'shoshidai', stat: 'jintoku', desc: '騒ぎ立てる公家たちをなだめる' },
+    gunshi: { name: '軍資金', post: 'kanjo', stat: 'seimu', oboe: 'shonin', desc: '備えの金を、滞りなく回す' },
+    chotei: { name: '朝廷', post: 'shoshidai', stat: 'jintoku', oboe: 'kuge', desc: '騒ぎ立てる公家たちをなだめる' },
     jinshin: { name: '人心', post: 'machi', stat: 'jintoku', desc: '江戸の民の動揺を鎮める' },
     kito: { name: '祈祷', post: 'jisha', stat: 'jintoku', desc: '寺社に祈らせ、人心をひとつにまとめる' },
   },
@@ -352,6 +359,7 @@ window.IEYASU_DATA = {
   cards: [
     {
       id: 'castle-repair',
+      grudge: 'daimyo',
       tone: 'bad',
       scene: 'castle',
       title: '無断の城普請',
@@ -360,12 +368,12 @@ window.IEYASU_DATA = {
       ieyasu: '福島の一件を思い出すのう。甘く見れば、ほかの大名もまねをする。',
       options: [
         { label: '改易する', tag: '豪胆', grow: 'bui', check: { stat: 'bui', dc: 10 }, flag: 'kaieki',
-          effects: { ikou: 8, minshin: -2 }, text: '大名は国を取り上げられた。諸国の大名は震え上がった。',
-          fail: { ikou: -6, minshin: -3 }, failText: '家臣団が城に立てこもり、鎮めるのに手間取った。幕府の威光に傷がついた。' },
+          effects: { ikou: 8, minshin: -2, oboe: { daimyo: -2 } }, text: '大名は国を取り上げられた。諸国の大名は震え上がった。',
+          fail: { ikou: -6, minshin: -3, oboe: { daimyo: -2 } }, failText: '家臣団が城に立てこもり、鎮めるのに手間取った。幕府の威光に傷がついた。' },
         { label: '叱りつけて済ませる', tag: '寛大', grow: 'jintoku',
-          effects: { ikou: -3, chotei: 1 }, text: '大名は平伏して詫びた。だが「その程度か」とささやく者もいる。' },
+          effects: { ikou: -3, chotei: 1, oboe: { daimyo: 1 } }, text: '大名は平伏して詫びた。だが「その程度か」とささやく者もいる。' },
         { label: '罰として川の普請を命じる', tag: '倹約', grow: 'seimu', flag: 'tetsudai',
-          effects: { ikou: 3, kokudaka: 5, minshin: 2 }, text: '大名の金で堤が築かれ、田が広がった。叱るより、働かせるほうが得じゃ。' },
+          effects: { ikou: 3, kokudaka: 5, minshin: 2, oboe: { daimyo: -1 } }, text: '大名の金で堤が築かれ、田が広がった。叱るより、働かせるほうが得じゃ。' },
       ],
     },
     {
@@ -404,6 +412,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'court-rank',
+      grudge: 'kuge',
       scene: 'court',
       title: '朝廷の官位',
       text: '{shoshidai}によれば、朝廷が幕府に相談なく、大名に官位を授けようとしているという。',
@@ -411,11 +420,11 @@ window.IEYASU_DATA = {
       ieyasu: '朝廷は敵ではない。だが、大名と朝廷が直に結びつくのは、いちばん危うい。',
       options: [
         { label: '厳しく抗議する', tag: '豪胆', grow: 'bui',
-          effects: { chotei: -8, ikou: 5 }, text: '朝廷は授与を取り下げた。公家たちの目は冷ややかだ。' },
+          effects: { chotei: -8, ikou: 5, oboe: { kuge: -2 } }, text: '朝廷は授与を取り下げた。公家たちの目は冷ややかだ。' },
         { label: '黙って見過ごす', tag: '寛大', grow: 'jintoku',
-          effects: { chotei: 4, ikou: -5 }, text: '朝廷は満足したようだ。大名たちは、京へ顔を向けはじめた。' },
+          effects: { chotei: 4, ikou: -5, oboe: { kuge: 1 } }, text: '朝廷は満足したようだ。大名たちは、京へ顔を向けはじめた。' },
         { label: '公家に贈り物をして根回しする', tag: '華美', grow: 'seimu',
-          effects: { ryo: -25, chotei: 5, ikou: 1 }, text: '話は穏やかにまとまった。金は減ったが、角は立たなかった。' },
+          effects: { ryo: -25, chotei: 5, ikou: 1, oboe: { kuge: 1 } }, text: '話は穏やかにまとまった。金は減ったが、角は立たなかった。' },
       ],
     },
     {
@@ -508,6 +517,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'tozama-marriage',
+      grudge: 'daimyo',
       tone: 'bad',
       scene: 'palanquin',
       title: '外様の縁組',
@@ -516,11 +526,11 @@ window.IEYASU_DATA = {
       ieyasu: '大名同士が手を結ぶ。それがいちばん恐ろしい。わしは身をもって知っておる。',
       options: [
         { label: '縁組を禁じる', tag: '慎重', grow: 'bui',
-          effects: { ikou: 4, minshin: -1 }, text: '縁組は取りやめになった。大名たちは不満そうだ。' },
+          effects: { ikou: 4, minshin: -1, oboe: { daimyo: -1 } }, text: '縁組は取りやめになった。大名たちは不満そうだ。' },
         { label: '許してやる', tag: '寛大', grow: 'jintoku',
-          effects: { ikou: -6, chotei: 1 }, text: '両家は喜んだ。西国の結びつきは、少し強くなった。' },
+          effects: { ikou: -6, chotei: 1, oboe: { daimyo: 1 } }, text: '両家は喜んだ。西国の結びつきは、少し強くなった。' },
         { label: '徳川の姫を嫁がせて間に入る', tag: '華美', grow: 'seimu',
-          effects: { ryo: -25, ikou: 6 }, text: '姫の輿入れは盛大だった。これで、どちらの家も身内じゃ。' },
+          effects: { ryo: -25, ikou: 6, oboe: { daimyo: 1 } }, text: '姫の輿入れは盛大だった。これで、どちらの家も身内じゃ。' },
       ],
     },
     {
@@ -548,7 +558,7 @@ window.IEYASU_DATA = {
       ieyasu: '利根川の流れを変えたのは、わしの代からの大仕事じゃった。',
       options: [
         { label: '大名に手伝わせる', tag: '豪胆', grow: 'bui', flag: 'tetsudai',
-          effects: { ikou: 3, minshin: 3, kokudaka: 4 }, text: '大名たちが人足を出し、堤が築かれた。大名の懐は痛んだ。' },
+          effects: { ikou: 3, minshin: 3, kokudaka: 4, oboe: { daimyo: -1 } }, text: '大名たちが人足を出し、堤が築かれた。大名の懐は痛んだ。' },
         { label: '幕府の金で築く', tag: '華美', grow: 'jintoku', invest: true, flag: 'levee',
           effects: { ryo: -40, kokudaka: 15, minshin: 5, jisseki: 2 }, text: '立派な堤が完成し、水につかっていた田がよみがえった。「公方様の堤」と呼ばれている。' },
         { label: '後回しにする', tag: '倹約', grow: 'seimu',
@@ -600,11 +610,11 @@ window.IEYASU_DATA = {
       ieyasu: '朝廷を困らせて得することはない。かといって、太らせすぎるのも考えものじゃ。',
       options: [
         { label: '献金する', tag: '寛大', grow: 'jintoku',
-          effects: { ryo: -30, chotei: 10 }, text: '御所は修繕された。帝からねぎらいの言葉が届いた。' },
+          effects: { ryo: -30, chotei: 10, oboe: { kuge: 2 } }, text: '御所は修繕された。帝からねぎらいの言葉が届いた。' },
         { label: '断る', tag: '倹約', grow: 'seimu',
-          effects: { chotei: -7, ryo: 5 }, text: '公家たちは黙った。黙っているときの公家が、いちばん怖い。' },
+          effects: { chotei: -7, ryo: 5, oboe: { kuge: -2 } }, text: '公家たちは黙った。黙っているときの公家が、いちばん怖い。' },
         { label: '所領を少し加える', tag: '華美', grow: 'seimu',
-          effects: { ryo: -15, chotei: 6, ikou: -1 }, text: '朝廷の領地が増えた。毎年の負担にならぬよう、ほどほどにした。' },
+          effects: { ryo: -15, chotei: 6, ikou: -1, oboe: { kuge: 1 } }, text: '朝廷の領地が増えた。毎年の負担にならぬよう、ほどほどにした。' },
       ],
     },
     {
@@ -643,6 +653,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'merchant-loan',
+      favor: 'shonin',
       scene: 'money',
       title: '大坂の豪商',
       text: '大坂の豪商が、幕府に大金を貸してもよいと申し出てきた。',
@@ -650,9 +661,9 @@ window.IEYASU_DATA = {
       ieyasu: '商人の力が、刀より強くなる日が来るのかもしれぬ。',
       options: [
         { label: '借りる', tag: '華美', grow: 'seimu', flag: 'merchantDebt',
-          effects: { borrow: 60, ikou: -4 }, text: '蔵は潤った。だが、借りた金には利息がつく。商人に頭が上がらなくなった。' },
+          effects: { borrow: 60, ikou: -4, oboe: { shonin: 1 } }, text: '蔵は潤った。だが、借りた金には利息がつく。商人に頭が上がらなくなった。' },
         { label: '代わりに運上金を課す', tag: '倹約', grow: 'seimu',
-          effects: { trade: 4, minshin: -2 }, text: '商人たちは渋い顔で、毎年の運上金を納めることになった。' },
+          effects: { trade: 4, minshin: -2, oboe: { shonin: -1 } }, text: '商人たちは渋い顔で、毎年の運上金を納めることになった。' },
         { label: '丁重に断る', tag: '慎重', grow: 'jintoku',
           effects: { ikou: 1 }, text: '豪商は笑って帰っていった。その笑みが少し気になる。' },
       ],
@@ -816,11 +827,11 @@ window.IEYASU_DATA = {
       ieyasu: '大名が弱るのは、幕府にとって悪いことばかりではない。じゃが、潰れられても困る。',
       options: [
         { label: '借金を棒引きにさせる', tag: '豪胆', grow: 'bui',
-          effects: { ikou: 5, ryo: -10, minshin: -3 }, text: '大名は救われた。商人たちは大損をして、幕府を恨んでいる。' },
+          effects: { ikou: 5, ryo: -10, minshin: -3, oboe: { daimyo: 1, shonin: -2 } }, text: '大名は救われた。商人たちは大損をして、幕府を恨んでいる。' },
         { label: '幕府が金を貸す', tag: '寛大', grow: 'jintoku',
-          effects: { ryo: -35, ikou: 4 }, text: '大名たちは幕府に恩を感じた。返ってくるかは、わからない。' },
+          effects: { ryo: -35, ikou: 4, oboe: { daimyo: 2 } }, text: '大名たちは幕府に恩を感じた。返ってくるかは、わからない。' },
         { label: '自分で何とかさせる', tag: '倹約', grow: 'seimu',
-          effects: { ikou: -3, ryo: 5 }, text: '大名たちは幕府を頼りないと感じたようだ。' },
+          effects: { ikou: -3, ryo: 5, oboe: { daimyo: -1 } }, text: '大名たちは幕府を頼りないと感じたようだ。' },
       ],
     },
     {
@@ -851,7 +862,7 @@ window.IEYASU_DATA = {
         { label: '蔵米を買い上げて値を支える', tag: '寛大', grow: 'jintoku',
           effects: { ryo: -30, rice: 30, ikou: 2 }, text: '米の値は持ち直した。蔵には米俵が積み上がった。' },
         { label: '商人に御用金を出させる', tag: '豪胆', grow: 'bui',
-          effects: { ryo: 40, trade: -2, minshin: -3 }, text: '商人たちから大金を集めた。だが商いは冷え込んだ。' },
+          effects: { ryo: 40, trade: -2, minshin: -3, oboe: { shonin: -1 } }, text: '商人たちから大金を集めた。だが商いは冷え込んだ。' },
         { label: '経費を切り詰めてしのぐ', tag: '倹約', grow: 'seimu',
           effects: { ooku: -2, ikou: -2 }, text: '城中の費えが削られた。旗本たちは不満を漏らしている。' },
       ],
@@ -860,6 +871,7 @@ window.IEYASU_DATA = {
     // ───────── 良い出来事（厳しい年が続いたあとに来やすい）
     {
       id: 'envoy',
+      favor: 'kuge',
       scene: 'palanquin',
       tone: 'good',
       title: '琉球からの使節',
@@ -929,6 +941,7 @@ window.IEYASU_DATA = {
     // ───────── いろいろな出来事（繰り返しを減らすために追加）
     {
       id: 'counterfeit',
+      grudge: 'shonin',
       scene: 'money',
       tone: 'bad',
       title: '贋金',
@@ -940,7 +953,7 @@ window.IEYASU_DATA = {
           effects: { ikou: 4, minshin: -2 }, text: '贋金づくりの一味が捕らえられ、市中は落ち着いた。',
           fail: { ikou: -3, trade: -2 }, failText: '一味は逃げ、贋金を恐れた商人たちが取引を渋りはじめた。' },
         { label: '両替商に見分けさせる', tag: '慎重', grow: 'seimu',
-          effects: { ryo: -10, trade: 1, jisseki: 1 }, text: '両替商が目を光らせ、贋金はしだいに姿を消した。' },
+          effects: { ryo: -10, trade: 1, jisseki: 1, oboe: { shonin: 1 } }, text: '両替商が目を光らせ、贋金はしだいに姿を消した。' },
         { label: '騒ぎ立てずに様子を見る', tag: '寛大', grow: 'jintoku',
           effects: { trade: -3, minshin: -2 }, text: '噂は広がり、人々は小判を疑うようになった。' },
       ],
@@ -971,7 +984,7 @@ window.IEYASU_DATA = {
       ieyasu: '旗本は幕府の骨じゃ。骨が細れば、いざという時に立てぬ。',
       options: [
         { label: '借金を帳消しにさせる（棄捐令）', tag: '豪胆', grow: 'bui',
-          effects: { ikou: 4, trade: -4, minshin: -2 }, text: '旗本たちは救われた。札差たちは大損をして、金を貸し渋るようになった。' },
+          effects: { ikou: 4, trade: -4, minshin: -2, oboe: { shonin: -2 } }, text: '旗本たちは救われた。札差たちは大損をして、金を貸し渋るようになった。' },
         { label: '幕府から手当てを出す', tag: '寛大', grow: 'jintoku',
           effects: { ryo: -40, ikou: 3 }, text: '旗本たちは一息ついた。幕府の蔵は軽くなった。' },
         { label: '質素倹約を説く', tag: '倹約', grow: 'seimu',
@@ -996,6 +1009,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'kaga-gift',
+      favor: 'daimyo',
       scene: 'palanquin',
       tone: 'good',
       title: '加賀からの献上',
@@ -1005,7 +1019,7 @@ window.IEYASU_DATA = {
         { label: 'ありがたく受け取る', tag: '倹約', grow: 'seimu', flag: 'kagaGift',
           effects: { ryo: 25, ikou: 2 }, text: '献上の金子が蔵に納められた。……ただより高いものはない、とも言うがのう。' },
         { label: '倍の返礼をする', tag: '華美', grow: 'jintoku',
-          effects: { ryo: -15, ikou: 5, chotei: 1 }, text: '将軍の気前のよさは、諸大名の語り草になった。' },
+          effects: { ryo: -15, ikou: 5, chotei: 1, oboe: { daimyo: 1 } }, text: '将軍の気前のよさは、諸大名の語り草になった。' },
         { label: '受け取りを辞退する', tag: '慎重', grow: 'bui',
           effects: { ikou: 1, minshin: 1 }, text: '加賀の大名は恐れ入って引き下がった。……何か企んでいたのかもしれぬ。' },
       ],
@@ -1195,11 +1209,11 @@ window.IEYASU_DATA = {
       ieyasu: '大名に金を使わせるのは、謀反をさせぬためじゃ。じゃが、使わせすぎて潰れられても困る。',
       options: [
         { label: '行列の人数に上限を定める', tag: '倹約', grow: 'seimu',
-          effects: { ikou: -2, minshin: 2, jisseki: 1 }, text: '行列は短くなった。沿道の宿場は、少し寂しくなった。' },
+          effects: { ikou: -2, minshin: 2, jisseki: 1, oboe: { daimyo: 1 } }, text: '行列は短くなった。沿道の宿場は、少し寂しくなった。' },
         { label: '見栄の張り合いを許す', tag: '華美', grow: 'bui',
-          effects: { ikou: 3, trade: 2, minshin: -2 }, text: '大名の行列はますます華やかになり、宿場は潤った。大名の借金も、ますます華やかになった。' },
+          effects: { ikou: 3, trade: 2, minshin: -2, oboe: { daimyo: -1 } }, text: '大名の行列はますます華やかになり、宿場は潤った。大名の借金も、ますます華やかになった。' },
         { label: '江戸にいる年を短くしてやる', tag: '寛大', grow: 'jintoku',
-          effects: { ikou: -5, minshin: 1, chotei: 1 }, text: '大名たちは喜んで国へ帰った。江戸の屋敷は、少し静かになった。' },
+          effects: { ikou: -5, minshin: 1, chotei: 1, oboe: { daimyo: 2 } }, text: '大名たちは喜んで国へ帰った。江戸の屋敷は、少し静かになった。' },
       ],
     },
 
@@ -1232,7 +1246,7 @@ window.IEYASU_DATA = {
       ieyasu: '金を薄めて増やす。悪くない手に聞こえる。……悪くない手に聞こえるのが、いちばん怖い。',
       options: [
         { label: '大きく吹き直す', tag: '華美', grow: 'seimu', flag: 'kaichu',
-          effects: { ryo: 60, minshin: -4 }, text: '蔵には新しい小判が積み上がった。町では、なぜか物の値が上がりはじめた。' },
+          effects: { ryo: 60, minshin: -4, oboe: { shonin: -1 } }, text: '蔵には新しい小判が積み上がった。町では、なぜか物の値が上がりはじめた。' },
         { label: '少しだけ吹き直す', tag: '倹約', grow: 'seimu',
           effects: { ryo: 25, minshin: -2 }, text: '目立たぬほどに混ぜ物を増やした。差益はささやかじゃ。両替商だけは、目ざとく気づいた。' },
         { label: '断る', tag: '慎重', grow: 'seimu',
@@ -1306,15 +1320,16 @@ window.IEYASU_DATA = {
       ieyasu: '大名に米をねだるとは、恥ずかしい話じゃ。……背に腹は代えられぬがのう。',
       options: [
         { label: '恥を忍んで命じる', tag: '豪胆', grow: 'seimu',
-          effects: { rice: 40, ryo: 20, ikou: -6 }, text: '蔵に米が入った。「公方様が大名に米をねだった」と、諸国で笑い話になった。' },
+          effects: { rice: 40, ryo: 20, ikou: -6, oboe: { daimyo: -2 } }, text: '蔵に米が入った。「公方様が大名に米をねだった」と、諸国で笑い話になった。' },
         { label: '自ら倹約して乗り切る', tag: '倹約', grow: 'jintoku',
           effects: { ooku: -3, stress: 6, ikou: 1 }, text: '将軍は木綿の着物を着て、一汁一菜で過ごした。家臣たちも、それにならった。' },
         { label: '商人から借りてしのぐ', tag: '華美', grow: 'seimu',
-          effects: { borrow: 50, ikou: -1 }, text: '金はできた。利息のことは、次の将軍が考えるじゃろう。' },
+          effects: { borrow: 50, ikou: -1, oboe: { shonin: 1 } }, text: '金はできた。利息のことは、次の将軍が考えるじゃろう。' },
       ],
     },
     {
       id: 'dojima',
+      favor: 'shonin',
       scene: 'market',
       title: '米相場の会所',
       minYear: 1720,
@@ -1323,11 +1338,11 @@ window.IEYASU_DATA = {
       ieyasu: 'まだ穫れてもいない米を売り買いするとは……。商人の頭の中は、わしにはわからん。',
       options: [
         { label: '公認して運上金を取る', tag: '豪胆', grow: 'seimu',
-          effects: { trade: 5, minshin: -3 }, text: '相場は大にぎわい。米の値が上がるたび、町人の顔が曇る。' },
+          effects: { trade: 5, minshin: -3, oboe: { shonin: 2 } }, text: '相場は大にぎわい。米の値が上がるたび、町人の顔が曇る。' },
         { label: '幕府が米を買い支える', tag: '寛大', grow: 'seimu',
           effects: { ryo: -35, rice: 25, minshin: 3, ikou: 1 }, text: '米の値は落ち着いた。蔵の米は、ずいぶん高い買い物になった。' },
         { label: '先の売り買いを禁じる', tag: '慎重', grow: 'bui',
-          effects: { ikou: 1, trade: -2 }, text: '相場は閉じられた。商人たちは、場所を変えてこっそり続けている。' },
+          effects: { ikou: 1, trade: -2, oboe: { shonin: -1 } }, text: '相場は閉じられた。商人たちは、場所を変えてこっそり続けている。' },
       ],
     },
     {
@@ -1407,6 +1422,7 @@ window.IEYASU_DATA = {
     // 商いの世（田沼のころ・1767〜）
     {
       id: 'merchant-guild',
+      favor: 'shonin',
       scene: 'market',
       title: '商人の仲間',
       minYear: 1760,
@@ -1415,11 +1431,11 @@ window.IEYASU_DATA = {
       ieyasu: '商人が束になると、値を好きに決められる。束ねさせて金を取るか、ばらばらにして値を守るか。',
       options: [
         { label: '認めて冥加金を取る', tag: '倹約', grow: 'seimu',
-          effects: { trade: 4, minshin: -3 }, text: '冥加金が毎年入るようになった。町の物の値は、仲間の言い値になった。' },
+          effects: { trade: 4, minshin: -3, oboe: { shonin: 1 } }, text: '冥加金が毎年入るようになった。町の物の値は、仲間の言い値になった。' },
         { label: '仲間の頭を招いて取り込む', tag: '華美', grow: 'jintoku',
-          effects: { ryo: -20, trade: 6, minshin: -3, ikou: -1 }, text: '仲間の頭たちは将軍の宴に感激し、冥加金を気前よく約束した。賄賂の噂も、気前よく広まった。' },
+          effects: { ryo: -20, trade: 6, minshin: -3, ikou: -1, oboe: { shonin: 2 } }, text: '仲間の頭たちは将軍の宴に感激し、冥加金を気前よく約束した。賄賂の噂も、気前よく広まった。' },
         { label: '認めずにおく', tag: '慎重', grow: 'jintoku',
-          effects: { minshin: 2 }, text: '商人たちは不満そうだ。値は、市場が決めている。' },
+          effects: { minshin: 2, oboe: { shonin: -1 } }, text: '商人たちは不満そうだ。値は、市場が決めている。' },
       ],
     },
     {
@@ -1475,8 +1491,8 @@ window.IEYASU_DATA = {
         { label: '蔵米を安く売り出す', tag: '寛大', grow: 'jintoku',
           effects: { ryo: -35, minshin: 6 }, text: '幕府の米が安く売られ、騒ぎは三日で収まった。' },
         { label: '買い占めた商人を罰する', tag: '慎重', grow: 'seimu', check: { stat: 'seimu', dc: 11 },
-          effects: { minshin: 5, trade: -2, ikou: 1 }, text: '米を抱え込んでいた大店が罰せられ、町人は溜飲を下げた。',
-          fail: { minshin: -4 }, failText: '罰せられたのは小さな米屋ばかりで、大店は知らん顔をしている。' },
+          effects: { minshin: 5, trade: -2, ikou: 1, oboe: { shonin: -2 } }, text: '米を抱え込んでいた大店が罰せられ、町人は溜飲を下げた。',
+          fail: { minshin: -4, oboe: { shonin: -2 } }, failText: '罰せられたのは小さな米屋ばかりで、大店は知らん顔をしている。' },
       ],
     },
     {
@@ -1660,9 +1676,9 @@ window.IEYASU_DATA = {
       ieyasu: '昔に戻せば、うまくいく。……改革を言い出す者は、いつもそう言う。',
       options: [
         { label: '厳しく進める', tag: '倹約', grow: 'seimu',
-          effects: { ooku: -4, trade: -3, minshin: -6, ikou: 3, jisseki: 2 }, text: '江戸から派手な着物と寄席が消えた。町は静かになった。不満の声だけが、よく響く。' },
+          effects: { ooku: -4, trade: -3, minshin: -6, ikou: 3, jisseki: 2, oboe: { shonin: -2, daimyo: -1 } }, text: '江戸から派手な着物と寄席が消えた。町は静かになった。不満の声だけが、よく響く。' },
         { label: 'できるところだけ進める', tag: '慎重', grow: 'seimu',
-          effects: { ooku: -2, minshin: -1, jisseki: 1 }, text: '城中の費えだけは、少し削られた。' },
+          effects: { ooku: -2, minshin: -1, jisseki: 1, oboe: { shonin: -1 } }, text: '城中の費えだけは、少し削られた。' },
         { label: '取り下げさせる', tag: '華美', grow: 'jintoku',
           effects: { minshin: 3, ikou: -2, stress: -5 }, text: '改革は見送られた。江戸の町人は胸をなでおろし、老中は辞表を書いた。' },
       ],
@@ -1711,11 +1727,11 @@ window.IEYASU_DATA = {
       ieyasu: '戦って勝てぬなら開くしかない。じゃが、開けば「弱腰」と言われる。……わしの頃は、異国のほうから頭を下げてきたものを。',
       options: [
         { label: '大名に広く意見を求める', tag: '寛大', grow: 'jintoku',
-          effects: { ikou: -5, chotei: 3, jisseki: 2 }, text: '大名たちは喜んで意見を書いた。「幕府が大名に意見を聞いた」こと自体が、何よりの大事件になった。' },
+          effects: { ikou: -5, chotei: 3, jisseki: 2, oboe: { daimyo: 2 } }, text: '大名たちは喜んで意見を書いた。「幕府が大名に意見を聞いた」こと自体が、何よりの大事件になった。' },
         { label: '幕府だけで決める', tag: '豪胆', grow: 'bui',
-          effects: { ikou: 3, chotei: -6 }, text: '幕府は自分で決めた。京の朝廷と、帝を立てよと唱える者たちは激しく怒った。' },
+          effects: { ikou: 3, chotei: -6, oboe: { daimyo: -1, kuge: -1 } }, text: '幕府は自分で決めた。京の朝廷と、帝を立てよと唱える者たちは激しく怒った。' },
         { label: '帝のお許しを得てから決める', tag: '慎重', grow: 'jintoku', check: { stat: 'jintoku', dc: 12 },
-          effects: { chotei: 6, ikou: -2 }, text: '帝のお許しが出た。幕府は朝廷と足並みをそろえて、異国と向き合うことになった。',
+          effects: { chotei: 6, ikou: -2, oboe: { kuge: 1 } }, text: '帝のお許しが出た。幕府は朝廷と足並みをそろえて、異国と向き合うことになった。',
           fail: { chotei: -5, ikou: -4 }, failText: '朝廷は許しを出さず、幕府は決められぬまま時を失った。' },
       ],
     },
@@ -1729,11 +1745,11 @@ window.IEYASU_DATA = {
       ieyasu: '帝の妹君を嫁にもらう、か。わしの孫娘は帝に嫁いだ。今度は、もらう番じゃな。',
       options: [
         { label: '礼を尽くして迎える', tag: '華美', grow: 'jintoku',
-          effects: { ryo: -40, chotei: 10, ikou: -1 }, text: '盛大な行列が京から江戸へ下った。「公武の和」と、瓦版は書き立てた。' },
+          effects: { ryo: -40, chotei: 10, ikou: -1, oboe: { kuge: 2 } }, text: '盛大な行列が京から江戸へ下った。「公武の和」と、瓦版は書き立てた。' },
         { label: '先延ばしにする', tag: '慎重', grow: 'seimu',
           effects: { chotei: -2 }, text: '話は立ち消えになった。' },
         { label: '「朝廷の人質だ」と退ける', tag: '豪胆', grow: 'bui',
-          effects: { chotei: -7, ikou: 2 }, text: '幕府の意地は通った。京とのあいだには、冷たい風が吹いている。' },
+          effects: { chotei: -7, ikou: 2, oboe: { kuge: -2 } }, text: '幕府の意地は通った。京とのあいだには、冷たい風が吹いている。' },
       ],
     },
     {
@@ -1758,6 +1774,7 @@ window.IEYASU_DATA = {
     // 史実の先へ（1866〜）
     {
       id: 'return-rule',
+      grudge: 'kuge',
       tone: 'bad',
       scene: 'court',
       title: '政を朝廷に返せ',
@@ -1766,9 +1783,9 @@ window.IEYASU_DATA = {
       ieyasu: '朝廷から預かった政を、返せと言うか。……預かったつもりは、とうに忘れておったわ。',
       options: [
         { label: '突っぱねる', tag: '豪胆', grow: 'bui',
-          effects: { ikou: 3, chotei: -8 }, text: '大名たちは引き下がった。京では、幕府を討てという声が大きくなっている。' },
+          effects: { ikou: 3, chotei: -8, oboe: { daimyo: -1, kuge: -1 } }, text: '大名たちは引き下がった。京では、幕府を討てという声が大きくなっている。' },
         { label: '大名の集まりを開き、幕府が座長となる', tag: '寛大', grow: 'jintoku', check: { stat: 'jintoku', dc: 13 },
-          effects: { ikou: -2, chotei: 5, minshin: 3, jisseki: 3 }, text: '大名の集まりが江戸で開かれた。幕府は、まとめ役として一目置かれている。',
+          effects: { ikou: -2, chotei: 5, minshin: 3, jisseki: 3, oboe: { daimyo: 2 } }, text: '大名の集まりが江戸で開かれた。幕府は、まとめ役として一目置かれている。',
           fail: { ikou: -6, chotei: -2 }, failText: '集まりは、幕府への不満をぶつける場になった。' },
         { label: '返すふりをして時を稼ぐ', tag: '慎重', grow: 'seimu',
           effects: { chotei: 2, ikou: -3 }, text: '幕府は「よく考える」と答えた。考えているあいだにも、世は動いている。' },
@@ -1805,11 +1822,11 @@ window.IEYASU_DATA = {
       ieyasu: 'あの笑みはこれじゃったか。借りた金は、いつか必ず返す時が来る。',
       options: [
         { label: '耳をそろえて返す', tag: '慎重', grow: 'seimu',
-          effects: { borrow: -60, ikou: 2 }, text: '借りた金をきれいに返した。豪商は深々と頭を下げた。' },
+          effects: { borrow: -60, ikou: 2, oboe: { shonin: 2 } }, text: '借りた金をきれいに返した。豪商は深々と頭を下げた。' },
         { label: '利子を払って先延ばしにする', tag: '寛大', grow: 'jintoku',
           effects: { ryo: -15, ikou: -2 }, text: '豪商は渋々うなずいた。借金はまだ残っている。' },
         { label: '踏み倒す', tag: '豪胆', grow: 'bui',
-          effects: { debtCut: 60, trade: -4, minshin: -3, ikou: -3 }, text: '借金は帳消しになった。だが、商人たちは幕府を信用しなくなった。' },
+          effects: { debtCut: 60, trade: -4, minshin: -3, ikou: -3, oboe: { shonin: -3 } }, text: '借金は帳消しになった。だが、商人たちは幕府を信用しなくなった。' },
       ],
     },
     {
@@ -1882,10 +1899,10 @@ window.IEYASU_DATA = {
       ieyasu: '嫁の実家が力を持つと、ろくなことにならぬ。源氏の世も、最後は北条に取られたではないか。',
       options: [
         { label: '言い分を聞いてやる', tag: '寛大', grow: 'jintoku',
-          effects: { ikou: -5, stress: -5 }, text: '実家の大名は満足した。ほかの大名たちは、面白くない顔をしている。' },
+          effects: { ikou: -5, stress: -5, oboe: { daimyo: 1 } }, text: '実家の大名は満足した。ほかの大名たちは、面白くない顔をしている。' },
         { label: 'きっぱり退ける', tag: '豪胆', grow: 'bui', check: { stat: 'bui', dc: 11 },
-          effects: { ikou: 4, stress: 4 }, text: '大名は引き下がった。奥では、正室がしばらく口をきいてくれぬらしい。',
-          fail: { ikou: -6, stress: 6 }, failText: '大名は恨みを抱き、ほかの外様と通じはじめた。奥の空気も冷え切った。' },
+          effects: { ikou: 4, stress: 4, oboe: { daimyo: -1 } }, text: '大名は引き下がった。奥では、正室がしばらく口をきいてくれぬらしい。',
+          fail: { ikou: -6, stress: 6, oboe: { daimyo: -1 } }, failText: '大名は恨みを抱き、ほかの外様と通じはじめた。奥の空気も冷え切った。' },
         { label: '普請を任せて取り込む', tag: '慎重', grow: 'seimu',
           effects: { ryo: -20, ikou: 2, jisseki: 1 }, text: '実家の大名に大きな普請を任せた。金はかかったが、身内として働かせることができた。' },
       ],
@@ -1941,11 +1958,11 @@ window.IEYASU_DATA = {
       ieyasu: 'ただで働かせたぶんは、どこかで払わされる。世の中、そうできておる。',
       options: [
         { label: '慰労の宴を開く', tag: '華美', grow: 'jintoku',
-          effects: { ryo: -25, ikou: 2 }, text: 'ねぎらいの宴で、大名たちの愚痴は笑い話に変わった。' },
+          effects: { ryo: -25, ikou: 2, oboe: { daimyo: 1 } }, text: 'ねぎらいの宴で、大名たちの愚痴は笑い話に変わった。' },
         { label: '費えの一部を肩代わりする', tag: '寛大', grow: 'jintoku',
-          effects: { ryo: -35, ikou: 3, minshin: 1 }, text: '幕府が費えの一部を持った。大名たちは、ようやく本気で頭を下げた。' },
+          effects: { ryo: -35, ikou: 3, minshin: 1, oboe: { daimyo: 2 } }, text: '幕府が費えの一部を持った。大名たちは、ようやく本気で頭を下げた。' },
         { label: '聞き流す', tag: '豪胆', grow: 'bui',
-          effects: { ikou: -5 }, text: '大名たちの口は止まらない。次に普請を命じたら、何人が素直に従うじゃろうか。' },
+          effects: { ikou: -5, oboe: { daimyo: -2 } }, text: '大名たちの口は止まらない。次に普請を命じたら、何人が素直に従うじゃろうか。' },
       ],
     },
     {
@@ -1959,9 +1976,9 @@ window.IEYASU_DATA = {
       ieyasu: 'ただでもらえる金などない。わしも、ずいぶん配ったものじゃ。',
       options: [
         { label: '口を利いてやる', tag: '寛大', grow: 'jintoku',
-          effects: { chotei: -5, ikou: -1 }, text: '官位は授けられた。公家たちは「幕府も加賀には弱い」とささやいている。' },
+          effects: { chotei: -5, ikou: -1, oboe: { daimyo: 1, kuge: -1 } }, text: '官位は授けられた。公家たちは「幕府も加賀には弱い」とささやいている。' },
         { label: 'きっぱり断る', tag: '豪胆', grow: 'bui',
-          effects: { ikou: -4 }, text: '加賀の大名は、黙って引き下がった。百万石の沈黙は、重い。' },
+          effects: { ikou: -4, oboe: { daimyo: -2 } }, text: '加賀の大名は、黙って引き下がった。百万石の沈黙は、重い。' },
         { label: '金子に色をつけて返す', tag: '倹約', grow: 'seimu',
           effects: { ryo: -30 }, text: '受け取った金子に色をつけて返した。貸し借りなし。……高くついた献上じゃった。' },
       ],
@@ -2085,6 +2102,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'daimyo-league',
+      grudge: 'daimyo',
       scene: 'league',
       title: '大名連合の噂',
       minYear: 1660,
@@ -2094,17 +2112,18 @@ window.IEYASU_DATA = {
       ieyasu: '関ヶ原を思い出す。あのとき、わしは西に勝った。今度は、守る側じゃ。',
       options: [
         { label: '先手を打って国替えを命じる', tag: '豪胆', grow: 'bui', check: { stat: 'bui', dc: 13 },
-          effects: { ikou: 10 }, text: '大名たちは命に従った。企みは芽のうちに摘まれた。',
-          fail: { ikou: -14, minshin: -4 }, failText: '大名たちは命を拒んだ。幕府の命令が通らないことが、天下に知れた。' },
+          effects: { ikou: 10, oboe: { daimyo: -2 } }, text: '大名たちは命に従った。企みは芽のうちに摘まれた。',
+          fail: { ikou: -14, minshin: -4, oboe: { daimyo: -2 } }, failText: '大名たちは命を拒んだ。幕府の命令が通らないことが、天下に知れた。' },
         { label: '密偵を放って探る', tag: '慎重', grow: 'seimu', check: { stat: 'seimu', dc: 12 },
           effects: { ikou: 5, jisseki: 2 }, text: '企みの中心にいた家老が突き止められ、連合は崩れた。',
           fail: { ikou: -8 }, failText: '密偵は捕らえられ、幕府の疑いが大名たちの結束を固めてしまった。' },
         { label: '宴に招いて懐柔する', tag: '華美', grow: 'jintoku',
-          effects: { ryo: -50, ikou: 3, chotei: 1 }, text: '盛大な宴の席で、大名たちは将軍に杯を捧げた。いまのところは。' },
+          effects: { ryo: -50, ikou: 3, chotei: 1, oboe: { daimyo: 2 } }, text: '盛大な宴の席で、大名たちは将軍に杯を捧げた。いまのところは。' },
       ],
     },
     {
       id: 'court-defiance',
+      grudge: 'kuge',
       scene: 'court',
       title: '朝廷の不満',
       minYear: 1700,
@@ -2114,12 +2133,222 @@ window.IEYASU_DATA = {
       ieyasu: '朝廷と大名が結べば、幕府は「朝敵」にされかねん。それだけは避けねばならぬ。',
       options: [
         { label: '詫びて献上品を贈る', tag: '華美', grow: 'jintoku',
-          effects: { ryo: -50, chotei: 14, ikou: -3 }, text: '帝の機嫌は直った。幕府が頭を下げた形になった。' },
+          effects: { ryo: -50, chotei: 14, ikou: -3, oboe: { kuge: 2 } }, text: '帝の機嫌は直った。幕府が頭を下げた形になった。' },
         { label: '京都所司代に見張らせる', tag: '慎重', grow: 'seimu',
-          effects: { chotei: -4, ikou: 5 }, text: '御所の出入りは厳しく改められた。公家たちは息をひそめている。' },
+          effects: { chotei: -4, ikou: 5, oboe: { kuge: -1 } }, text: '御所の出入りは厳しく改められた。公家たちは息をひそめている。' },
         { label: '帝に譲位を迫る', tag: '豪胆', grow: 'bui', check: { stat: 'bui', dc: 14 },
-          effects: { chotei: 6, ikou: 8 }, text: '新しい帝は幕府に好意的だ。強引じゃったが、うまくいった。',
-          fail: { chotei: -18, ikou: -6 }, failText: '公家たちが一斉に反発した。幕府は朝廷を敵に回してしまった。' },
+          effects: { chotei: 6, ikou: 8, oboe: { kuge: -3 } }, text: '新しい帝は幕府に好意的だ。強引じゃったが、うまくいった。',
+          fail: { chotei: -18, ikou: -6, oboe: { kuge: -3 } }, failText: '公家たちが一斉に反発した。幕府は朝廷を敵に回してしまった。' },
+      ],
+    },
+    // ───── 諸家の覚え（積み重なる歴史）
+    // 大名・商人・朝廷の「覚え」（恩と恨み）が深くなると出る出来事（deep）と、倒幕の危機の年に出る出来事（crisis）。
+    // 文中の {urami:daimyo} は、その家がいちばん根に持っている幕府の仕打ち、{on:daimyo} はいちばん恩に着ていること
+    {
+      id: 'tozama-renban',
+      tone: 'bad',
+      scene: 'league',
+      title: '外様の連判状',
+      deep: { party: 'daimyo', side: 'urami' },
+      text: '{ometsuke}が青い顔で報せてきた。外様の大名たちが、ひそかに連判状を回しているという。かつて{urami:daimyo}ことを、大名たちは忘れていない。',
+      ieyasu: '恨みは、積もれば山になる。一つ一つは小さくとも、のう。',
+      options: [
+        { label: '首謀の家を取り潰す', tag: '豪胆', grow: 'bui', check: { stat: 'bui', dc: 13 },
+          effects: { ikou: 8, minshin: -2, oboe: { daimyo: -2 } }, text: '連判状は焼かれ、首謀の家は国を失った。大名たちは黙った。黙っただけかもしれぬが。',
+          fail: { ikou: -10, oboe: { daimyo: -2 } }, failText: '取り潰しに抗って城に立てこもる家が出た。連判の輪は、かえって広がった。' },
+        { label: '名を連ねた家の言い分を聞く', tag: '寛大', grow: 'jintoku',
+          effects: { ikou: -4, minshin: 1, oboe: { daimyo: 3 } }, text: '大名たちは、ひとまず矛を収めた。幕府が折れたとささやく者もいる。' },
+        { label: '普請の割り当てを軽くしてなだめる', tag: '慎重', grow: 'seimu',
+          effects: { ryo: -40, ikou: 1, oboe: { daimyo: 2 } }, text: '割り当てを軽くすると、連判状は立ち消えになった。金で買った静けさじゃ。' },
+      ],
+    },
+    {
+      id: 'daimyo-offer',
+      tone: 'good',
+      scene: 'palanquin',
+      title: '諸大名の申し出',
+      deep: { party: 'daimyo', side: 'on' },
+      text: '諸国の大名が連れ立って登城し、「日ごろのご恩に報いたい」と、普請の手伝いと献金を申し出てきた。かつて{on:daimyo}ことを、恩に着ているという。',
+      ieyasu: '恩は売っておくものじゃ。忘れたころに返ってくる。',
+      options: [
+        { label: 'ありがたく献金を受ける', tag: '倹約', grow: 'seimu',
+          effects: { ryo: 40, oboe: { daimyo: -2 } }, text: '大名たちの献金で、金蔵がうるおった。これで貸し借りは、少し減った。' },
+        { label: '新田の普請を手伝わせる', tag: '豪胆', grow: 'bui',
+          effects: { kokudaka: 8, ikou: 3, oboe: { daimyo: -2 } }, text: '大名たちの人足で、新しい堤と田が開かれた。' },
+        { label: '気持ちだけ受け取る', tag: '寛大', grow: 'jintoku',
+          effects: { ikou: 4, minshin: 1 }, text: '「恩に恩で返されては、きりがない」と笑うと、大名たちはいっそう深く頭を下げた。恩は、まだ残っている。' },
+      ],
+    },
+    {
+      id: 'shonin-refuse',
+      tone: 'bad',
+      scene: 'money',
+      title: '商人の貸し渋り',
+      deep: { party: 'shonin', side: 'urami' },
+      text: '大坂の両替商たちが、示し合わせて幕府への貸し付けを渋りはじめた。かつて{urami:shonin}ことを、商人たちは帳面に書きつけて忘れない。',
+      ieyasu: '商人は刀を持たぬ。そのかわり、金を持っておる。',
+      options: [
+        { label: '冥加金を免じて詫びる', tag: '寛大', grow: 'jintoku',
+          effects: { trade: -2, oboe: { shonin: 3 } }, text: '冥加金を免じると、両替商たちの顔がほころんだ。' },
+        { label: '江戸の商人を御用に取り立てる', tag: '豪胆', grow: 'seimu', check: { stat: 'seimu', dc: 12 },
+          effects: { ikou: 2, trade: 2, oboe: { shonin: -1 } }, text: '江戸の新しい商人を御用に取り立てた。大坂の顔色をうかがう日々は終わった。',
+          fail: { trade: -4, ikou: -2, oboe: { shonin: -2 } }, failText: '新しい御用商人には力が足りず、商いの流れが滞った。' },
+        { label: '構わずにおく', tag: '倹約', grow: 'seimu',
+          effects: { trade: -3, ikou: -1 }, text: '商人たちは幕府の御用から手を引いた。運上金の上がりが細った。' },
+      ],
+    },
+    {
+      id: 'goyokin',
+      tone: 'good',
+      scene: 'market',
+      title: '豪商の御用金',
+      deep: { party: 'shonin', side: 'on' },
+      text: '大坂と江戸の豪商たちが、「幕府のお役に立ちたい」と御用金を差し出してきた。かつて{on:shonin}ことへの礼だという。',
+      ieyasu: '商人が自分から金を出すとはのう。よほど恩に着ておるのじゃな。',
+      options: [
+        { label: 'ありがたく受け取る', tag: '倹約', grow: 'seimu',
+          effects: { ryo: 50, oboe: { shonin: -2 } }, text: '豪商たちの御用金で、金蔵がうるおった。' },
+        { label: '新しい商いの株を与える', tag: '華美', grow: 'seimu',
+          effects: { trade: 4, ryo: 15, oboe: { shonin: 1 } }, text: '株仲間の許しを与えると、豪商たちは商いを広げた。幕府の運上金も増えた。' },
+        { label: '江戸の米の値を支えさせる', tag: '寛大', grow: 'jintoku',
+          effects: { rice: 30, minshin: 3, oboe: { shonin: -1 } }, text: '豪商たちが米を買い支え、江戸の米の値が落ち着いた。町人たちは安堵している。' },
+      ],
+    },
+    {
+      id: 'mitchoku',
+      tone: 'bad',
+      scene: 'court',
+      title: '密勅の噂',
+      deep: { party: 'kuge', side: 'urami' },
+      text: '{shoshidai}から急ぎの報せが来た。帝のまわりの公家たちが、幕府を討てという密勅を大名に下そうと画策しているらしい。かつて{urami:kuge}ことを、御所はまだ恨んでいる。',
+      ieyasu: '朝廷に恨まれては、幕府は「朝敵」にされかねん。いちばん避けたい形じゃ。',
+      options: [
+        { label: '首謀の公家を処罰する', tag: '豪胆', grow: 'bui', check: { stat: 'bui', dc: 14 },
+          effects: { chotei: -6, ikou: 6, oboe: { kuge: -2 } }, text: '首謀の公家たちは官を解かれ、密勅の話は消えた。御所の空気は凍りついている。',
+          fail: { chotei: -10, ikou: -6, oboe: { kuge: -2 } }, failText: '処罰はかえって公家たちを結束させた。密勅の噂は、大名の間にまで広まった。' },
+        { label: '御所の修繕を申し出る', tag: '寛大', grow: 'jintoku',
+          effects: { ryo: -45, chotei: 8, oboe: { kuge: 3 } }, text: '幕府の申し出に、帝はひとまず矛を収められた。' },
+        { label: '所司代に見張りを固めさせる', tag: '慎重', grow: 'seimu',
+          effects: { ryo: -15, ikou: 2, chotei: -2, oboe: { kuge: -1 } }, text: '御所の出入りは厳しく改められた。密勅は出なかったが、恨みは消えていない。' },
+      ],
+    },
+    {
+      id: 'chokushi',
+      tone: 'good',
+      scene: 'court',
+      title: '朝廷の勅使',
+      deep: { party: 'kuge', side: 'on' },
+      text: '帝から勅使が下ってきた。将軍の政をねぎらい、官位を進めたいという。かつて{on:kuge}ことを、御所は覚えていてくださった。',
+      ieyasu: '朝廷が幕府を重んじれば、大名もそれにならう。ありがたいことじゃ。',
+      options: [
+        { label: '謹んでお受けする', tag: '慎重', grow: 'jintoku',
+          effects: { ikou: 6, chotei: 3 }, text: '将軍の官位が進んだ。大名たちは、改めて幕府を仰ぎ見た。' },
+        { label: '大名にも官位を分けてもらう', tag: '寛大', grow: 'jintoku',
+          effects: { ikou: 2, chotei: 2, oboe: { daimyo: 2, kuge: -1 } }, text: '幕府の口利きで官位を得た大名たちは、たいそう喜んだ。' },
+        { label: '盛大な返礼をする', tag: '華美', grow: 'seimu',
+          effects: { ryo: -30, chotei: 6, ikou: 3, oboe: { kuge: 1 } }, text: '幕府の返礼は御所を驚かせた。朝廷と幕府の仲は、いっそう深まった。' },
+      ],
+    },
+    {
+      id: 'crisis-daimyo-on',
+      scene: 'hall',
+      title: '諸大名の後押し',
+      crisis: { party: 'daimyo', side: 'on' },
+      text: '幕府の危うさを聞きつけて、親しい大名たちが登城してきた。「いまこそ、ご恩に報いるときでござる」。かつて{on:daimyo}ことを、彼らは忘れていなかった。',
+      ieyasu: '……助けに来てくれたか。積んだ恩は、こういうときに返ってくるのじゃな。',
+      options: [
+        { label: '力を借りて天下を静める', tag: '豪胆', grow: 'bui',
+          effects: { ikou: 12, oboe: { daimyo: -3 } }, text: '大名たちが並んで将軍への忠義を誓うと、揺らいでいた天下が静まった。' },
+        { label: '兵糧と金を借りて民を救う', tag: '寛大', grow: 'jintoku',
+          effects: { minshin: 12, ryo: 20, oboe: { daimyo: -3 } }, text: '大名たちの蔵から米と金が運び込まれ、民の暮らしが持ち直した。' },
+        { label: '朝廷への取りなしを頼む', tag: '慎重', grow: 'seimu',
+          effects: { chotei: 12, ikou: 2, oboe: { daimyo: -3 } }, text: '大名たちが京へ使者を出し、朝廷との仲を取り持ってくれた。' },
+      ],
+    },
+    {
+      id: 'crisis-daimyo-urami',
+      tone: 'bad',
+      scene: 'league',
+      title: '外様の挙兵',
+      crisis: { party: 'daimyo', side: 'urami' },
+      text: '幕府が揺らいだと見るや、恨みを抱く外様の大名たちが兵を挙げた。かつて{urami:daimyo}ことの仕返しだと、旗に大書している。',
+      ieyasu: '……来おったか。恨みの帳尻は、いちばん弱ったときに合わされるものじゃ。',
+      options: [
+        { label: '討伐の軍を出す', tag: '豪胆', grow: 'bui', check: { stat: 'bui', dc: 14 },
+          effects: { ryo: -60, ikou: 10, oboe: { daimyo: -2 } }, text: '討伐の軍は、挙兵した大名を打ち破った。幕府の武威は、まだ衰えていなかった。',
+          fail: { ryo: -60, ikou: -12, minshin: -6, oboe: { daimyo: -2 } }, failText: '討伐は長引き、各地の大名が様子見を決め込んだ。幕府の弱りが、天下に知れ渡った。' },
+        { label: '言い分を呑んで和を結ぶ', tag: '寛大', grow: 'jintoku',
+          effects: { ikou: -8, minshin: 3, oboe: { daimyo: 4 } }, text: '和議が結ばれ、戦は避けられた。幕府が頭を下げた形だが、恨みは少し和らいだ。' },
+        { label: '御三家に仲立ちを頼む', tag: '慎重', grow: 'seimu', check: { stat: 'seimu', dc: 13 },
+          effects: { ryo: -30, ikou: 2, oboe: { daimyo: 2 } }, text: '御三家の当主が間に入り、挙兵した大名は兵を引いた。',
+          fail: { ryo: -30, ikou: -6, oboe: { daimyo: -1 } }, failText: '仲立ちは不調に終わった。大名たちは、幕府の足元を見ている。' },
+      ],
+    },
+    {
+      id: 'crisis-shonin-on',
+      scene: 'money',
+      title: '豪商の肩入れ',
+      crisis: { party: 'shonin', side: 'on' },
+      text: '幕府の危うさを聞きつけて、懇意の豪商たちが「いまこそご恩返し」と大金を差し出してきた。かつて{on:shonin}ことへの礼だという。',
+      ieyasu: '商人に恩を売っておいて、助かったわい。この金、どこに使う。',
+      options: [
+        { label: '民に米を配る元手にする', tag: '寛大', grow: 'jintoku',
+          effects: { minshin: 12, oboe: { shonin: -3 } }, text: '豪商の金で米が配られ、町の騒ぎは収まった。' },
+        { label: '大名への手当てに回す', tag: '華美', grow: 'seimu',
+          effects: { ikou: 10, oboe: { shonin: -3 } }, text: '幕府の手当てに、大名たちは改めて忠義を誓った。' },
+        { label: '公家への付け届けに回す', tag: '慎重', grow: 'seimu',
+          effects: { chotei: 12, oboe: { shonin: -3 } }, text: '御所に贈り物が届き、朝廷の機嫌は持ち直した。' },
+      ],
+    },
+    {
+      id: 'crisis-shonin-urami',
+      tone: 'bad',
+      scene: 'market',
+      title: '商人の見切り',
+      crisis: { party: 'shonin', side: 'urami' },
+      text: '幕府が倒れると見た商人たちが、一斉に店を閉めはじめた。かつて{urami:shonin}ことを、商人たちは忘れていない。江戸の米の値がはね上がっている。',
+      ieyasu: '商人は、沈む船からいちばん先に逃げる。……恨まれていれば、なおさらじゃ。',
+      options: [
+        { label: '蔵の金で商人に詫びを入れる', tag: '慎重', grow: 'seimu',
+          effects: { ryo: -60, minshin: 2, oboe: { shonin: 3 } }, text: '幕府は蔵の金で商人たちをなだめた。金蔵は軽くなったが、米屋は店を開けた。' },
+        { label: '米屋を力ずくで開けさせる', tag: '豪胆', grow: 'bui',
+          effects: { minshin: -8, ikou: 3, oboe: { shonin: -2 } }, text: '奉行所の役人が米屋の戸を打ち破った。米は出回ったが、町には怯えが広がった。' },
+        { label: '蔵米を放出してしのぐ', tag: '寛大', grow: 'jintoku',
+          effects: { rice: -40, minshin: 3, trade: -3 }, text: '幕府の蔵米で、ひとまず町はしのいだ。商人たちは遠巻きに見ている。' },
+      ],
+    },
+    {
+      id: 'crisis-kuge-on',
+      scene: 'shrine',
+      title: '朝廷の取りなし',
+      crisis: { party: 'kuge', side: 'on' },
+      text: '幕府の危うさを聞かれた帝が、「徳川を見捨ててはならぬ」と、大名や寺社に御沙汰を下された。かつて{on:kuge}ことを、御所は覚えていてくださった。',
+      ieyasu: 'かたじけない……。朝廷を大事にしてきた甲斐があったのう。',
+      options: [
+        { label: '御沙汰を広く知らせる', tag: '慎重', grow: 'seimu',
+          effects: { ikou: 10, oboe: { kuge: -3 } }, text: '帝の御沙汰が知れ渡ると、ざわついていた大名たちは静まった。' },
+        { label: '寺社に祈祷を頼んで民を鎮める', tag: '寛大', grow: 'jintoku',
+          effects: { minshin: 10, oboe: { kuge: -3 } }, text: '寺社の祈祷に人々が集まり、町の不安は和らいだ。' },
+        { label: '参内して礼を尽くす', tag: '華美', grow: 'bui',
+          effects: { ryo: -30, chotei: 12, oboe: { kuge: -1 } }, text: '将軍の参内を、御所は温かく迎えた。' },
+      ],
+    },
+    {
+      id: 'crisis-kuge-urami',
+      tone: 'bad',
+      scene: 'court',
+      title: '討幕の勅',
+      crisis: { party: 'kuge', side: 'urami' },
+      text: '幕府が揺らいだと見て、恨みを抱く公家たちが「徳川を討て」という勅を、ひそかに大名へ下した。かつて{urami:kuge}ことを、御所は許していなかった。',
+      ieyasu: 'わしがいちばん恐れていた形じゃ。朝敵の名を負えば、味方の大名も離れていく。',
+      options: [
+        { label: '帝に詫びて勅を取り下げてもらう', tag: '寛大', grow: 'jintoku', check: { stat: 'jintoku', dc: 13 },
+          effects: { ryo: -60, chotei: 10, ikou: -4, oboe: { kuge: 3 } }, text: '幕府が深く詫びると、勅は取り下げられた。危ういところじゃった。',
+          fail: { ryo: -60, chotei: -4, ikou: -6 }, failText: '詫びは聞き入れられなかった。勅は大名たちの間を巡りつづけている。' },
+        { label: '勅を偽物と言い立てる', tag: '豪胆', grow: 'bui',
+          effects: { ikou: 2, chotei: -10, oboe: { kuge: -2 } }, text: '幕府は勅を偽物と断じた。大名の多くは幕府に従ったが、御所との溝は深まった。' },
+        { label: '大名に忠誠の一札を入れさせる', tag: '慎重', grow: 'seimu',
+          effects: { ryo: -30, ikou: 5, oboe: { daimyo: -1 } }, text: '大名たちに、幕府への忠誠を誓う一札を書かせた。書かせたことで、かえって白けた者もいる。' },
       ],
     },
   ],
@@ -2808,10 +3037,21 @@ window.IEYASU_DATA = {
       ],
     },
     {
+      title: '諸家の覚え（恩と恨み）',
+      body: [
+        '大名・商人・朝廷は、幕府の裁きや縁組を覚えている。改易すれば大名に恨まれ、借金を棒引きにさせれば商人に恨まれ、朝廷に献金すれば恩に着られる。選択肢の下に「大名の覚え●」などと出たら、その家の覚えが動く。',
+        '覚えは毎年少しずつしか薄れない（35年ほどで半分）。一代の仕打ちは、次の代まで尾を引く。政務の間と記録のメニューで、いまの覚えと、覚えが動いたわけが見られる。',
+        '覚えが深まると（±5）、その家ならではの出来事が起きる。恨まれていれば外様の連判状や密勅の噂、恩を売っていれば諸大名の申し出や豪商の御用金。恩を使えば、そのぶん覚えは浅くなる。',
+        '倒幕の危機の年には、覚えの深い家（±3）が先に動く。恩のある家は助けに来て、恨みのある家は敵に回る。',
+        '異国船との勝負では、海防に大名の、軍資金に商人の、朝廷に朝廷の覚えの4分の1が響く。商人の覚えは、借りられる上限にも響く（1につき2.5%）。',
+      ],
+    },
+    {
       title: '倒幕の危機',
       body: [
         '威光・民心・朝廷のどれかが0になると「倒幕の危機」になる。',
         '3年のうちに、威光・民心・朝廷をすべて10より上にすれば危機を脱する。戻せなければゲームオーバー。',
+        '危機の年には、恩を売ってきた家が助けに来て、恨みを買ってきた家が敵に回る（「諸家の覚え」を参照）。',
         '年が進むほど、大飢饉・大名連合・朝廷の不満などの大きな試練が来やすくなる。',
       ],
     },
@@ -2821,7 +3061,7 @@ window.IEYASU_DATA = {
         '白船は1700年ごろ、赤船は1777年ごろ、黒船は1853年ごろに来る（前後2年ほどのずれがある）。',
         '来る3〜5年前に予兆が出る。上の帯に「来航まで、あと◯年」が出て、政務の間に備えのようすが出る。',
         '来航の年は、出来事のかわりに勝負になる。役職ごとに勝負をし、決まった数だけ勝てば退けられる（白船は2回中1回、赤船は4回中3回、黒船は6回中4回）。',
-        '勝負の力は、その役職の家臣の腕と、将軍の能力÷4で決まる。長崎奉行があれば、海防と交渉に2足される。勝負ごとに軍資金を投じると、力が3上がる。',
+        '勝負の力は、その役職の家臣の腕と、将軍の能力÷4で決まる。長崎奉行があれば、海防と交渉に2足される。海防・軍資金・朝廷の勝負には、大名・商人・朝廷の覚えも響く。勝負ごとに軍資金を投じると、力が3上がる。',
         '白船・赤船に負けると、威光が大きく下がり、金も失う。黒船に負ければ倒幕。黒船を退ければ、史実を超えた結末になる（そのまま続けることもできる）。',
       ],
     },

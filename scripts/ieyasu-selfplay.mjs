@@ -187,13 +187,15 @@ function g0Data() {
   return ctx.IEYASU_DATA;
 }
 
-// お金がいちばん増える選択肢なのに、ゲージを1つも下げず、成否の判定も、あとで来る続きの出来事（flag）もないカード。
+// お金がいちばん増える選択肢なのに、ゲージも諸家の覚えも1つも下げず、成否の判定も、あとで来る続きの出来事（flag）もないカード。
 // こういう「損のない正解」が多いと、お金だけ見て選べば勝ててしまう。お金が増えないもの（0以下）は数えない
 function lossFree(data) {
   return data.cards.filter((card) => {
     const best = card.options.reduce((b, o, i) => (moneyValue(o.effects) > moneyValue(card.options[b].effects) ? i : b), 0);
     const o = card.options[best];
-    const hurts = ["ikou", "minshin", "chotei"].some((k) => (o.effects[k] || 0) < 0);
+    // 諸家の覚え（恩）を使うのも代償に数える
+    const hurts = ["ikou", "minshin", "chotei"].some((k) => (o.effects[k] || 0) < 0)
+      || Object.values(o.effects.oboe || {}).some((v) => v < 0);
     return moneyValue(o.effects) > 0 && !hurts && !o.check && !o.flag && !(o.effects.stress > 0) && !(o.effects.health < 0)
       && !(o.effects.borrow < 0); // 借入の返済は、いま現金を払うので「損のない」には数えない
   }).map((card) => card.id);
@@ -204,7 +206,8 @@ function playOne(seed, policy, fuseki) {
   const { dev, data } = g;
   const counts = { succession: {}, shogunKaku: [], warned: 0, left: 0, candidates: [], raises: 0,
     wives: {}, stars: [0, 0, 0, 0, 0, 0], daughters: 0, meddle: 0, balancedYears: 0, lowYears: 0, gaugeSum: 0, shipsArrived: [], ending: null,
-    events: 0, repeats: 0, talks: 0, purse: {}, ratings: [], ends: {} };
+    events: 0, repeats: 0, talks: 0, purse: {}, ratings: [], ends: {}, events1853: 0, repeats1853: 0,
+    deepCards: {}, crisisCards: {}, crises: 0, oboeAt1853: null };
   // 決算報告の「その年の出来事」から数える
   const NOTE_PATTERNS = { warned: /不満を漏らしている/, left: /見切りをつけて去った/ };
 
@@ -228,6 +231,13 @@ function playOne(seed, policy, fuseki) {
       // 同じ回の中で、前に見た出来事がまた出たか
       counts.events += 1;
       if (s.seen[card.id] !== undefined) counts.repeats += 1;
+      if (s.year <= 1853) {
+        counts.events1853 += 1;
+        if (s.seen[card.id] !== undefined) counts.repeats1853 += 1;
+      }
+      // 諸家の覚え：覚えが深いときの出来事と、危機の年に動いた家
+      if (card.deep) counts.deepCards[card.id] = (counts.deepCards[card.id] || 0) + 1;
+      if (card.crisis) counts.crisisCards[card.id] = (counts.crisisCards[card.id] || 0) + 1;
       dev.choose(policy.choose(g, card));
     } else if (s.phase === "result") {
       s.phase = "manage";
@@ -240,6 +250,8 @@ function playOne(seed, policy, fuseki) {
         // 年の暮れの現金と借入（開府100年・200年のようすを見る）
         const closed = dev.state.year - 1 - FOUNDED;
         if (closed === 100 || closed === 200) counts.purse[closed] = { cash: dev.state.fin.cash, debt: dev.state.fin.debt };
+        if (closed + FOUNDED === 1852) counts.oboeAt1853 = { ...dev.state.oboe };
+        if (dev.state.crisis && dev.state.crisis.years === dev.CONFIG.CRISIS_YEARS) counts.crises += 1;
         if (dev.branchesBalanced()) counts.balancedYears += 1;
         // 威光・民心・朝廷のいちばん低いもの（20を切った年の数と、ならした値）
         const lowest = Math.min(...Object.values(dev.state.gauges));
@@ -341,6 +353,11 @@ function playOne(seed, policy, fuseki) {
     ending: counts.ending,
     blackFall: s.overReason === "black",
     repeatRate: counts.repeats / Math.max(1, counts.events),
+    repeatRate1853: counts.repeats1853 / Math.max(1, counts.events1853),
+    deepCards: counts.deepCards,
+    crisisCards: counts.crisisCards,
+    crises: counts.crises,
+    oboeAt1853: counts.oboeAt1853,
     talks: counts.talks,
     kien: s.kien || 0,
     purse: counts.purse,
@@ -469,7 +486,24 @@ function main() {
     if (list.length) console.log(`開府${y}年の暮れ（届いた${pct(list.length, n)}）: 現金 平均${Math.round(avg(list.map((x) => x.cash)))}万両・中央${Math.round(quantile(list.map((x) => x.cash).sort((a, b) => a - b), 0.5))}　借入 平均${Math.round(avg(list.map((x) => x.debt)))}万両`);
   }
   console.log(`借金の棒引き（棄捐令）: 命じた回 ${pct(kienGames.length, n)}　1回あたり平均 ${avg(results.map((r) => r.kien)).toFixed(1)}回${kienGames.length ? `（はじめて命じた年 平均 開府${Math.round(avg(kienGames.map((r) => r.firstKien)))}年）` : ""}`);
-  console.log(`出来事: 前に見たものの再登場 ${pct(avg(results.map((r) => r.repeatRate)) * 100, 100)}　時代の章・史実の節目の掛け合い: 1回あたり平均 ${avg(results.map((r) => r.talks)).toFixed(1)}回`);
+  const oboeGames = results.filter((r) => r.oboeAt1853);
+  {
+    const parties = Object.keys(createGame(0).dev.OBOE_LABELS);
+    const LABELS = { daimyo: '大名', shonin: '商人', kuge: '朝廷' };
+    const desc = (k) => {
+      const v = oboeGames.map((r) => r.oboeAt1853[k]);
+      return `${LABELS[k]} 平均${avg(v).toFixed(1)}（恨み−5以下${pct(v.filter((x) => x <= -5).length, v.length)}・恩+5以上${pct(v.filter((x) => x >= 5).length, v.length)}）`;
+    };
+    const tally = (key) => {
+      const all = {};
+      for (const r of results) for (const [id, k] of Object.entries(r[key])) all[id] = (all[id] || 0) + k;
+      return Object.entries(all).sort((a, b) => b[1] - a[1]).map(([id, k]) => `${id} ${(k / n).toFixed(2)}`).join('・') || 'なし';
+    };
+    if (oboeGames.length) console.log(`諸家の覚え（1852年の暮れ）: ${parties.map(desc).join(' / ')}`);
+    console.log(`　覚えの出来事（1回あたり）: ${tally('deepCards')}`);
+    console.log(`　倒幕の危機 1回あたり${avg(results.map((r) => r.crises)).toFixed(2)}回　危機の年に動いた家（1回あたり）: ${tally('crisisCards')}`);
+  }
+  console.log(`出来事: 前に見たものの再登場 ${pct(avg(results.map((r) => r.repeatRate)) * 100, 100)}（1853年まで ${pct(avg(results.map((r) => r.repeatRate1853)) * 100, 100)}）　時代の章・史実の節目の掛け合い: 1回あたり平均 ${avg(results.map((r) => r.talks)).toFixed(1)}回`);
   console.log(`損のない選択肢（いちばんお金になり、威光・民心・朝廷を下げず、成否の判定も続きの出来事もないもの）: ${lossFree(g0Data()).join('、') || 'なし'}`);
   console.log(`（${((Date.now() - started) / 1000).toFixed(1)}秒）`);
 }

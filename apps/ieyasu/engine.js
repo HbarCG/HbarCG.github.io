@@ -70,7 +70,7 @@
     // 借入が上限を超えても、幕府は倒れない。商人に借金の棒引きを命じ（棄捐令）、借入を上限の KIEN_KEEP まで減らす。
     // そのかわり、威光と民心が下がり、出来事で増やした交易の上がりが KIEN_TRADE の割合だけ残る（商人が離れる）
     KIEN_KEEP: 0.6,
-    KIEN_EFFECTS: { ikou: -4, minshin: -3 },
+    KIEN_EFFECTS: { ikou: -4, minshin: -3, oboe: { shonin: -4 } },
     KIEN_TRADE: 0.5,
     INTEREST: 0.08,         // 借入の利息（年）
     DEBT_LIMIT: 2,          // 借りられる上限は、その年の歳入のこの倍まで
@@ -105,9 +105,18 @@
     EPITHET_POST: [15, 18], // 同じ役職を [0] 年以上、腕 [1] 以上で務めると、役職ごとの二つ名がつく
     EPITHET_WORK: 30,       // 普請の評定がこの点以上なら、奉行に二つ名がつく
     EPITHET_ELDER: 45,      // この年数以上仕えると、二つ名がつく
+    // 諸家の覚え（大名・商人・朝廷の恩と恨み）。裁きや縁組でたまり、ゆっくり薄れる。プラスが恩、マイナスが恨み
+    OBOE_MAX: 10,           // 覚えは −10〜+10
+    OBOE_FADE: 0.02,        // 毎年、覚えがこの割合だけ0に近づく（35年ほどで半分。一代の仕打ちは、次の代まで尾を引く）
+    OBOE_DEEP: 5,           // 覚えがこの深さ（恩なら+5、恨みなら−5）に届くと、その家ならではの出来事（外様の連判状・豪商の御用金など）が出る
+    OBOE_CRISIS: 3,         // 倒幕の危機の年、覚えがこの深さに届いている家が動く（恩なら助けに来て、恨みなら敵に回る）
+    OBOE_WEIGHT: 4,         // 恨み（恩）が1深まるごとに、その家にまつわる厳しい（良い）出来事が 1/4 ずつ出やすくなる
+    OBOE_SHIP: 4,           // 異国船の勝負で、覚えの 1/4 が力に足される（海防＝大名・軍資金＝商人・朝廷＝朝廷）
+    OBOE_DEBT: 0.025,       // 商人の覚えが1違うごとに、借りられる上限が2.5%増減する
   };
 
   const STATE_LABELS = { ikou: '威光', minshin: '民心', chotei: '朝廷' };
+  const OBOE_LABELS = { daimyo: '大名', shonin: '商人', kuge: '朝廷' };
   const ABILITY_LABELS = { seimu: '政務', bui: '武威', jintoku: '人徳', kenko: '体質' };
   const RETAINER_LABELS = { seimu: '政務', sanyo: '算用', bui: '武威', jinbo: '人望' };
   const TEACH_LABELS = { seimu: '学問', bui: '武芸', jintoku: '人の道', kenko: '養生' };
@@ -254,6 +263,9 @@
       saved.reign = { from: saved.year, tags: {}, gauges: { ...saved.gauges }, net: null, kaku: kakuOf(saved.shogun.stats),
         insts: 0, won: (saved.ships.won || []).length, lost: (saved.ships.lost || []).length, crisis: false };
     }
+    // 諸家の覚えを入れる前の保存データ。覚えは平らから始める
+    saved.oboe = saved.oboe || { daimyo: 0, shonin: 0, kuge: 0 };
+    saved.oboeLog = saved.oboeLog || [];
     // 結果の画面は政務の間にまとめた
     if (saved.phase === 'result') saved.phase = 'manage';
     if (saved.era === undefined) saved.era = saved.phase === 'prologue' ? null : eraAt(saved.year).id;
@@ -377,6 +389,8 @@
       kien: 0,          // 借入が上限を超えて、借金の棒引き（棄捐令）を命じた回数
       reign: null,      // いまの将軍の御治世（1章）の始まりの記録。評定に使う（beginReign）
       kakun: {},        // 家訓の段（{ kenyaku: 1, ... }）。宿願を果たすと上がり、代をまたいで残る
+      oboe: { daimyo: 0, shonin: 0, kuge: 0 }, // 諸家の覚え（恩はプラス、恨みはマイナス）。moveOboe
+      oboeLog: [],      // 覚えが動いたわけ（{ year, party, delta, why }。新しいものが先）
       ledger: { year: CONFIG.START_YEAR, items: [] },
       books: [],
       family: [],
@@ -747,7 +761,7 @@
     const kind = brideKind(b.kind);
     state.oku.wife = b;
     state.oku.offers = null;
-    applyEffects(kind.on, { label: '将軍の婚礼' });
+    applyEffects(kind.on, { label: '将軍の婚礼', why: `${b.house}の${b.name}を正室に迎えた` });
     if (kind.flag) state.flags[kind.flag] = state.year;
     person(state.shogun.personId).wife = `${b.name}（${b.house}・${kind.label}）`;
     addLog(`将軍・${state.shogun.name}は、${b.house}の${b.name}を正室に迎えた。`);
@@ -781,7 +795,7 @@
     const house = pick(match.houses);
     state.daughters.splice(index, 1);
     person(d.personId).note = `${house}へ嫁ぐ。`;
-    applyEffects(match.on, { label: '姫の婚礼' });
+    applyEffects(match.on, { label: '姫の婚礼', why: `姫・${d.name}を${house}へ嫁がせた` });
     addLog(`姫・${d.name}が${house}へ嫁いだ。`);
   }
 
@@ -803,7 +817,7 @@
     } else {
       const house = pick(brideKind('daimyo').houses);
       person(heir.personId).note = `${house}の養子となる。`;
-      applyEffects({ ikou: 2, ryo: -CONFIG.ADOPT_OUT_COST }, { label: '養子の支度' });
+      applyEffects({ ikou: 2, ryo: -CONFIG.ADOPT_OUT_COST, oboe: { daimyo: 0.5 } }, { label: '養子の支度', why: `若君・${heir.name}を${house}の養子に出した` });
       addLog(`若君・${heir.name}を${house}へ養子に出した。`);
     }
   }
@@ -938,7 +952,7 @@
     return Boolean(a) && state.year >= a.year;
   }
 
-  // 勝負の力：役職の腕（特技の上乗せこみ）＋将軍の能力÷4（＋長崎奉行があれば、海防と交渉に2）
+  // 勝負の力：役職の腕（特技の上乗せこみ）＋将軍の能力÷4（＋長崎奉行があれば、海防と交渉に2）＋家訓・普請・諸家の覚え
   function roundParts(roundId) {
     const r = DATA.shipRounds[roundId];
     const post = POSTS.find((p) => p.id === r.post);
@@ -949,8 +963,11 @@
       nagasaki: hasInstitution('nagasaki') && (roundId === 'kaibo' || roundId === 'kosho') ? 2 : 0,
       kakun: kakun('kaibo'),
       works: state.shipPower || 0,
+      // 諸家の覚え（海防は大名が兵と船を出すか、軍資金は商人が貸すか、朝廷は御所が幕府の肩を持つか）
+      oboe: r.oboe ? Math.round(oboe(r.oboe) / CONFIG.OBOE_SHIP * 10) / 10 : 0,
+      oboeParty: r.oboe || null,
     };
-    parts.power = Math.round((parts.value + parts.shogun + parts.nagasaki + parts.kakun + parts.works) * 10) / 10;
+    parts.power = Math.round((parts.value + parts.shogun + parts.nagasaki + parts.kakun + parts.works + parts.oboe) * 10) / 10;
     return parts;
   }
 
@@ -1241,6 +1258,55 @@
     return POSTS.filter((p) => !holder(p.id));
   }
 
+  // ─────────────────────────────── 諸家の覚え（積み重なる歴史）
+  // 大名・商人・朝廷は、幕府の裁きや縁組を覚えている。恩はプラス、恨みはマイナスでたまり、ゆっくり薄れる。
+  // 覚えが深まると、その家ならではの出来事が出て、倒幕の危機には助けに来るか敵に回り、異国船の勝負の力にも響く
+
+  function oboe(party) {
+    return (state.oboe && state.oboe[party]) || 0;
+  }
+
+  // 覚えを動かし、わけを残す。why は「かつて◯◯ことを」に入る形にする（「無断の城普請で「改易する」と裁いた」など）。
+  // 実際に動いた量を返す
+  function moveOboe(party, v, why) {
+    if (!v || !OBOE_LABELS[party]) return 0;
+    const before = oboe(party);
+    state.oboe[party] = clamp(before + v, -CONFIG.OBOE_MAX, CONFIG.OBOE_MAX);
+    state.oboeLog.unshift({ year: state.year, party, delta: v, why: why || '幕府の裁き' });
+    state.oboeLog = state.oboeLog.slice(0, 60);
+    return state.oboe[party] - before;
+  }
+
+  // 覚えの呼び名（四捨五入した値で）
+  function oboeLabel(v) {
+    const r = Math.round(v);
+    if (r <= -CONFIG.OBOE_DEEP) return '深い恨み';
+    if (r <= -2) return '恨み';
+    if (r >= CONFIG.OBOE_DEEP) return '厚い恩';
+    if (r >= 2) return '恩';
+    return '平ら';
+  }
+
+  // 覚えがその深さに届いているか。side: 'urami'（恨み）/ 'on'（恩）
+  function oboeReached(party, side, depth) {
+    const v = oboe(party);
+    return side === 'on' ? v >= depth : v <= -depth;
+  }
+
+  // その家がいちばん根に持っている（side が 'on' なら、いちばん恩に着ている）幕府の仕打ち。
+  // 残っているわけの中で、動いた量がいちばん大きいもの（同じなら新しいもの）
+  function oboeWhy(party, side) {
+    const sign = side === 'on' ? 1 : -1;
+    const list = state.oboeLog.filter((e) => e.party === party && e.delta * sign > 0);
+    if (list.length === 0) return side === 'on' ? '幕府に目をかけてもらった' : '幕府に冷たくあしらわれた';
+    return list.reduce((best, e) => (Math.abs(e.delta) > Math.abs(best.delta) ? e : best)).why;
+  }
+
+  // 毎年、覚えは少しずつ薄れる
+  function fadeOboe() {
+    for (const k of Object.keys(OBOE_LABELS)) state.oboe[k] = Math.round(oboe(k) * (1 - CONFIG.OBOE_FADE) * 100) / 100;
+  }
+
   // ─────────────────────────────── 帳簿
 
   // cf: 'op'（営業）/ 'inv'（投資）/ 'fin'（財務）
@@ -1257,8 +1323,9 @@
     return CONFIG.TRADE_START + inst + syn + works;
   }
 
+  // 借りられる上限。商人に恩を売っていれば多く、恨まれていれば少なく貸してくれる
   function debtLimit() {
-    return Math.round(state.fin.lastRevenue * CONFIG.DEBT_LIMIT);
+    return Math.round(state.fin.lastRevenue * CONFIG.DEBT_LIMIT * (1 + oboe('shonin') * CONFIG.OBOE_DEBT));
   }
 
   function assets() {
@@ -1381,7 +1448,7 @@
     f.debt = Math.round(debtLimit() * CONFIG.KIEN_KEEP);
     const floor = Math.min(f.trade, tradeBase());
     f.trade = floor + (f.trade - floor) * CONFIG.KIEN_TRADE;
-    applyEffects(CONFIG.KIEN_EFFECTS);
+    applyEffects(CONFIG.KIEN_EFFECTS, { why: '棄捐令で借金を棒引きにさせた' });
     state.kien = (state.kien || 0) + 1;
     addLog(`借入が上限を超え、商人に借金の棒引き（棄捐令）を命じた（借入 ${formatRyo(before)}→${formatRyo(f.debt)}）。`);
     return `借入が上限を超えた。商人に借金の棒引き（棄捐令）を命じ、借入を${formatRyo(before)}から${formatRyo(f.debt)}に減らした。`
@@ -1401,12 +1468,19 @@
     if (card.followUp) w *= 3;
     if (card.tone === 'good') w *= 1 + state.tension * 0.6;
     if (card.tone === 'bad') w /= 1 + state.tension * 0.5;
+    // 諸家の覚え。恨まれている家にまつわる厳しい出来事、恩を売った家にまつわる良い出来事が出やすい
+    if (card.grudge) w *= 1 + Math.max(0, -oboe(card.grudge)) / CONFIG.OBOE_WEIGHT;
+    if (card.favor) w *= 1 + Math.max(0, oboe(card.favor)) / CONFIG.OBOE_WEIGHT;
+    // 危機の年に動く家は、覚えが深いほど先に動く
+    if (card.crisis) w *= Math.abs(oboe(card.crisis.party));
     return w;
   }
 
-  // 出来事の文中の {roju} などを、いまの役職の家臣の名前に置き換える
+  // 出来事の文中の {roju} などを、いまの役職の家臣の名前に置き換える。
+  // {urami:daimyo} {on:shonin} などは、その家がいちばん根に持っている（恩に着ている）幕府の仕打ちになる
   function fillNames(text) {
-    return text.replace(/\{(\w+)\}/g, (all, key) => {
+    return text.replace(/\{(\w+)(?::(\w+))?\}/g, (all, key, party) => {
+      if (party && (key === 'urami' || key === 'on')) return oboeWhy(party, key);
       if (key === 'shogun') return state.shogun.name;
       if (key === 'branch') return (strongBranch() || { house: '御三家のひとつ' }).house;
       const post = POSTS.find((p) => p.id === key);
@@ -1423,6 +1497,9 @@
       if (card.minYear && state.year < card.minYear) return false;
       if (card.maxYear && state.year > card.maxYear) return false;
       if (card.when && !card.when(view)) return false;
+      // 諸家の覚えが深いときだけ出る出来事と、倒幕の危機の年に、覚えの深い家が動く出来事
+      if (card.deep && !oboeReached(card.deep.party, card.deep.side, CONFIG.OBOE_DEEP)) return false;
+      if (card.crisis && !(state.crisis && oboeReached(card.crisis.party, card.crisis.side, CONFIG.OBOE_CRISIS))) return false;
       const last = state.seen[card.id];
       if (last === undefined) return true;
       if (card.once) return false;
@@ -1430,6 +1507,9 @@
     };
     let pool = DATA.cards.filter((c) => usable(c, true));
     if (pool.length === 0) pool = DATA.cards.filter((c) => usable(c, false));
+    // 倒幕の危機の年は、覚えの深い家が先に動く（恩を売った家は助けに来て、恨みを買った家は敵に回る）
+    const crisisCards = pool.filter((c) => c.crisis);
+    if (crisisCards.length > 0) pool = crisisCards;
 
     const total = pool.reduce((sum, c) => sum + cardWeight(c), 0);
     let roll = Math.random() * total;
@@ -1468,6 +1548,14 @@
     const guarded = isGuarded(opts.kind);
     const f = state.fin;
     for (const [key, raw] of Object.entries(effects)) {
+      if (key === 'oboe') {
+        // 諸家の覚え。opts.why（なければ opts.label）を、覚えのわけとして残す
+        for (const [party, d] of Object.entries(raw)) {
+          const moved = moveOboe(party, d, opts.why || opts.label);
+          if (moved !== 0) changes.push({ label: `${OBOE_LABELS[party]}の覚え`, delta: Math.round(moved * 10) / 10, good: moved > 0 });
+        }
+        continue;
+      }
       if (key === 'heir') {
         const heir = eldestHeir();
         if (!heir) continue;
@@ -1551,7 +1639,7 @@
     let success = true;
     if (option.check) success = Math.random() < successChance(option.check);
     const changes = applyEffects(success ? option.effects : option.fail,
-      { kind: card.kind, invest: option.invest, label: card.title });
+      { kind: card.kind, invest: option.invest, label: card.title, why: `${card.title}で「${option.label}」と裁いた` });
 
     // 将軍の好みに合う裁きなら、将軍は乗り気で取り組み、経験を積んで育ち、気苦労も減る。
     // 合わない裁きを押しつけると、気苦労がたまる
@@ -1751,6 +1839,7 @@
     const aj = abilityJisseki();
     state.jisseki += 1 + withCarry('jisseki', aj.shogun + aj.post) + (s.house === 'mito' ? 1 : 0) + kakun('hosei');
     ageBranches();
+    fadeOboe();
 
     closeBooks();
 
@@ -2523,7 +2612,7 @@
   window.IEYASU_ENGINE = {
     state, DATA, CONFIG,
     // 名前と決まりごと
-    STATE_LABELS, ABILITY_LABELS, RETAINER_LABELS, TEACH_LABELS, FIN_LABELS, OTHER_LABELS, LOWER_IS_BETTER, TRAITS, POSTS,
+    STATE_LABELS, OBOE_LABELS, ABILITY_LABELS, RETAINER_LABELS, TEACH_LABELS, FIN_LABELS, OTHER_LABELS, LOWER_IS_BETTER, TRAITS, POSTS,
     // 小さな道具
     clamp, formatRyo, institution, hasInstitution, bakufuYears, price, scaledCost,
     // 保存
@@ -2558,5 +2647,7 @@
     projectDef, projectCost, projectOptions, bestBugyo, startProject, projectLeft,
     // 味付け（見立番付・二つ名・江戸の町・図鑑）
     banzukeTable, banzukeRank, townView, loadZukan,
+    // 諸家の覚え（積み重なる歴史）
+    oboe, oboeLabel, oboeReached, oboeWhy,
   };
 })();

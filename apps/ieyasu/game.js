@@ -11,7 +11,7 @@
 
   // ルールの側から借りるもの（状態と、状態を読むだけの道具）。state は engine.js と同じ入れ物
   const {
-    state, DATA, CONFIG, STATE_LABELS, ABILITY_LABELS, RETAINER_LABELS, TEACH_LABELS, POSTS,
+    state, DATA, CONFIG, STATE_LABELS, OBOE_LABELS, ABILITY_LABELS, RETAINER_LABELS, TEACH_LABELS, POSTS,
     institution, hasInstitution, bakufuYears, scaledCost, loadHonors, loadBest, formatRyo,
     kakuOf, shogunKaku, constitution, constitutionWear, abilityDrift, abilityJisseki, skillById, starInfo, starText, person,
     brideKind, ookuBase, birthChance, branchById, bloodKaku, branchDef, projectedBlood, strongBranch, branchesBalanced,
@@ -21,6 +21,7 @@
     wishStatus, wishDef, kakun, kakunDef, heirCap, expectedChildKaku,
     projectDef, projectCost, projectOptions, bestBugyo, projectLeft,
     banzukeTable, townView, loadZukan,
+    oboe, oboeLabel,
   } = E;
 
   // ルールの側の操作。状態を変えたあと、保存して描き直す（commit）
@@ -60,6 +61,25 @@
   // 家訓の一覧（段のあるものだけ）。なければ空
   function kakunList() {
     return DATA.kakun.filter((k) => kakun(k.id) > 0).map((k) => `${k.name}${kakun(k.id)}段（${k.desc}）`);
+  }
+
+  // 諸家の覚えを短い文にする（「大名 恩+3・商人 平ら・朝廷 恨み−2」）
+  function oboeLine() {
+    return Object.keys(OBOE_LABELS).map((k) => {
+      const v = Math.round(oboe(k));
+      return `${OBOE_LABELS[k]} ${oboeLabel(v)}${v ? signed(v) : ''}`;
+    }).join('・');
+  }
+
+  // 覚えが動いたわけの一覧（新しいものから。limit 件まで）
+  function oboeLogNodes(limit = Infinity) {
+    const list = state.oboeLog.slice(0, limit);
+    if (list.length === 0) return [el('p', { class: 'iy-hint', text: 'まだ、どの家とも貸し借りはない。' })];
+    return [el('ul', { class: 'iy-log' }, list.map((e) => el('li', {}, [
+      el('span', { class: 'iy-log__year', text: `${e.year}` }),
+      el('span', { class: e.delta > 0 ? 'iy-up' : 'iy-down', text: `${OBOE_LABELS[e.party]}${e.delta > 0 ? 'の恩' : 'の恨み'}${signed1(Math.abs(e.delta))}　` }),
+      e.why,
+    ])))];
   }
 
   // 遺言の決まり（cards.js の testaments）。id がなければ null
@@ -642,6 +662,8 @@
     },
     { label: '将軍', size: (e) => Math.abs(e.health || 0) + Math.abs(e.stress || 0) / 2, steps: [5, 10] },
     { label: '若君', size: (e) => Object.values(e.heir || {}).reduce((a, b) => a + Math.abs(b), 0), steps: [1, 2] },
+    // 諸家の覚え（大名・商人・朝廷の恩と恨み）
+    ...Object.entries(OBOE_LABELS).map(([k, label]) => ({ label: `${label}の覚え`, size: (e) => Math.abs((e.oboe || {})[k] || 0), steps: [1, 2] })),
   ];
   const MARK_WORDS = ['少し', 'かなり', '大きく'];
 
@@ -792,7 +814,7 @@
       const short = state.fin.cash < cost;
       nodes.push(el('div', { class: 'iy-round' }, [
         el('p', { class: 'iy-round__title', text: `第${b.round + 1}の勝負：${r.name}（${r.desc}）` }),
-        el('p', { class: 'iy-hint', text: `${p.post.name}・${p.holder ? p.holder.name : '空席'}の${RETAINER_LABELS[p.post.stat]}${p.value}　＋　将軍の${ABILITY_LABELS[r.stat]}÷4（${p.shogun}）${p.nagasaki ? `　＋　長崎奉行（${p.nagasaki}）` : ''}${p.kakun ? `　＋　海防の家訓（${p.kakun}）` : ''}${p.works ? `　＋　普請（${p.works}）` : ''}　＝　力${p.power}（難しさ${ship.difficulty}）` }),
+        el('p', { class: 'iy-hint', text: `${p.post.name}・${p.holder ? p.holder.name : '空席'}の${RETAINER_LABELS[p.post.stat]}${p.value}　＋　将軍の${ABILITY_LABELS[r.stat]}÷4（${p.shogun}）${p.nagasaki ? `　＋　長崎奉行（${p.nagasaki}）` : ''}${p.kakun ? `　＋　海防の家訓（${p.kakun}）` : ''}${p.works ? `　＋　普請（${p.works}）` : ''}${p.oboe ? `　${p.oboe > 0 ? '＋' : '−'}　${OBOE_LABELS[p.oboeParty]}の${p.oboe > 0 ? '恩' : '恨み'}（${Math.abs(p.oboe)}）` : ''}　＝　力${p.power}（難しさ${ship.difficulty}）` }),
       ]));
       nodes.push(el('div', { class: 'iy-options' }, [
         el('button', { type: 'button', class: 'iy-option', onclick: () => fight(false) }, [
@@ -856,7 +878,7 @@
           `　${p.post.name}・${p.holder ? p.holder.name : '空席'}　力${p.power}（難しさ${ship.difficulty}）　見込み${Math.round(roundChance(p.power, ship) * 100)}%`,
         ]);
       })),
-      el('p', { class: 'iy-hint', text: `力は、役職の腕と、将軍の能力÷4で決まる。当日は、勝負ごとに軍資金（約${boostCost(ship)}万両）を投じて、力を${CONFIG.SHIP_BOOST}上げられる。` }),
+      el('p', { class: 'iy-hint', text: `力は、役職の腕と、将軍の能力÷4で決まる。海防は大名、軍資金は商人、朝廷は朝廷の覚え（恩と恨み）も響く。当日は、勝負ごとに軍資金（約${boostCost(ship)}万両）を投じて、力を${CONFIG.SHIP_BOOST}上げられる。` }),
     ];
   }
 
@@ -933,6 +955,7 @@
   function termsOf(on, ryoName) {
     return Object.entries(on).map(([key, v]) => {
       if (key === 'ryo') return v < 0 ? `${ryoName} 約${Math.abs(scaledCost(v))}万両` : `持参金 ${v}万両`;
+      if (key === 'oboe') return Object.entries(v).map(([k, d]) => `${OBOE_LABELS[k]}の覚え${signed(d)}`).join('・');
       return STATE_LABELS[key] ? `${STATE_LABELS[key]}${signed(v)}` : '';
     }).filter(Boolean).join('・');
   }
@@ -1008,6 +1031,12 @@
       testamentDef(state.shogun.testament) ? el('p', { class: 'iy-hint', text: `先代の遺言「${testamentDef(state.shogun.testament).label}」：${testamentDef(state.shogun.testament).desc}` }) : null,
       wishStatus() ? el('p', { class: 'iy-hint', text: wishLine(wishStatus()) }) : null,
       kakunList().length ? el('p', { class: 'iy-hint', text: `家訓：${kakunList().join('、')}` }) : null,
+      el('details', { class: 'iy-oboe' }, [
+        el('summary', { text: `諸家の覚え：${oboeLine()}` }),
+        el('p', { class: 'iy-hint', text: '大名・商人・朝廷は、幕府の裁きや縁組を覚えている。恩も恨みも、ゆっくりとしか薄れない。'
+          + `覚えが深まるとその家ならではの出来事が起き、倒幕の危機には、恩のある家は助けに来て、恨みのある家は敵に回る。異国船との勝負の力にも響く。` }),
+        ...oboeLogNodes(8),
+      ]),
       ...shipPrepNodes(),
       el('h3', { text: '若君' }),
     );
@@ -1411,6 +1440,7 @@
       insts.length ? el('p', { class: 'iy-hint', text: `整えた制度：${insts.join('、')}${syns.length ? `（組み合わせの妙：${syns.join('、')}）` : ''}` }) : null,
       ships.length ? el('p', { class: 'iy-hint', text: `異国船：${ships.join('、')}` }) : null,
       kakunList().length ? el('p', { class: 'iy-hint', text: `家訓：${kakunList().join('、')}` }) : null,
+      el('p', { class: 'iy-hint', text: `諸家の覚え：${oboeLine()}` }),
       state.projectsDone.length ? el('p', { class: 'iy-hint', text: `普請：${state.projectsDone.map((p) => `${projectDef(p.id).name}（${p.year}年・${p.total}点）`).join('、')}` }) : null,
       top.length ? el('p', { class: 'iy-hint', text: `見立番付の大関：${top.map((d) => `${d.side} ${d.label}「${d.name}」`).join('、')}` }) : null,
       state.meishin.length ? el('p', { class: 'iy-hint', text: `名臣録：${state.meishin.slice(0, 12).map((m) => `${m.epithet}（${m.name}）`).join('、')}${state.meishin.length > 12 ? `、ほか${state.meishin.length - 12}人` : ''}` }) : null,
@@ -1782,6 +1812,10 @@
       panel('見立番付', [
         el('p', { class: 'iy-hint', text: '十年ごとの暮れに、その十年の治世に点をつけて番付にする（威光・民心・朝廷、金蔵、普請、異国船、栄誉などを見る）。' }),
         ...banzukeNodes(),
+      ]),
+      panel('諸家の覚え', [
+        el('p', { class: 'iy-hint', text: `いまの覚え：${oboeLine()}。幕府の裁きや縁組で、大名・商人・朝廷の恩と恨みがたまる（毎年少しずつ薄れる）。` }),
+        ...oboeLogNodes(),
       ]),
       panel('名臣録', state.meishin.length
         ? [el('ul', { class: 'iy-log' }, state.meishin.map((m) => el('li', {}, [
