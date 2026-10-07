@@ -91,8 +91,11 @@
     STRESS_RELUCTANT: 6,    // 好みに合わない裁きをすると、気苦労がたまる
     STRESS_DECAY: 2,        // 毎年、自然に減る気苦労
     // 将軍の寿命。病に伏す（御不例）と、数年のうちに世を去る。予告なしの急死は、ごくまれ。
-    // 病に伏す見込み（1年あたり）は、健康が40を下回るほど、60歳を超えるほど上がる
-    SUDDEN_DEATH: 0.003,    // 予告なしに世を去る見込み（1年あたり）
+    // 病に伏す見込み（1年あたり）は、健康が40を下回るほど、50歳を超えるほど上がる
+    AGE_WEAR: [[35, 2], [50, 4]], // 歳による健康の衰え。[この歳から, 毎年これだけ減る]（体質と特技「頑健」で増減する）
+    AILING_HEALTH: 40,      // 健康がこれを1下回るごとに、病に伏す見込みが年0.8%上がる
+    AILING_AGE: 50,         // この歳を1超えるごとに、病に伏す見込みが年2%上がる
+    SUDDEN_DEATH: 0.002,    // 予告なしに世を去る見込み（1年あたり。在位28年ほどで、20代に1度ほど）
     AILING_DEATH: 0.4,      // 御不例のあいだ、1年に世を去る見込み
     AILING_MAX: 4,          // 御不例は、長くともこの年数で終わる
     AILING_RECOVER: 50,     // 御不例のあいだに健康がここまで戻れば、病は癒える
@@ -1873,8 +1876,8 @@
     s.age += 1;
     // 体質が10より高いほど衰えにくく、低いほど衰えやすい（体質20で半分、4以下で1.3倍）
     const wear = (hasSkill('ganken') ? 0.5 : 1) * constitutionWear();
-    if (s.age >= 60) s.health -= 4 * wear;
-    else if (s.age >= 40) s.health -= 2 * wear;
+    const ageWear = CONFIG.AGE_WEAR.filter(([from]) => s.age >= from).pop();
+    if (ageWear) s.health -= ageWear[1] * wear;
     s.stress = clamp((s.stress || 0) - CONFIG.STRESS_DECAY, 0, 100);
     if (s.stress >= 85) {
       s.health -= 6;
@@ -1897,7 +1900,7 @@
       }
     } else if (Math.random() < CONFIG.SUDDEN_DEATH) {
       died = true;
-    } else if (Math.random() < Math.max(0, 40 - s.health) * 0.008 + Math.max(0, s.age - 60) * 0.02) {
+    } else if (Math.random() < Math.max(0, CONFIG.AILING_HEALTH - s.health) * 0.008 + Math.max(0, s.age - CONFIG.AILING_AGE) * 0.02) {
       s.ailing = { since: state.year };
       fellIll = true;
       notes.push(`将軍・${s.name}が病に伏した（御不例）。残された時は、長くないかもしれぬ。跡継ぎの支度を急げ。`);
