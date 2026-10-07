@@ -51,13 +51,16 @@
         <div class="iy-tabpanel" id="tab-seimu">
           <section class="iy-panel iy-stage" id="stage" aria-live="polite"></section>
         </div>
-        <div class="iy-tabpanel" id="tab-family" hidden></div>
-        <div class="iy-tabpanel" id="tab-finance" hidden></div>
-        <div class="iy-tabpanel" id="tab-org" hidden></div>
-        <div class="iy-tabpanel" id="tab-log" hidden></div>
+        <!-- 下のメニューと、政務のほかの画面。PCの広い画面では、政務の右に2列目として並べる -->
+        <div class="iy-side" id="side">
+          <nav class="iy-tabbar" id="tabbar" aria-label="ゲームのメニュー" hidden></nav>
+          <div class="iy-tabpanel" id="tab-family" hidden></div>
+          <div class="iy-tabpanel" id="tab-finance" hidden></div>
+          <div class="iy-tabpanel" id="tab-org" hidden></div>
+          <div class="iy-tabpanel" id="tab-log" hidden></div>
+        </div>
       </div>
 
-      <nav class="iy-tabbar" id="tabbar" aria-label="ゲームのメニュー" hidden></nav>
       <dialog class="iy-dialog" id="guide-dialog" aria-label="ガイド"></dialog>
       <div class="iy-coach" id="coach" hidden></div>
     </main>

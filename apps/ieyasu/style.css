@@ -1673,3 +1673,50 @@ body.iy-coaching .iy-raise {
     animation: none;
   }
 }
+
+/* ─── PCの広い画面（2列）。政務を左に、家系図・財務・組織・記録を右に並べる。
+   body.iy-wide は、game.js が画面の幅（1100px以上）を見てつける */
+body.iy-wide .page {
+  max-width: 76rem;
+}
+
+body.iy-wide.iy-has-tabbar {
+  padding-bottom: 0;
+}
+
+body.iy-wide .iy-game {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  column-gap: 1.5rem;
+  align-items: start;
+}
+
+body.iy-wide .iy-topbar {
+  grid-column: 1 / -1;
+}
+
+body.iy-wide .iy-side {
+  position: sticky;
+  top: var(--iy-top, 8rem);
+  max-height: calc(100vh - var(--iy-top, 8rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 0.25rem 1.25rem;
+}
+
+body.iy-wide .iy-tabbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  grid-template-columns: repeat(4, 1fr);
+  max-width: none;
+  margin: 1.25rem 0 0;
+  padding-bottom: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 6%);
+}
+
+body.iy-wide .iy-tab[data-tab="seimu"] {
+  display: none;
+}

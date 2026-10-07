@@ -150,8 +150,26 @@
   const TUTORIAL_KEY = 'ieyasu-tutorial-done';
 
   // 画面だけの状態（保存しない）。coach はチュートリアルの何番目を見せているか
-  // reportShown は、演出を見せ終えた決算の年（描き直しても、演出をくり返さない）
-  const ui = { tab: 'seimu', person: null, bookYear: 'now', coach: null, coachLine: 0, reportShown: null };
+  // reportShown は、演出を見せ終えた決算の年（描き直しても、演出をくり返さない）。
+  // side は、PCの広い画面で政務の右に並べる画面（家系図・財務・組織・記録のどれか）
+  const ui = { tab: 'seimu', person: null, bookYear: 'now', coach: null, coachLine: 0, reportShown: null, side: 'org' };
+
+  // PCの広い画面（2列）。政務を左に、ほかの画面を右に並べる
+  const WIDE = window.matchMedia ? window.matchMedia('(min-width: 1100px)') : { matches: false };
+  const isWide = () => WIDE.matches && state.phase !== 'prologue';
+
+  // メニューの画面を開く。広い画面では、政務はいつも左にあるので、右の列を切り替える
+  function openTab(id) {
+    ui.tab = id;
+    if (id !== 'seimu') ui.side = id;
+    render();
+    if (isWide()) {
+      if (id === 'seimu') scrollToGame();
+      else $('side').scrollTop = 0;
+    } else {
+      scrollToGame();
+    }
+  }
 
   // ─────────────────────────────── 小さな道具
 
@@ -217,7 +235,7 @@
     // 場面が変わったら、画面の上に戻す（スマホで下までスクロールしたままにならないように）
     if (state.phase !== lastPhase) {
       if (state.phase === 'prologue') $('stage').scrollIntoView({ block: 'start' });
-      else if (ui.tab === 'seimu') scrollToGame();
+      else if (ui.tab === 'seimu' || isWide()) scrollToGame();
       soundFor(state.phase);
     }
     lastPhase = state.phase;
@@ -479,11 +497,17 @@
     document.body.classList.toggle('iy-has-tabbar', playing);
     if (!playing) ui.tab = 'seimu';
 
+    // 広い画面では、政務（左）と、右の列の画面（ui.side）の2つを出す
+    const wide = isWide();
+    document.body.classList.toggle('iy-wide', wide);
+    const shown = wide ? ['seimu', ui.side] : [ui.tab];
     renderTopbar();
     renderTabbar();
-    for (const tab of TABS) $(`tab-${tab.id}`).hidden = tab.id !== ui.tab;
+    for (const tab of TABS) $(`tab-${tab.id}`).hidden = !shown.includes(tab.id);
     const views = { seimu: renderSeimu, family: renderFamily, finance: renderFinance, org: renderOrg, log: renderLog };
-    views[ui.tab]();
+    for (const id of shown) views[id]();
+    // 右の列は、上の帯の下から画面の下までに収め、列の中だけで動かせるようにする
+    if (wide) document.body.style.setProperty('--iy-top', `${$('topbar').offsetHeight + 8}px`);
     if (ui.coach !== null) applySpot();
   }
 
@@ -548,16 +572,18 @@
       org: vacancies().length > 0 || state.retainers.some((r) => r.unhappy),
       seimu: ['event', 'succession', 'marriage', 'ship', 'ending', 'enthrone', 'reignEnd'].includes(state.phase),
     };
+    // 広い画面では、政務はいつも左に出ているので、右の列で開いている画面を「いま」とする
+    const current = isWide() ? ui.side : ui.tab;
     $('tabbar').replaceChildren(...TABS.map((t) => el('button', {
       type: 'button',
-      class: `iy-tab${ui.tab === t.id ? ' iy-tab--active' : ''}`,
+      class: `iy-tab${current === t.id ? ' iy-tab--active' : ''}`,
       'data-tab': t.id,
-      'aria-current': ui.tab === t.id ? 'page' : 'false',
-      onclick: () => { ui.tab = t.id; render(); scrollToGame(); },
+      'aria-current': current === t.id ? 'page' : 'false',
+      onclick: () => openTab(t.id),
     }, [
       el('span', { class: 'iy-tab__icon', text: t.icon }),
       el('span', { class: 'iy-tab__label', text: t.label }),
-      alerts[t.id] && ui.tab !== t.id ? el('span', { class: 'iy-tab__dot', 'aria-label': '要対応' }) : null,
+      alerts[t.id] && current !== t.id ? el('span', { class: 'iy-tab__dot', 'aria-label': '要対応' }) : null,
     ])));
   }
 
@@ -713,7 +739,7 @@
       `営業の収支${b.op > 0 ? "+" : ""}${ryo(b.op)}・現金${ryo(b.cash)}・${gauges}　`,
       el('button', {
         type: 'button', class: 'iy-link-button', text: '帳簿を見る',
-        onclick: () => { ui.tab = 'finance'; ui.bookYear = String(b.year); render(); scrollToGame(); },
+        onclick: () => { ui.bookYear = String(b.year); openTab('finance'); },
       }),
     ]);
   }
@@ -1028,7 +1054,7 @@
     nodes.push(
       state.result ? null : el('p', { class: 'iy-year', text: `${state.year}年` }),
       el('h2', { class: state.result ? 'iy-manage-title' : '', text: '政務の間' }),
-      el('p', { class: 'iy-hint', text: '若君の教育、大奥、制度の整備、代替わりを決める。財務と組織は下のメニューから。終わったら年を越す。' }),
+      el('p', { class: 'iy-hint', text: '若君の教育、大奥、制度の整備、代替わりを決める。財務と組織はメニューから（PCの広い画面では右の列）。終わったら年を越す。' }),
       state.shogun.ailing ? el('p', { class: 'iy-warn-box', text: `将軍・${state.shogun.name}は病に伏している（御不例・${state.year - state.shogun.ailing.since + 1}年目）。残された時は長くないかもしれぬ。${canRetire() ? '成人した若君に、いまのうちに職を譲ることもできる。' : '跡継ぎの支度を急げ。'}健康が${CONFIG.AILING_RECOVER}まで戻れば、病は癒える。` }) : null,
       testamentDef(state.shogun.testament) ? el('p', { class: 'iy-hint', text: `先代の遺言「${testamentDef(state.shogun.testament).label}」：${testamentDef(state.shogun.testament).desc}` }) : null,
       wishStatus() ? el('p', { class: 'iy-hint', text: wishLine(wishStatus()) }) : null,
@@ -1099,7 +1125,7 @@
       nodes.push(el('p', { class: 'iy-warn-box', text: `不満を漏らしている家臣がいます（${unhappy.map((r) => r.name).join('・')}）。将軍の格が求める格に届かなければ、この暮れに去る。加増すれば引き留められる。` }));
     }
     if (vacancies().length > 0 || unhappy.length > 0) {
-      nodes.push(el('button', { type: 'button', class: 'iy-secondary', text: '組織を開く', onclick: () => { ui.tab = 'org'; render(); scrollToGame(); } }));
+      nodes.push(el('button', { type: 'button', class: 'iy-secondary', text: '組織を開く', onclick: () => openTab('org') }));
     }
     nodes.push(el('button', { type: 'button', class: 'iy-primary', text: '年を越す（決算）', onclick: endYear }));
     return nodes;
@@ -1557,7 +1583,7 @@
         el('button', {
           type: 'button',
           class: `iy-node${p.gen ? ' iy-node--shogun' : ''}${p.id === selected.id ? ' iy-node--selected' : ''}`,
-          onclick: () => { ui.person = p.id; renderFamily(); scrollToGame(); },
+          onclick: () => { ui.person = p.id; renderFamily(); if (isWide()) $('side').scrollTop = 0; else scrollToGame(); },
         }, [
           faceOf(p, true),
           el('span', { class: 'iy-node__text' }, [
@@ -2020,6 +2046,7 @@
     const step = steps[ui.coach];
     if (step.tab && ui.tab !== step.tab) {
       ui.tab = step.tab;
+      if (step.tab !== 'seimu') ui.side = step.tab;
       render();
     }
     const target = applySpot();
@@ -2082,6 +2109,8 @@
   }
 
   $('title-art').innerHTML = ART.scene('heaven');
+  // 画面の幅が変わって、1列と2列が入れ替わったら描き直す
+  if (WIDE.addEventListener) WIDE.addEventListener('change', () => render());
   $('intro-guide').addEventListener('click', openGuide);
   // 物語の場面（紹介文のすぐ下）まで送る
   $('intro-start').addEventListener('click', () => $('stage').scrollIntoView({ behavior: 'smooth', block: 'start' }));
