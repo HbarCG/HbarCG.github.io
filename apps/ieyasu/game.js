@@ -1118,6 +1118,7 @@
           el('span', { class: 'iy-kaku', text: `格${shogunKaku()}` }),
         ]),
       ]),
+      s.nameOrigin ? el('p', { class: 'iy-hint' }, [el('strong', { text: '名の由来　' }), s.nameOrigin]) : null,
       statBars({ ...s.stats, kenko: constitution() }, { seimu: '政務', bui: '武威', jintoku: '人徳', kenko: '体質' }),
       abilityEffects(),
       skillTag(s.skill),
@@ -1548,6 +1549,7 @@
       ]),
     ];
     nodes.push(starTag(p.stars));
+    if (p.nameOrigin) nodes.push(el('p', { class: 'iy-hint', text: `名の由来：${p.nameOrigin}` }));
     if (p.mother) nodes.push(el('p', { class: 'iy-hint', text: `母：${p.mother}` }));
     if (p.wife) nodes.push(el('p', { class: 'iy-hint', text: `正室：${p.wife}` }));
     nodes.push(skillTag(p.skill, heir ? '（将軍になると働く）' : ''));

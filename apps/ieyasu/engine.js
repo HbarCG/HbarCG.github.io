@@ -140,9 +140,6 @@
   const OTHER_LABELS = { jisseki: '実績', health: '将軍の健康', stress: '将軍の気苦労', recruit: '登用の候補', debtCut: '借入の帳消し' };
   const TRAITS = ['慎重', '豪胆', '寛大', '倹約', '華美'];
   const CHILD_NAMES = ['竹千代', '長松', '徳松', '亀松', '鶴松', '国松', '万寿丸', '虎松', '福松', '松千代'];
-  // 本編はオリジナルの歴史なので、実在の将軍とは違う名前にする
-  const NAME_KANJI = ['信', '昌', '貞', '盛', '隆', '寛', '泰', '弘', '保', '和', '成', '明', '敬', '直', '房',
-    '輝', '長', '孝', '正', '清', '時', '邦', '周', '範', '教', '良', '景', '義', '道', '元'];
   const SURNAMES = ['本多', '酒井', '井伊', '土井', '阿部', '堀田', '大久保', '水野', '稲葉', '青山', '戸田', '板倉',
     '牧野', '久世', '秋元', '大岡', '内藤', '鳥居', '榊原', '小笠原', '保科', '安藤', '松浦', '植村', '永井', '太田'];
   const GIVEN = ['正', '忠', '信', '勝', '重', '秀', '直', '利', '政', '清', '長', '元', '之', '次', '則', '経', '隆', '房', '昌', '貞'];
@@ -1064,11 +1061,22 @@
     state.phase = 'manage';
   }
 
-  function makeShogunName() {
-    const unused = NAME_KANJI.map((k) => `家${k}`).filter((n) => !state.usedNames.includes(n));
-    const name = unused.length > 0 ? pick(unused) : `家${pick(NAME_KANJI)}`;
+  // 新しい将軍の名前と、名の由来。まだ使っていない字のうち、性格に合う字ほど選ばれやすい（cards.js の shogunNames）。
+  // c: 跡継ぎの候補 / prev: 先代の将軍 / reason: 代替わりのわけ（'retire' なら先代が選ぶ）
+  function makeShogunName(c, prev, reason) {
+    const all = DATA.shogunNames;
+    const unused = all.filter((n) => !state.usedNames.includes(`家${n.kanji}`));
+    const pool = unused.length > 0 ? unused : all;
+    const weight = (n) => (n.traits.includes(c.trait) ? 3 : 1);
+    let roll = Math.random() * pool.reduce((sum, n) => sum + weight(n), 0);
+    const chosen = pool.find((n) => (roll -= weight(n)) < 0) || pool[pool.length - 1];
+    const name = `家${chosen.kanji}`;
     state.usedNames.push(name);
-    return name;
+    const who = DATA.nameChoosers;
+    const by = reason === 'retire' ? who.retire : c.branchId ? who.branch : c.personId ? who.heir : who.other;
+    const origin = `「${chosen.kanji}」の字には、${chosen.why}との願いが込められている。`
+      + by.replace('{prev}', prev.name).replace('{house}', c.house || '').replace('{child}', c.name);
+    return { name, origin };
   }
 
   function eldestHeir() {
@@ -2546,10 +2554,10 @@
   }
 
   function crown(index) {
-    const { mode, candidates, testament: will } = state.succession;
+    const { mode, candidates, testament: will, reason } = state.succession;
     const c = candidates[index];
     const prev = state.shogun;
-    const name = makeShogunName();
+    const { name, origin } = makeShogunName(c, prev, reason);
     const branch = branchById(c.branchId);
 
     // 家系図に記す。御三家から迎えた人は、その家の祖の下につなぐ
@@ -2561,6 +2569,7 @@
       p = addPerson({ name, born: state.year - c.age, parentId: founder ? founder.id : state.family[0].id, house: c.house, trait: c.trait });
     }
     p.name = name;
+    p.nameOrigin = origin;
     p.gen = prev.gen + 1;
     p.from = state.year;
     p.start = { seimu: c.stats.seimu, bui: c.stats.bui, jintoku: c.stats.jintoku };
@@ -2570,7 +2579,7 @@
     }
 
     state.shogun = {
-      personId: p.id, name, gen: prev.gen + 1, age: c.age, startYear: state.year, trait: c.trait,
+      personId: p.id, name, nameOrigin: origin, gen: prev.gen + 1, age: c.age, startYear: state.year, trait: c.trait,
       health: clamp(c.stats.kenko * 5, 20, 100),
       stats: { ...p.start, kenko: c.stats.kenko }, stress: 0, skill: c.skill || null,
       house: branch ? branch.id : null,   // 分家から迎えた将軍は、その家の家風を持ち込む
