@@ -283,7 +283,7 @@ function playOne(seed, policy, fuseki) {
   const { dev, data } = g;
   const counts = { succession: {}, shogunKaku: [], warned: 0, left: 0, candidates: [], raises: 0,
     wives: {}, stars: [0, 0, 0, 0, 0, 0], daughters: 0, meddle: 0, balancedYears: 0, lowYears: 0, gaugeSum: 0, shipsArrived: [], ending: null,
-    events: 0, repeats: 0, talks: 0, purse: {}, ratings: [], ends: {}, events1853: 0, repeats1853: 0,
+    events: 0, repeats: 0, talks: 0, purse: {}, ratings: [], ends: {}, events1853: 0, repeats1853: 0, repeatsAgain1853: 0,
     deepCards: {}, crisisCards: {}, crises: 0, oboeAt1853: null };
   // 決算報告の「その年の出来事」から数える
   const NOTE_PATTERNS = { warned: /不満を漏らしている/, left: /見切りをつけて去った/ };
@@ -311,6 +311,7 @@ function playOne(seed, policy, fuseki) {
       if (s.year <= 1853) {
         counts.events1853 += 1;
         if (s.seen[card.id] !== undefined) counts.repeats1853 += 1;
+        if (s.seen[card.id] !== undefined && card.again) counts.repeatsAgain1853 += 1;
       }
       // 諸家の覚え：覚えが深いときの出来事と、危機の年に動いた家
       if (card.deep) counts.deepCards[card.id] = (counts.deepCards[card.id] || 0) + 1;
@@ -431,6 +432,8 @@ function playOne(seed, policy, fuseki) {
     blackFall: s.overReason === "black",
     repeatRate: counts.repeats / Math.max(1, counts.events),
     repeatRate1853: counts.repeats1853 / Math.max(1, counts.events1853),
+    unique1853: counts.events1853 - counts.repeats1853,
+    againRate1853: counts.repeatsAgain1853 / Math.max(1, counts.repeats1853),
     deepCards: counts.deepCards,
     crisisCards: counts.crisisCards,
     crises: counts.crises,
@@ -580,7 +583,7 @@ function main() {
     console.log(`　覚えの出来事（1回あたり）: ${tally('deepCards')}`);
     console.log(`　倒幕の危機 1回あたり${avg(results.map((r) => r.crises)).toFixed(2)}回　危機の年に動いた家（1回あたり）: ${tally('crisisCards')}`);
   }
-  console.log(`出来事: 前に見たものの再登場 ${pct(avg(results.map((r) => r.repeatRate)) * 100, 100)}（1853年まで ${pct(avg(results.map((r) => r.repeatRate1853)) * 100, 100)}）　時代の章・史実の節目の掛け合い: 1回あたり平均 ${avg(results.map((r) => r.talks)).toFixed(1)}回`);
+  console.log(`出来事: 前に見たものの再登場 ${pct(avg(results.map((r) => r.repeatRate)) * 100, 100)}（1853年まで ${pct(avg(results.map((r) => r.repeatRate1853)) * 100, 100)}・出会った出来事 平均${avg(results.map((r) => r.unique1853)).toFixed(0)}枚・再登場のうち書き出しが変わる ${pct(avg(results.map((r) => r.againRate1853)) * 100, 100)}）　時代の章・史実の節目の掛け合い: 1回あたり平均 ${avg(results.map((r) => r.talks)).toFixed(1)}回`);
   console.log(`損のない選択肢（いちばんお金になり、威光・民心・朝廷を下げず、成否の判定も続きの出来事もないもの）: ${lossFree(g0Data()).join('、') || 'なし'}`);
   console.log(`（${((Date.now() - started) / 1000).toFixed(1)}秒）`);
 }

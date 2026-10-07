@@ -55,6 +55,8 @@
     SHIP_NOTICE: [3, 5],    // 予兆から来航までの年数
     SHIP_BOOST: 3,          // 軍資金を投じたときに上がる力
     CARD_COOLDOWN: 10,      // 同じ出来事は、この年数のあいだ出ない
+    CARD_FRESH: 6,          // この周回でまだ出ていない出来事は、この倍出やすい
+    CARD_STALE: 40,         // 一度出た出来事は、出てからの年数がこれに届くまで出にくい（10年で1/4、40年でもとどおり）
     // 威光・民心・朝廷とお金のつながり。ゲージを損ねると、数年かけてお金で返ってくる
     TRADE_START: 5,         // はじめの運上金・交易（万両/年）。これと制度で得たぶんは細らない
     TRADE_DECAY: 0.06,      // 出来事で増えた運上金・交易が、毎年細る割合（流行り廃り。11年ほどで半分）
@@ -1483,6 +1485,10 @@
     if (card.trial) return 0.5 + (state.year - card.minYear) / 50;
     let w = card.weight || 1;
     if (card.followUp) w *= 3;
+    // 同じ出来事がくり返し出ないように、まだ出ていないものを出やすく、出て間もないものを出にくくする
+    const last = state.seen[card.id];
+    if (last === undefined) w *= CONFIG.CARD_FRESH;
+    else w *= clamp((state.year - last) / CONFIG.CARD_STALE, 0.1, 1);
     if (card.tone === 'good') w *= 1 + state.tension * 0.6;
     if (card.tone === 'bad') w /= 1 + state.tension * 0.5;
     // 諸家の覚え。恨まれている家にまつわる厳しい出来事、恩を売った家にまつわる良い出来事が出やすい
