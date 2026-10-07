@@ -1480,6 +1480,23 @@ body.iy-coaching .iy-raise {
   font-size: 1.2rem;
 }
 
+/* 言行録の一文（御治世の評定・家系図・幕府の年表） */
+.iy-saying {
+  margin: 0 0 0.75rem;
+  padding: 0.4rem 0.75rem;
+  border-left: 3px solid color-mix(in srgb, #d4a63a 70%, var(--color-border));
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+
+.iy-saying__label {
+  display: inline-block;
+  margin-right: 0.5em;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
 .iy-judges {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   text-align: center;

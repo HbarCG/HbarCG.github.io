@@ -276,6 +276,8 @@
     }
     // 諸家の覚えを入れる前の保存データ。覚えは平らから始める
     saved.oboe = saved.oboe || { daimyo: 0, shonin: 0, kuge: 0 };
+    // 言行録を入れる前の保存データ。いまの御治世の裁きは、ここから数える
+    if (saved.reign && !saved.reign.deeds) saved.reign.deeds = [];
     saved.oboeLog = saved.oboeLog || [];
     // 結果の画面は政務の間にまとめた
     if (saved.phase === 'result') saved.phase = 'manage';
@@ -1036,6 +1038,7 @@
     sh.last = state.year;
     (victory ? sh.won : sh.lost).push(ship.id);
     if (victory) noteZukan('ships', ship.id);
+    noteDeed({ year: state.year, title: `${ship.name}の来航`, ship: victory ? 'won' : 'lost', weight: 30 });
     if (victory && ship.final) state.flags.opened = state.year;
     const wins = b.results.filter((r) => r.win).length;
     addLog(`${ship.name}の来航：${victory ? '退けた' : '屈した'}（${wins}勝${b.results.length - wins}敗）。`);
@@ -1683,6 +1686,11 @@
     }
     // 御治世の裁きの好みを数える（あだ名に使う）
     if (option.tag && state.reign) state.reign.tags[option.tag] = (state.reign.tags[option.tag] || 0) + 1;
+    // 言行録に残る裁き（威光・民心・朝廷とお金が大きく動いたものほど、語り草になりやすい）
+    const gaugeNames = Object.values(STATE_LABELS);
+    const sway = changes.reduce((sum, c) => sum + (gaugeNames.includes(c.label) ? Math.abs(c.delta) : c.unit === '万両' ? Math.abs(c.delta) / 10 : 0), 0);
+    noteDeed({ year: state.year, title: card.title, label: option.label, tag: option.tag || null, failed: !success,
+      trial: Boolean(card.trial), weight: sway + (card.trial ? 10 : 0) + (success ? 0 : 4) });
 
     // 選択の印（数年後の出来事につながる）
     if (option.flag) state.flags[option.flag] = state.year;
@@ -2411,6 +2419,7 @@
     state.reign = {
       from: state.year, tags: {}, gauges: { ...state.gauges }, net: netAssets() / price(), kaku: shogunKaku(),
       insts: 0, won: state.ships.won.length, lost: state.ships.lost.length, crisis: false, wish: null,
+      deeds: [],   // 言行録の種になる裁き（noteDeed）
     };
     state.reign.wishOffers = wishOffers();
     state.phase = 'enthrone';
@@ -2419,6 +2428,28 @@
   // 宣下の表紙を閉じて、その年を始める
   function closeEnthrone() {
     beginYear();
+  }
+
+  // 言行録の種になる裁きを残す（重みの大きいものから12件まで）
+  function noteDeed(deed) {
+    const r = state.reign;
+    if (!r) return;
+    r.deeds = (r.deeds || []).concat(deed).sort((a, b) => b.weight - a.weight).slice(0, 12);
+  }
+
+  // 言行録の一文。在位中の裁きのうち、あだ名の好み（tag）に合うもの・異国船・大きく世が動いたものを1つ選び、
+  // cards.js の sayings の書き方にあてはめる。乱数は使わない（同じ代なら、いつも同じ一文になる）
+  function reignSaying(r, tag) {
+    const deeds = r.deeds || [];
+    const ways = DATA.sayings;
+    if (deeds.length === 0) return ways.quiet[r.from % ways.quiet.length];
+    const score = (d) => d.weight + (d.tag && d.tag === tag ? 8 : 0) + (d.ship ? 20 : 0);
+    const deed = deeds.reduce((best, d) => (score(d) > score(best) ? d : best));
+    const kind = deed.ship === 'won' ? 'shipWon' : deed.ship === 'lost' ? 'shipLost' : deed.failed ? 'fail'
+      : deed.trial ? 'trial' : deed.tag && ways[deed.tag] ? deed.tag : 'none';
+    const list = ways[kind];
+    return list[(r.from + deed.year) % list.length]
+      .replace('{year}', deed.year).replace('{title}', deed.title).replace('{label}', deed.label || '');
   }
 
   // 御治世の評定。大名・旗本・町人・朝廷が10点ずつ点をつけ、在位中の裁きの癖からあだ名をつける
@@ -2450,7 +2481,7 @@
     noteZukan('nicknames', DATA.nicknames[tag] ? tag : '慎重');
     return {
       scores, total, title: DATA.reignRatings.find((x) => total >= x.min).label,
-      nickname: nick.name, nickDesc: nick.desc, years: state.year - r.from,
+      nickname: nick.name, nickDesc: nick.desc, years: state.year - r.from, saying: reignSaying(r, tag),
       wish: r.wish ? { id: r.wish.id, label: wishDef(r.wish.id).label, done: r.wish.done } : null,
     };
   }

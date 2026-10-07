@@ -1172,6 +1172,7 @@
       nodes.push(
         el('p', { class: 'iy-nickname' }, ['後の世は、この将軍を', el('strong', { text: `「${r.nickname}」` }), 'と呼んだ。']),
         el('p', { class: 'iy-hint', text: r.nickDesc }),
+        r.saying ? el('p', { class: 'iy-saying' }, [el('span', { class: 'iy-saying__label', text: '言行録' }), r.saying]) : null,
         el('dl', { class: 'iy-kpis iy-judges' }, r.scores.map((x) => el('div', {}, [
           el('dt', { text: x.label }),
           el('dd', { text: `${x.value}点` }),
@@ -1437,6 +1438,7 @@
         el('thead', {}, el('tr', {}, ['代', '将軍', '在位', '格', '評定'].map((h) => el('th', { text: h })))),
         el('tbody', {}, rows),
       ])),
+      sayingNodes(shoguns),
       insts.length ? el('p', { class: 'iy-hint', text: `整えた制度：${insts.join('、')}${syns.length ? `（組み合わせの妙：${syns.join('、')}）` : ''}` }) : null,
       ships.length ? el('p', { class: 'iy-hint', text: `異国船：${ships.join('、')}` }) : null,
       kakunList().length ? el('p', { class: 'iy-hint', text: `家訓：${kakunList().join('、')}` }) : null,
@@ -1446,6 +1448,19 @@
       state.meishin.length ? el('p', { class: 'iy-hint', text: `名臣録：${state.meishin.slice(0, 12).map((m) => `${m.epithet}（${m.name}）`).join('、')}${state.meishin.length > 12 ? `、ほか${state.meishin.length - 12}人` : ''}` }) : null,
       honors.length ? el('p', { class: 'iy-honor-line', text: `この幕府で得た栄誉：${honors.join('、')}` }) : null,
     ];
+  }
+
+  // 歴代将軍の言行録（評定のついた代だけ）。幕府の年表の下に出す
+  function sayingNodes(shoguns) {
+    const list = shoguns.filter((p) => p.rating && p.rating.saying);
+    if (list.length === 0) return null;
+    return el('details', { class: 'iy-rules' }, [
+      el('summary', { text: `言行録（${list.length}代）` }),
+      el('ul', { class: 'iy-log' }, list.map((p) => el('li', {}, [
+        el('span', { class: 'iy-log__year', text: `${p.gen}代` }),
+        el('strong', { text: `${p.name}「${p.rating.nickname}」` }), `　${p.rating.saying}`,
+      ]))),
+    ]);
   }
 
   // ───── 家系図
@@ -1552,6 +1567,7 @@
           el('strong', { text: `「${p.rating.nickname}」` }),
           `　御治世の評定 ${p.rating.total}点 / 40（${p.rating.title}）　${p.rating.scores.map((x) => `${x.label}${x.value}`).join('・')}`,
         ]));
+        if (p.rating.saying) nodes.push(el('p', { class: 'iy-saying' }, [el('span', { class: 'iy-saying__label', text: '言行録' }), p.rating.saying]));
       }
       if (p.rating && p.rating.wish) nodes.push(el('p', { class: 'iy-hint', text: `宿願「${p.rating.wish.label}」：${p.rating.wish.done ? '果たした' : '果たせなかった'}` }));
       const will = testamentDef(isCurrent ? state.shogun.testament : p.testament);
