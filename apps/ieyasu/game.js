@@ -1821,7 +1821,7 @@
         ? [el('ul', { class: 'iy-log' }, state.meishin.map((m) => el('li', {}, [
           el('span', { class: 'iy-log__year', text: `${m.year}` }), el('strong', { text: `「${m.epithet}」` }), `${m.name}　${m.desc}`,
         ])))]
-        : [el('p', { class: 'iy-hint', text: '目立つ働きをした家臣には、二つ名がつく（同じ役職を長く腕よく務める、普請を見事にやり遂げる、異国船との勝負に勝つ、長く仕える）。' })]),
+        : [el('p', { class: 'iy-hint', text: '目立つ働きをした家臣には、二つ名がつく（同じ役職を長く腕よく務める、普請を見事にやり遂げる、異国船を退ける決め手の勝負に勝つ、長く仕える）。' })]),
       panel('記録', [el('ul', { class: 'iy-log' }, state.log.map((entry) =>
         el('li', {}, [el('span', { class: 'iy-log__year', text: `${entry.year}` }), entry.text])))]),
       panel('栄誉', [
@@ -1869,7 +1869,7 @@
       { title: '二つ名', items: [
         ...POSTS.map((p) => ({ known: got('epithets', p.id), name: ep.post[p.id].replace('{sei}', '◯◯'), hint: `${p.name}を長く腕よく務めた家臣` })),
         { known: got('epithets', 'work'), name: ep.work.replace('{sei}', '◯◯'), hint: '普請を見事にやり遂げた奉行' },
-        { known: got('epithets', 'ship'), name: ep.ship.replace('{ship}', '◯船').replace('{sei}', '◯◯'), hint: '異国船との勝負に勝った家臣' },
+        { known: got('epithets', 'ship'), name: ep.ship.replace('{ship}', '◯船').replace('{sei}', '◯◯'), hint: '異国船を退ける決め手の勝負に勝った家臣' },
         { known: got('epithets', 'elder'), name: ep.elder.replace('{sei}', '◯◯'), hint: '長く仕えた家臣' },
         ...Object.entries(ep.special).map(([who, name]) => ({ known: got('epithets', who), name: `${name}（${who}）`, hint: '名のある人物の二つ名' })),
       ] },

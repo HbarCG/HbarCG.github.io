@@ -113,8 +113,8 @@
     PROJECT_AGAIN: 10,      // くり返せる普請は、終わってからこの年数がたつと、また始められる
     PROJECT_MULT: [0.6, 1.5], // 普請の評定の点（4〜40点）しだいで、効き目がこの幅で変わる
     // 家臣の二つ名（効き目はなく、記録のためのもの）
-    EPITHET_POST: [15, 18], // 同じ役職を [0] 年以上、腕 [1] 以上で務めると、役職ごとの二つ名がつく
-    EPITHET_WORK: 30,       // 普請の評定がこの点以上なら、奉行に二つ名がつく
+    EPITHET_POST: [25, 19], // 同じ役職を [0] 年以上、腕 [1] 以上で務めると、役職ごとの二つ名がつく
+    EPITHET_WORK: 33,       // 普請の評定がこの点以上なら、奉行に二つ名がつく
     EPITHET_ELDER: 45,      // この年数以上仕えると、二つ名がつく
     // 諸家の覚え（大名・商人・朝廷の恩と恨み）。裁きや縁組でたまり、ゆっくり薄れる。プラスが恩、マイナスが恨み
     OBOE_MAX: 10,           // 覚えは −10〜+10
@@ -1012,14 +1012,14 @@
     const win = Math.random() < chance;
     b.results.push({ id: roundId, win, power, chance, boost });
     b.round += 1;
-    // 勝負に勝った役職の家臣には、二つ名がつく
-    if (win) {
-      const text = grantEpithet(holder(DATA.shipRounds[roundId].post), 'ship',
-        `${ship.name}との勝負「${DATA.shipRounds[roundId].name}」に勝った`, { ship: ship.name });
-      if (text) (b.epithets = b.epithets || []).push(text);
-    }
     const wins = b.results.filter((r) => r.win).length;
     const losses = b.results.length - wins;
+    // 船を退ける決め手の勝負に勝った役職の家臣には、二つ名がつく
+    if (win && wins >= ship.need) {
+      const text = grantEpithet(holder(DATA.shipRounds[roundId].post), 'ship',
+        `${ship.name}を退ける決め手の勝負「${DATA.shipRounds[roundId].name}」に勝った`, { ship: ship.name });
+      if (text) (b.epithets = b.epithets || []).push(text);
+    }
     if (wins >= ship.need) finishBattle(true);
     else if (losses > ship.rounds.length - ship.need) finishBattle(false);
   }
