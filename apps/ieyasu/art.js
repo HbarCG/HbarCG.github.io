@@ -814,6 +814,28 @@ window.IEYASU_ART = (() => {
       + flag(236, 124, 44, C.red)],
   };
 
+  // 決算報告の金蔵。千両箱（boxes 個）と、商人の証文（bills 枚）を並べる。
+  // 1つずつ落ちてくるように、groups に class="iy-pop" と遅れ（--i）をつける（動きは style.css）
+  function purse(boxes = 0, bills = 0) {
+    const h = boxes > 10 ? 52 : 40;
+    const floor = h - 6;
+    let out = `<rect width="320" height="${h}" fill="#efe4c6"/><rect x="0" y="${floor}" width="320" height="6" fill="#b89a6a"/>`;
+    for (let i = 0; i < boxes; i++) {
+      const row = Math.floor(i / 10);
+      const x = 22 + (i % 10) * 26 + row * 13;
+      out += `<g class="iy-pop" style="--i:${i}">${senryobako(x, floor - row * 12, 0.52)}</g>`;
+    }
+    for (let i = 0; i < bills; i++) {
+      const x = 300 - (i % 5) * 9;
+      const y = floor - 22 - Math.floor(i / 5) * 5;
+      const tilt = `transform="rotate(${(i % 3) * 6 - 6} ${x} ${y + 10})"`;
+      out += `<g class="iy-pop" style="--i:${boxes + i}"><rect x="${x - 7}" y="${y}" width="14" height="20" fill="${C.white}" stroke="${C.ink2}" stroke-width="0.6" ${tilt}/>
+        <rect x="${x - 2}" y="${y + 12}" width="5" height="5" fill="${C.red}" opacity="0.85" ${tilt}/></g>`;
+    }
+    if (boxes === 0) out += `<text x="${bills ? 130 : 160}" y="${floor - 10}" font-size="12" text-anchor="middle" fill="${C.ink2}" font-family="serif">金蔵は空</text>`;
+    return `<svg viewBox="0 0 320 ${h}" role="img" aria-label="金蔵の千両箱${boxes}つ${bills ? `と、借入の証文${bills}枚` : ''}" xmlns="http://www.w3.org/2000/svg">${out}</svg>`;
+  }
+
   // outcome … 'good' / 'bad' を渡すと、結果の絵として光や曇りを重ねる
   function scene(name, outcome = null) {
     const entry = SCENES[name] || SCENES.castle;
@@ -1090,5 +1112,5 @@ window.IEYASU_ART = (() => {
       <rect x="29.6" y="10.6" width="4.8" height="7.4" rx="2" fill="${C.ink}"/>`, '家臣', '#e6e1d4');
   }
 
-  return { scene, edo, ieyasu, iemitsu, shogun, child, lady, retainer, sceneNames: Object.keys(SCENES) };
+  return { scene, edo, purse, ieyasu, iemitsu, shogun, child, lady, retainer, sceneNames: Object.keys(SCENES) };
 })();

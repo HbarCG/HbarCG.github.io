@@ -150,7 +150,8 @@
   const TUTORIAL_KEY = 'ieyasu-tutorial-done';
 
   // 画面だけの状態（保存しない）。coach はチュートリアルの何番目を見せているか
-  const ui = { tab: 'seimu', person: null, bookYear: 'now', coach: null, coachLine: 0 };
+  // reportShown は、演出を見せ終えた決算の年（描き直しても、演出をくり返さない）
+  const ui = { tab: 'seimu', person: null, bookYear: 'now', coach: null, coachLine: 0, reportShown: null };
 
   // ─────────────────────────────── 小さな道具
 
@@ -238,6 +239,7 @@
     } else if (phase === 'report') {
       const r = state.report;
       AUDIO.cue('year');
+      AUDIO.cue('soroban');
       if ((r.births || []).some((b) => (b.stars || 0) >= 4)) AUDIO.cue('star');
       else if (r.honors.length || (r.banzuke && r.banzuke.place <= 2)) AUDIO.cue('honor');
       else if (r.omen || state.crisis) AUDIO.cue('drum');
@@ -1332,13 +1334,41 @@
     ];
   }
 
-  // 一年の決算報告。数字の増減と、この一年の出来事をまとめて見せる
+  // 決算の判子（その年の見立て）。赤字・危機・上々・並
+  function reportStamp(r, total) {
+    if (state.crisis) return { text: '危急', bad: true };
+    if (r.op < 0) return { text: '赤字', bad: true };
+    if (r.netChange >= 0 && total >= 0) return { text: '上々', bad: false };
+    return { text: '並', bad: false };
+  }
+
+  const REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // 決算の数字を、0から繰り上げて見せる（動きを減らす設定なら、すぐに最後の数字を出す）
+  function countUp(root) {
+    const nodes = [...root.querySelectorAll('[data-count]')];
+    if (REDUCED_MOTION || nodes.length === 0) return;
+    const started = performance.now();
+    const step = (now) => {
+      const p = Math.min(1, (now - started) / 700);
+      const ease = 1 - (1 - p) ** 3;
+      for (const n of nodes) n.textContent = ryo(Math.round(Number(n.dataset.count) * ease * 10) / 10);
+      if (p < 1) requestAnimationFrame(step);
+    };
+    for (const n of nodes) n.textContent = ryo(0);
+    requestAnimationFrame(step);
+  }
+
+  // 一年の決算報告。数字の増減と、この一年の出来事をまとめて見せる。
+  // はじめて開いたときだけ、算盤の音・数字の繰り上がり・判子・千両箱が落ちてくる演出をする
   function viewReport() {
     const r = state.report;
     const total = r.op + r.inv + r.fin;
+    const play = ui.reportShown !== r.year;
+    ui.reportShown = r.year;
     const kpi = (label, value, good) => el('div', {}, [
       el('dt', { text: label }),
-      el('dd', { class: good === undefined ? '' : good ? 'iy-up' : 'iy-down', text: value }),
+      el('dd', { class: good === undefined ? '' : good ? 'iy-up' : 'iy-down', 'data-count': String(value), text: ryo(value) }),
     ]);
     const mood = r.omen || r.op < 0 || r.gauges.some((g) => g.after <= 20) ? 'worry' : 'calm';
     const bestBirth = (r.births || []).reduce((best, b) => Math.max(best, b.stars || 0), 0);
@@ -1354,15 +1384,26 @@
       return 'まずまずの一年じゃった。気を抜くでないぞ。';
     })();
     const isReignEnd = state.nextPhase === 'reignEnd';
-    return [
-      el('p', { class: 'iy-year', text: `${r.year}年の暮れ` }),
-      el('h2', { text: `${r.year}年の決算` }),
+    const stamp = reportStamp(r, total);
+    // 金蔵の絵：千両箱ひとつで100万両（20まで）、証文ひとつで借入100万両（10まで）
+    const boxes = Math.max(0, Math.min(20, Math.round(r.cash / 100)));
+    const bills = Math.max(0, Math.min(10, Math.ceil(r.debt / 100)));
+    const nodes = [
+      el('div', { class: 'iy-report-head' }, [
+        el('p', { class: 'iy-year', text: `${r.year}年の暮れ` }),
+        el('h2', { text: `${r.year}年の決算` }),
+        el('p', { class: `iy-stamp${stamp.bad ? ' iy-stamp--bad' : ''}`, 'aria-label': `この年の見立て：${stamp.text}`, text: stamp.text }),
+      ]),
       el('dl', { class: 'iy-kpis' }, [
-        kpi('営業の収支', ryo(r.op), r.op >= 0),
-        kpi('現金の増減', ryo(total), total >= 0),
-        kpi('純資産の増減', ryo(r.netChange), r.netChange >= 0),
-        kpi('年末の現金', ryo(r.cash)),
-        kpi('年末の借入', ryo(r.debt)),
+        kpi('営業の収支', r.op, r.op >= 0),
+        kpi('現金の増減', total, total >= 0),
+        kpi('純資産の増減', r.netChange, r.netChange >= 0),
+        kpi('年末の現金', r.cash),
+        kpi('年末の借入', r.debt),
+      ]),
+      el('div', { class: 'iy-purse' }, [
+        art(ART.purse(boxes, bills), 'iy-purse__art'),
+        el('p', { class: 'iy-hint', text: `金蔵：千両箱ひとつで100万両${bills ? '・証文ひとつで借入100万両' : ''}${r.cash >= 2050 ? '（20箱より先は省いた）' : ''}` }),
       ]),
       el('ul', { class: 'iy-changes' }, r.gauges.map((g) => {
         const d = g.after - g.before;
@@ -1388,7 +1429,12 @@
       ...(r.talk ? talkLines(r.talk).map((l) => says(l.who, el('p', { class: 'iy-voice', text: l.text }), l.mood))
         : [ieyasuSays(el('p', { class: 'iy-voice', text: comment }), mood)]),
       el('button', { type: 'button', class: 'iy-primary', text: isReignEnd ? '御治世の評定へ' : '次の年へ', onclick: closeReport }),
-    ];
+    ].filter(Boolean);
+    // 演出：上から順に、少しずつ遅れて現れる（2回目からは動かさない）
+    nodes.forEach((n, i) => { n.classList.add('iy-reveal'); n.style.setProperty('--i', String(i)); });
+    const box = el('div', { class: `iy-report${play ? ' iy-report--play' : ''}` }, nodes);
+    if (play) requestAnimationFrame(() => countUp(box));
+    return [box];
   }
 
   // 倒幕の結末。何が尽きたかで場面と言葉が変わり、最後に幕府の年表を出す

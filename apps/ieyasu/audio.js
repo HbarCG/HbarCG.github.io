@@ -205,6 +205,7 @@ window.IEYASU_AUDIO = (() => {
     good: () => [0, 1, 2, 4].forEach((n, i) => koto(S.calm[n + 2], i * 0.12, 0.4)),   // 良い年・勝ち
     bad: () => [4, 3, 1, 0].forEach((n, i) => koto(S.worry[n], i * 0.16, 0.4)),      // 赤字・負け
     star: () => { rin(1046.5, 0, 0.3); [0, 2, 4, 5, 7].forEach((n, i) => koto(S.calm[n], 0.3 + i * 0.1, 0.35)); },   // ★の高い若君
+    soroban: () => [0, 0.07, 0.13, 0.24, 0.3, 0.41, 0.47, 0.53].forEach((t, i) => clack(0.3 + t, 0.12 + (i % 3) * 0.04)),   // 決算の算盤
     honor: () => rin(880, 0, 0.35),                             // 栄誉
     drum: () => { taiko(0); taiko(0.5, 0.35); taiko(0.75, 0.45); },   // 試練・異国船・危機
     over: () => { breath(329.63, 0, 2.6); [3, 2, 1, 0].forEach((n, i) => koto(S.worry[n], 1.2 + i * 0.4, 0.3)); },  // 倒幕
