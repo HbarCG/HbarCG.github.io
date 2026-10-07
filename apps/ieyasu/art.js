@@ -463,6 +463,55 @@ window.IEYASU_ART = (() => {
       <ellipse cx="${x - 11 * s}" cy="${y}" rx="${2.4 * s}" ry="${6 * s}" fill="#c9ab6a" stroke="${C.earth2}" stroke-width="${0.6 * s}"/>`;
   }
 
+  // 桜の木（幹と、薄紅の花のかたまり）
+  function sakuraTree(x, y, s = 1) {
+    const blossom = (cx, cy, r) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#f6c3cf"/><circle cx="${cx - r * 0.3}" cy="${cy - r * 0.3}" r="${r * 0.6}" fill="#fbdde4"/>`;
+    return `<path d="M${x - 3 * s},${y} Q${x - 2 * s},${y - 14 * s} ${x - 8 * s},${y - 26 * s} M${x + 2 * s},${y} Q${x + 3 * s},${y - 16 * s} ${x + 10 * s},${y - 28 * s}" stroke="#5a3f34" stroke-width="${3 * s}" fill="none" stroke-linecap="round"/>
+      ${blossom(x - 12 * s, y - 30 * s, 11 * s)}${blossom(x + 12 * s, y - 32 * s, 12 * s)}${blossom(x, y - 40 * s, 12 * s)}${blossom(x - 22 * s, y - 22 * s, 8 * s)}${blossom(x + 22 * s, y - 24 * s, 8 * s)}`;
+  }
+
+  // 散る花びら（乱数は使わない）
+  function petals(n = 30, seed = 2) {
+    let out = '<g fill="#f6c3cf">';
+    for (let i = 0; i < n; i++) {
+      const x = (i * 59 + seed * 13) % 320;
+      const y = (i * 31 + seed * 7) % 150;
+      out += `<ellipse cx="${x}" cy="${y}" rx="1.8" ry="1" transform="rotate(${(i * 37) % 180} ${x} ${y})" opacity="${0.6 + (i % 3) * 0.12}"/>`;
+    }
+    return `${out}</g>`;
+  }
+
+  // 象（横向き。鼻を少し持ち上げている）
+  function elephant(x, y, s = 1) {
+    const body = '#8a8e94';
+    const dark = '#6c7076';
+    return `<rect x="${x - 26 * s}" y="${y - 18 * s}" width="${9 * s}" height="${18 * s}" rx="${2 * s}" fill="${dark}"/>
+      <rect x="${x + 12 * s}" y="${y - 18 * s}" width="${9 * s}" height="${18 * s}" rx="${2 * s}" fill="${dark}"/>
+      <ellipse cx="${x - 4 * s}" cy="${y - 26 * s}" rx="${30 * s}" ry="${17 * s}" fill="${body}"/>
+      <rect x="${x - 18 * s}" y="${y - 16 * s}" width="${9 * s}" height="${16 * s}" rx="${2 * s}" fill="${body}"/>
+      <rect x="${x + 4 * s}" y="${y - 16 * s}" width="${9 * s}" height="${16 * s}" rx="${2 * s}" fill="${body}"/>
+      <path d="M${x - 33 * s},${y - 28 * s} q${-6 * s},${2 * s} ${-5 * s},${10 * s}" stroke="${dark}" stroke-width="${1.6 * s}" fill="none"/>
+      <circle cx="${x + 26 * s}" cy="${y - 34 * s}" r="${13 * s}" fill="${body}"/>
+      <path d="M${x + 36 * s},${y - 30 * s} Q${x + 44 * s},${y - 16 * s} ${x + 40 * s},${y - 6 * s} Q${x + 46 * s},${y - 4 * s} ${x + 48 * s},${y - 12 * s}" stroke="${body}" stroke-width="${6 * s}" fill="none" stroke-linecap="round"/>
+      <ellipse cx="${x + 18 * s}" cy="${y - 33 * s}" rx="${8 * s}" ry="${11 * s}" fill="${dark}"/>
+      <path d="M${x + 34 * s},${y - 26 * s} q${5 * s},${3 * s} ${8 * s},${1 * s}" stroke="${C.white}" stroke-width="${2 * s}" fill="none" stroke-linecap="round"/>
+      <circle cx="${x + 30 * s}" cy="${y - 38 * s}" r="${1.4 * s}" fill="${C.ink}"/>
+      <path d="M${x - 16 * s},${y - 42 * s} L${x + 8 * s},${y - 42 * s} L${x + 6 * s},${y - 30 * s} L${x - 14 * s},${y - 30 * s} Z" fill="${C.red}"/>
+      <path d="M${x - 16 * s},${y - 42 * s} L${x + 8 * s},${y - 42 * s}" stroke="${C.gold}" stroke-width="${1.6 * s}"/>`;
+  }
+
+  // 相撲の土俵と、組み合う二人の力士
+  function dohyo(x, y, s = 1) {
+    const rikishi = (cx, dir, color) => `<ellipse cx="${cx}" cy="${y - 20 * s}" rx="${11 * s}" ry="${13 * s}" fill="${C.skin2}"/>
+      <rect x="${cx - 10 * s}" y="${y - 14 * s}" width="${20 * s}" height="${5 * s}" fill="${color}"/>
+      <rect x="${cx - 8 * s}" y="${y - 9 * s}" width="${5 * s}" height="${9 * s}" fill="${C.skin2}"/><rect x="${cx + 3 * s}" y="${y - 9 * s}" width="${5 * s}" height="${9 * s}" fill="${C.skin2}"/>
+      <circle cx="${cx + dir * 6 * s}" cy="${y - 36 * s}" r="${5.5 * s}" fill="${C.skin2}"/>
+      <path d="M${cx + dir * 4 * s},${y - 42 * s} q${dir * 2 * s},${-3 * s} ${dir * 5 * s},${-1 * s}" stroke="${C.ink}" stroke-width="${2.4 * s}" fill="none"/>`;
+    return `<ellipse cx="${x}" cy="${y}" rx="${70 * s}" ry="${12 * s}" fill="#c8a870"/>
+      <ellipse cx="${x}" cy="${y}" rx="${56 * s}" ry="${9 * s}" fill="none" stroke="#efe2c0" stroke-width="${2 * s}"/>
+      ${rikishi(x - 11 * s, 1, C.blue)}${rikishi(x + 11 * s, -1, C.red)}`;
+  }
+
   // 降る雪（同じ場面ではいつも同じ降り方になるよう、乱数は使わない）
   function snowfall(n = 60, seed = 3) {
     let out = '<g fill="#ffffff">';
@@ -735,6 +784,26 @@ window.IEYASU_ART = (() => {
       + `<path d="M-4,114 Q160,86 324,114" stroke="${C.earth2}" stroke-width="5" fill="none"/><path d="M-4,108 Q160,80 324,108" stroke="${C.earth2}" stroke-width="1.6" fill="none"/>`
       + [30, 90, 160, 230, 290].map((x) => { const y = 114 - 28 * (1 - ((x - 160) / 164) ** 2); return `<line x1="${x}" y1="${y}" x2="${x}" y2="${y + 22}" stroke="${C.earth2}" stroke-width="2"/>`; }).join('')
       + yakatabune(70, 148, 1) + yakatabune(240, 152, 1.1)],
+
+    sakura: ['桜の堤と花見の人', () => sky('#f4dfe4', C.paper) + kasumi(30, 26, 120, '#f3b8c2') + mountains(98, '#b9c4b0') + ground(98, '#a9b46e')
+      + `<path d="M0,124 Q160,108 320,126 L320,160 L0,160 Z" fill="${C.sea}"/>`
+      + `<path d="M0,132 q20,-3 40,0 t40,0 t40,0 t40,0 t40,0 t40,0 t40,0 t40,0" stroke="${C.white}" stroke-width="1" fill="none" opacity="0.5"/>`
+      + `<path d="M0,120 Q160,104 320,122 L320,114 Q160,96 0,110 Z" fill="${C.earth}"/>`
+      + sakuraTree(50, 112, 1.1) + sakuraTree(160, 104, 1.25) + sakuraTree(272, 112, 1.05)
+      + crowd(116, 4, { color: C.red, face: true }, 86, 22) + crowd(118, 3, { color: C.blue, face: true, topknot: true }, 196, 24)
+      + yakatabune(110, 150, 0.9) + petals(36, 4)],
+
+    elephant: ['街道を歩く象', () => sky('#e6dcc4', C.paper) + sun(258, 36, 14, C.red) + mountains(98, '#aab6a6', [[0, 20], [70, 4], [140, 26], [220, 6], [320, 22]])
+      + ground(98, '#d8c7a4') + `<path d="M120,98 L200,98 L300,160 L20,160 Z" fill="#e6d8b8"/>` + pine(30, 128, 1) + pine(296, 130, 0.9)
+      + elephant(160, 146, 1.2) + person(104, 146, 1.1, { color: C.purple, face: true })
+      + crowd(118, 3, { color: C.blue, face: true, topknot: true }, 40, 20) + crowd(120, 3, { color: C.earth2, face: true }, 236, 20)],
+
+    sumo: ['境内の勧進相撲', () => sky('#e9dcc0', C.paper)
+      + torii(70, 96, 0.9) + roofShape(110, 38, 100, 12, C.roof) + `<rect x="116" y="50" width="4" height="58" fill="${C.earth2}"/><rect x="200" y="50" width="4" height="58" fill="${C.earth2}"/>`
+      + `<rect x="0" y="100" width="320" height="60" fill="#c9b98f"/>`
+      + dohyo(160, 128, 1.1)
+      + crowd(156, 5, { color: C.blue, face: true, topknot: true }, 6, 20) + crowd(156, 5, { color: C.green2, face: true }, 228, 20)
+      + flag(286, 100, 40, C.red, false) + flag(14, 100, 40, C.blue, false)],
 
     fort: ['海の台場', () => sky('#b8c8d2', C.paper) + sun(262, 36, 12, '#f2ead0') + kasumi(20, 30, 110, C.white, 0.7)
       + gaisen(44, 100, 0.32, '#3a3a40', '#d8d4cc', 0) + waves(100, '#3d5f78')
