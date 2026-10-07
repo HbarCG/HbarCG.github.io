@@ -2209,7 +2209,7 @@ window.IEYASU_DATA = {
         { label: 'ありがたく受け取る', tag: '倹約', grow: 'seimu',
           effects: { ryo: 50, oboe: { shonin: -2 } }, text: '豪商たちの御用金で、金蔵がうるおった。' },
         { label: '新しい商いの株を与える', tag: '華美', grow: 'seimu',
-          effects: { trade: 4, ryo: 15, oboe: { shonin: 1 } }, text: '株仲間の許しを与えると、豪商たちは商いを広げた。幕府の運上金も増えた。' },
+          effects: { trade: 4, ryo: 15, minshin: -3, oboe: { shonin: 1 } }, text: '株仲間の許しを与えると、豪商たちは商いを広げた。幕府の運上金も増えたが、町では物の値が上がった。' },
         { label: '江戸の米の値を支えさせる', tag: '寛大', grow: 'jintoku',
           effects: { rice: 30, minshin: 3, oboe: { shonin: -1 } }, text: '豪商たちが米を買い支え、江戸の米の値が落ち着いた。町人たちは安堵している。' },
       ],

@@ -12,6 +12,9 @@
 //                   basic  … ひととおり考えて選ぶ。将軍の好みに合う裁き、若君の教育、制度の整備、借入の返済、隠居
 //                   money  … 出来事ではいつもいちばんお金になる選択肢を選ぶ（ほかは basic と同じ）。
 //                            これが basic より大きく長持ちするなら、お金だけ見れば勝てる釣り合いになっている
+//                   skilled … 上手に遊ぶ。出来事では、成否の見込みもふまえて威光・民心・朝廷（低いものほど重く）、お金、
+//                            諸家の覚え、将軍の好みを勘定して選ぶ。役職は腕の立つ者に替え、宿願は果たしやすいものを選び、
+//                            遺言は弱っているところを補うものを選ぶ。異国船では、金があれば軍資金を必ず投じる
 //   --seed N    : 乱数の種の始まり（同じ種なら同じ結果になる）
 //   --fuseki F  : プロローグの「最後の布石」。random / gosanke / kinzan / konin（初期値: random）
 //
@@ -177,6 +180,78 @@ function moneyValue(e) {
 POLICIES.money = {
   ...POLICIES.basic,
   choose: (g, card) => card.options.reduce((best, o, i) => (moneyValue(o.effects) > moneyValue(card.options[best].effects) ? i : best), 0),
+};
+
+// skilled … 上手に遊ぶ。ほかは basic と同じ
+
+// 選択肢の値打ち。威光・民心・朝廷は低いものほど重く、高すぎる（慢心で戻る）ものは軽く数える。お金は金蔵が乏しいほど重い
+function optionValue(g, e) {
+  const s = g.dev.state;
+  let v = 0;
+  for (const k of ["ikou", "minshin", "chotei"]) {
+    const d = e[k] || 0;
+    const now = s.gauges[k];
+    const w = (1 + Math.max(0, 45 - now) / 8) * (s.crisis && now <= 15 ? 2 : 1);
+    v += d > 0 && now > 70 ? (d * w) / 2 : d * w;
+  }
+  v += moneyValue(e) / (s.fin.cash > 600 ? 30 : s.fin.cash > 200 ? 15 : 8);
+  for (const d of Object.values(e.oboe || {})) v += d * 1.5;
+  v += (e.jisseki || 0) + Object.values(e.heir || {}).reduce((a, b) => a + b, 0)
+    - (e.stress || 0) / 3 + (e.health || 0) / 2;
+  return v;
+}
+
+POLICIES.skilled = {
+  ...POLICIES.basic,
+  choose(g, card) {
+    const sh = g.dev.state.shogun;
+    const score = (o) => {
+      const p = o.check ? g.dev.successChance(o.check) : 1;
+      const base = p * optionValue(g, o.effects) + (1 - p) * (o.fail ? optionValue(g, o.fail) : 0);
+      return base + (o.tag === sh.trait ? 3 : o.tag ? -2 : 0);
+    };
+    return card.options.reduce((best, o, i) => (score(o) > score(card.options[best]) ? i : best), 0);
+  },
+  manage(g) {
+    POLICIES.basic.manage(g);
+    const { dev } = g;
+    const s = dev.state;
+    if (s.phase !== "manage") return;
+    // 役職ごとに、いちばん腕の立つ者をつける（いまの者より3以上うまい者がいれば替える）
+    const taken = new Set();
+    for (const post of dev.POSTS) {
+      const cur = dev.holder(post.id);
+      const best = s.retainers.filter((r) => !taken.has(r.id))
+        .reduce((a, r) => (!a || r.stats[post.stat] > a.stats[post.stat] ? r : a), null);
+      if (!best) continue;
+      if (!cur || (best !== cur && best.stats[post.stat] >= cur.stats[post.stat] + 3 && !taken.has(cur.id))) {
+        dev.assign(best.id, post.id);
+        taken.add(best.id);
+      } else {
+        taken.add(cur.id);
+      }
+    }
+  },
+  // 異国船：金があれば、勝負ごとに必ず軍資金を投じる
+  boost(g) {
+    const s = g.dev.state;
+    return s.fin.cash >= g.dev.boostCost(g.data.ships[s.battle.ship]);
+  },
+  // 宿願：果たしやすいものから選ぶ
+  wish(g, offers) {
+    const ORDER = ["inst", "heir", "ship", "kura", "posts", "kaku", "ikou", "minshin", "sanke", "debt", "chotei"];
+    const rank = (o) => { const i = ORDER.indexOf(o.id); return i < 0 ? 99 : i; };
+    return offers.reduce((best, o, i) => (rank(o) < rank(offers[best]) ? i : best), 0);
+  },
+  // 遺言：いちばん弱っているところを補う。借りがあれば倹約
+  testament(g) {
+    const s = g.dev.state;
+    const offers = s.succession.offers;
+    const low = Object.entries(s.gauges).sort((a, b) => a[1] - b[1])[0];
+    const want = s.fin.debt > 0 ? "ken" : low[1] < 40 ? { ikou: "bu", minshin: "tami", chotei: "kyo" }[low[0]] : "ken";
+    const i = offers.indexOf(want);
+    return i >= 0 ? i : offers.indexOf("ken") >= 0 ? offers.indexOf("ken") : 0;
+  },
 };
 
 // cards.js だけを読み込んだデータ（損のない選択肢を数えるため）
