@@ -17,6 +17,7 @@
 //                            遺言は弱っているところを補うものを選ぶ。異国船では、金があれば軍資金を必ず投じる
 //   --seed N    : 乱数の種の始まり（同じ種なら同じ結果になる）
 //   --fuseki F  : プロローグの「最後の布石」。random / gosanke / kinzan / konin（初期値: random）
+//   --level L   : 難しさ。easy / normal / hard（初期値: normal）
 //
 // ブラウザ用のスクリプトのうち、データ（cards.js）とルール（engine.js）だけを読み込んで動かす。画面（game.js）は使わない。
 // ゲームの中の関数は、engine.js の最後にある window.IEYASU_ENGINE から呼んでいる。
@@ -278,7 +279,7 @@ function lossFree(data) {
   }).map((card) => card.id);
 }
 
-function playOne(seed, policy, fuseki) {
+function playOne(seed, policy, fuseki, level = "normal") {
   const g = createGame(seed);
   const { dev, data } = g;
   const counts = { succession: {}, shogunKaku: [], warned: 0, left: 0, candidates: [], raises: 0,
@@ -296,6 +297,7 @@ function playOne(seed, policy, fuseki) {
   if (!choice) throw new Error(`布石が見つからない: ${fuseki}`);
   if (choice.institution) dev.state.institutions.push(choice.institution);
   if (choice.bonus) dev.state.legacy = choice.bonus;
+  dev.state.level = level;
   dev.startMain();
   counts.shogunKaku.push(sum3(dev.state.shogun.stats));
 
@@ -464,7 +466,7 @@ function playOne(seed, policy, fuseki) {
 }
 
 function parseArgs(argv) {
-  const args = { games: 300, policy: "random", seed: 1, fuseki: "random" };
+  const args = { games: 300, policy: "random", seed: 1, fuseki: "random", level: "normal" };
   for (let i = 0; i < argv.length; i += 2) {
     const key = argv[i].replace(/^--/, "");
     if (!(key in args)) throw new Error(`知らない指定: ${argv[i]}`);
@@ -482,7 +484,7 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   const started = Date.now();
   const results = [];
-  for (let i = 0; i < args.games; i++) results.push(playOne(args.seed + i, POLICIES[args.policy], args.fuseki));
+  for (let i = 0; i < args.games; i++) results.push(playOne(args.seed + i, POLICIES[args.policy], args.fuseki, args.level));
 
   const n = results.length;
   const years = results.map((r) => r.years).sort((a, b) => a - b);
@@ -494,7 +496,7 @@ function main() {
   const succTotal = Object.values(succ).reduce((a, b) => a + b, 0);
   const SUCC_LABELS = { heir: "若君から", bypass: "若君をさしおいて分家から", branch: "分家から（若君なし）", dispute: "跡目争い" };
 
-  console.log(`家康の憂鬱 自動プレイ ${n}回（遊び方: ${args.policy}、布石: ${args.fuseki}、種: ${args.seed}〜${args.seed + n - 1}）`);
+  console.log(`家康の憂鬱 自動プレイ ${n}回（遊び方: ${args.policy}、布石: ${args.fuseki}、難しさ: ${args.level}、種: ${args.seed}〜${args.seed + n - 1}）`);
   console.log(`続いた年数（開府から）: 平均 ${Math.round(avg(years))} / 中央 ${quantile(years, 0.5)} / 下位10% ${quantile(years, 0.1)} / 上位10% ${quantile(years, 0.9)} / 最短 ${years[0]} / 最長 ${years[n - 1]}`);
   console.log(`史実（265年）を超えた: ${pct(years.filter((y) => y > 265).length, n)}　${MAX_YEARS}年で打ち切り: ${pct(n - fallen.length, n)}`);
   console.log(`倒れたときに尽きていたもの: ${Object.entries(causeCount).map(([c, k]) => `${c} ${pct(k, fallen.length)}`).join(" / ") || "なし"}`);

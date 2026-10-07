@@ -15,7 +15,7 @@
     institution, hasInstitution, bakufuYears, scaledCost, loadHonors, loadBest, formatRyo,
     kakuOf, shogunKaku, constitution, constitutionWear, abilityDrift, abilityJisseki, skillById, starInfo, starText, person,
     brideKind, ookuBase, birthChance, branchById, bloodKaku, branchDef, projectedBlood, strongBranch, branchesBalanced,
-    shipDue, roundParts, roundChance, boostCost,
+    shipDue, roundParts, roundChance, shipDifficulty, boostCost, level,
     salaryOf, wants, holder, postValue, vacancies, debtLimit, assets, netAssets, runway,
     cardById, fillNames, checkAbility, successChance, teachCost, institutionCost, institutionStatus, canRetire, overCause,
     wishStatus, wishDef, kakun, kakunDef, heirCap, expectedChildKaku,
@@ -692,8 +692,21 @@
         ]));
       });
       nodes.push(list);
+    } else if (isLastStep) {
+      // 最後の場面のおしまいに、難しさを選んで本編を始める
+      nodes.push(
+        el('h3', { text: '難しさを選んで、幕府の経営を始める' }),
+        el('p', { class: 'iy-hint', text: 'この周回のあいだは変えられない。迷ったら「ふつう」。' }),
+        el('div', { class: 'iy-options' }, DATA.levels.map((l) => el('button', {
+          type: 'button', class: `iy-option${l.id === 'normal' ? ' iy-option--pick' : ''}`,
+          onclick: () => { E.setLevel(l.id); nextStep(); },
+        }, [
+          el('strong', { text: l.start }),
+          el('span', { class: 'iy-option__hint', text: l.desc }),
+        ]))),
+      );
     } else {
-      nodes.push(el('button', { type: 'button', class: 'iy-primary', text: isLastStep ? '幕府の経営を始める' : '次へ', onclick: nextStep }));
+      nodes.push(el('button', { type: 'button', class: 'iy-primary', text: '次へ', onclick: nextStep }));
     }
     if (index > 0) {
       nodes.push(el('button', {
@@ -881,7 +894,7 @@
       const short = state.fin.cash < cost;
       nodes.push(el('div', { class: 'iy-round' }, [
         el('p', { class: 'iy-round__title', text: `第${b.round + 1}の勝負：${r.name}（${r.desc}）` }),
-        el('p', { class: 'iy-hint', text: `${p.post.name}・${p.holder ? p.holder.name : '空席'}の${RETAINER_LABELS[p.post.stat]}${p.value}　＋　将軍の${ABILITY_LABELS[r.stat]}÷4（${p.shogun}）${p.nagasaki ? `　＋　長崎奉行（${p.nagasaki}）` : ''}${p.kakun ? `　＋　海防の家訓（${p.kakun}）` : ''}${p.works ? `　＋　普請（${p.works}）` : ''}${p.oboe ? `　${p.oboe > 0 ? '＋' : '−'}　${OBOE_LABELS[p.oboeParty]}の${p.oboe > 0 ? '恩' : '恨み'}（${Math.abs(p.oboe)}）` : ''}　＝　力${p.power}（難しさ${ship.difficulty}）` }),
+        el('p', { class: 'iy-hint', text: `${p.post.name}・${p.holder ? p.holder.name : '空席'}の${RETAINER_LABELS[p.post.stat]}${p.value}　＋　将軍の${ABILITY_LABELS[r.stat]}÷4（${p.shogun}）${p.nagasaki ? `　＋　長崎奉行（${p.nagasaki}）` : ''}${p.kakun ? `　＋　海防の家訓（${p.kakun}）` : ''}${p.works ? `　＋　普請（${p.works}）` : ''}${p.oboe ? `　${p.oboe > 0 ? '＋' : '−'}　${OBOE_LABELS[p.oboeParty]}の${p.oboe > 0 ? '恩' : '恨み'}（${Math.abs(p.oboe)}）` : ''}　＝　力${p.power}（難しさ${shipDifficulty(ship)}）` }),
       ]));
       nodes.push(el('div', { class: 'iy-options' }, [
         el('button', { type: 'button', class: 'iy-option', onclick: () => fight(false) }, [
@@ -942,7 +955,7 @@
         const p = roundParts(id);
         return el('li', {}, [
           el('strong', { text: r.name }),
-          `　${p.post.name}・${p.holder ? p.holder.name : '空席'}　力${p.power}（難しさ${ship.difficulty}）　見込み${Math.round(roundChance(p.power, ship) * 100)}%`,
+          `　${p.post.name}・${p.holder ? p.holder.name : '空席'}　力${p.power}（難しさ${shipDifficulty(ship)}）　見込み${Math.round(roundChance(p.power, ship) * 100)}%`,
         ]);
       })),
       el('p', { class: 'iy-hint', text: `力は、役職の腕と、将軍の能力÷4で決まる。海防は大名、軍資金は商人、朝廷は朝廷の覚え（恩と恨み）も響く。当日は、勝負ごとに軍資金（約${boostCost(ship)}万両）を投じて、力を${CONFIG.SHIP_BOOST}上げられる。` }),
@@ -1545,7 +1558,7 @@
     return [
       ...edoNodes(),
       el('h3', { text: '幕府の年表' }),
-      el('p', { class: 'iy-hint', text: `開府から${bakufuYears()}年・将軍${shoguns.length}代・制度${insts.length}・組み合わせの妙${syns.length}・栄誉${honors.length}` }),
+      el('p', { class: 'iy-hint', text: `難しさ「${level().label}」・開府から${bakufuYears()}年・将軍${shoguns.length}代・制度${insts.length}・組み合わせの妙${syns.length}・栄誉${honors.length}` }),
       el('div', { class: 'iy-scroll' }, el('table', { class: 'iy-table iy-table--chronicle' }, [
         el('thead', {}, el('tr', {}, ['代', '将軍', '在位', '格', '評定'].map((h) => el('th', { text: h })))),
         el('tbody', {}, rows),

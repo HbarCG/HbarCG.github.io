@@ -209,9 +209,19 @@
     return state.year - CONFIG.BAKUFU_FOUNDED;
   }
 
-  // 年が進むほど、悪い出来事の痛手が大きくなる
+  // 難しさ（cards.js の levels）。選んでいない古い保存データは、ふつう
+  function level() {
+    return DATA.levels.find((l) => l.id === state.level) || DATA.levels.find((l) => l.id === 'normal');
+  }
+
+  // プロローグの最後に、難しさを選ぶ
+  function setLevel(id) {
+    if (state.phase === 'prologue' && DATA.levels.some((l) => l.id === id)) state.level = id;
+  }
+
+  // 年が進むほど、悪い出来事の痛手が大きくなる（難しさでも変わる）
   function difficulty() {
-    return 1 + Math.max(0, state.year - CONFIG.START_YEAR) / 150;
+    return (1 + Math.max(0, state.year - CONFIG.START_YEAR) / 150) * level().damage;
   }
 
   // 物価。年が進むほど上がり、支出（俸禄・費え・出来事の費用）がかさむ。年貢は石高で決まるので物価には追いつかない
@@ -284,6 +294,7 @@
     // 言行録を入れる前の保存データ。いまの御治世の裁きは、ここから数える
     if (saved.reign && !saved.reign.deeds) saved.reign.deeds = [];
     saved.oboeLog = saved.oboeLog || [];
+    saved.level = saved.level || 'normal';
     // 結果の画面は政務の間にまとめた
     if (saved.phase === 'result') saved.phase = 'manage';
     if (saved.era === undefined) saved.era = saved.phase === 'prologue' ? null : eraAt(saved.year).id;
@@ -368,6 +379,7 @@
     replaceState({
       version: SAVE_VERSION,
       phase: 'prologue',
+      level: 'normal',  // 難しさ（cards.js の levels の id）
       prologueStep: 0,
       prologueLine: 0,
       prologueNote: null,
@@ -483,6 +495,8 @@
     state.year = CONFIG.START_YEAR;
     state.phase = 'event';
     state.ledger = { year: state.year, items: [] };
+    state.fin.cash += level().cash;
+    if (level().id !== 'normal') addLog(`難しさ「${level().label}」で始めた。`);
 
     // 家光の忘れ形見（家光と側室・お楽の子として家系図に記す）
     const heir = makeChild({ label: '側室・お楽', stats: { seimu: 7, bui: 5, jintoku: 8, kenko: 10 }, skill: null }, '竹千代');
@@ -991,8 +1005,13 @@
     return parts;
   }
 
+  // 異国船の勝負の難しさ（難しさの選択で上下する）
+  function shipDifficulty(ship) {
+    return ship.difficulty + level().ship;
+  }
+
   function roundChance(power, ship) {
-    return clamp(0.5 + (power - ship.difficulty) * 0.08, 0.1, 0.95);
+    return clamp(0.5 + (power - shipDifficulty(ship)) * 0.08, 0.1, 0.95);
   }
 
   function boostCost(ship) {
@@ -1997,8 +2016,8 @@
     drift.ikou += kakun('buke');
     drift.minshin += kakun('jinsei');
     drift.chotei += kakun('kuge');
-    drift.ikou += CONFIG.DRIFT_SHIFT;
-    drift.minshin += CONFIG.DRIFT_SHIFT;
+    drift.ikou += CONFIG.DRIFT_SHIFT + level().drift;
+    drift.minshin += CONFIG.DRIFT_SHIFT + level().drift;
     // 満ち足りた状態は長続きしない（慢心）。50を超えたぶんの一部が、毎年自然に戻る。
     // 高いほど強く戻るので、よい将軍と役職がそろっても100には張りつかず、悪い出来事が効き続ける
     for (const key of Object.keys(drift)) {
@@ -2814,7 +2833,7 @@
     // 保存
     save, loadOrNew, newGame, loadHonors, loadBest,
     // プロローグ
-    prologueLineTo, choosePrologue, nextPrologueStep, startMain,
+    prologueLineTo, choosePrologue, nextPrologueStep, startMain, setLevel, level,
     // 将軍・若君・人物
     kakuOf, shogunKaku, constitution, constitutionWear, abilityDrift, abilityJisseki, skillById, hasSkill, starInfo, starText, person, eldestHeir, expectedAdult,
     // 大奥
@@ -2822,7 +2841,7 @@
     // 御三家と御三卿
     branchById, bloodKaku, branchDef, sanke, projectedBlood, strongBranch, branchesBalanced,
     // 異国船
-    shipDue, roundParts, roundChance, boostCost, fight, closeBattle, continueAfterEnding,
+    shipDue, roundParts, roundChance, shipDifficulty, boostCost, fight, closeBattle, continueAfterEnding,
     // 家臣と組織
     salaryOf, wants, holder, holderValue, postValue, postOf, vacancies, assign, autoAssign, hire, dismiss, raise,
     // 帳簿
