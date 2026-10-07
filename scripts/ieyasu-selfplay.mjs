@@ -194,7 +194,9 @@ function optionValue(g, e) {
     const w = (1 + Math.max(0, 45 - now) / 8) * (s.crisis && now <= 15 ? 2 : 1);
     v += d > 0 && now > 70 ? (d * w) / 2 : d * w;
   }
-  v += moneyValue(e) / (s.fin.cash > 600 ? 30 : s.fin.cash > 200 ? 15 : 8);
+  // 城中の奢りが始まる額（物価を反映）を超えていれば、お金はほとんど要らない
+  const rich = g.dev.CONFIG.OGORI_FREE * g.dev.price();
+  v += moneyValue(e) / (s.fin.cash > rich ? 30 : s.fin.cash > rich * 0.4 ? 15 : 8);
   for (const d of Object.values(e.oboe || {})) v += d * 1.5;
   v += (e.jisseki || 0) + Object.values(e.heir || {}).reduce((a, b) => a + b, 0)
     - (e.stress || 0) / 3 + (e.health || 0) / 2;

@@ -72,6 +72,12 @@
     KIEN_KEEP: 0.6,
     KIEN_EFFECTS: { ikou: -4, minshin: -3, oboe: { shonin: -4 } },
     KIEN_TRADE: 0.5,
+    HATAMOTO: 60,           // 旗本・御家人の俸禄のもとの額（万両/年）。物価につれて上がり、勘定奉行や制度で減る
+    // 城中の奢り。金蔵の現金が OGORI_FREE（万両、物価を反映）を超えると、超えたぶんの OGORI_RATE が毎年、奢りに消える
+    // （史実でも、吉宗が蓄えた金は、のちの代の華やかな暮らしに消えた）。ためこむより、普請や制度に使うほうが得。
+    // 異国船の予兆が出てから来航までは、金蔵は備えの金として奢りに回らない
+    OGORI_FREE: 800,
+    OGORI_RATE: 0.04,
     INTEREST: 0.08,         // 借入の利息（年）
     DEBT_LIMIT: 2,          // 借りられる上限は、その年の歳入のこの倍まで
     LOAN_STEP: 20,          // 財務画面で1回に借りる・返す額（万両）
@@ -1375,6 +1381,13 @@
     addLog(`蔵米を${amount}万両ぶん売った。`);
   }
 
+  // 城中の奢り（万両/年）。金蔵の現金が OGORI_FREE×物価 を超えたぶんの OGORI_RATE。
+  // 異国船の予兆が出ているあいだは、備えの金として手をつけない
+  function ogoriCost() {
+    if (state.ships.arriving) return 0;
+    return r1(Math.max(0, state.fin.cash - CONFIG.OGORI_FREE * price()) * CONFIG.OGORI_RATE);
+  }
+
   // 1年の決算。収入と経常の支出を帳簿につけ、帳簿を締める
   function closeBooks() {
     const f = state.fin;
@@ -1395,13 +1408,14 @@
     // 遺言「倹約を守れ」でも5%減る
     const costRate = 1 - (kanjo - 10) * 0.01 - (hasInstitution('kanjo') ? 0.05 : 0) - (s.house === 'kii' ? 0.05 : 0)
       - (testament() === 'ken' ? 0.05 : 0) - kakun('kenyaku') * 0.03;
-    const hatamoto = r1(60 * inflation * costRate * (testament() === 'bu' ? 1.05 : 1));
+    const hatamoto = r1(CONFIG.HATAMOTO * inflation * costRate * (testament() === 'bu' ? 1.05 : 1));
     const salaries = r1(state.retainers.reduce((sum, r) => sum + (r.post ? r.salary : r.salary / 2), 0)
       * (testament() === 'hito' ? 1.1 : 1));
     const ooku = r1(ookuBase() * inflation * costRate * (s.house === 'owari' ? 1.3 : 1) * (testament() === 'ie' ? 1.2 : 1));
     // 朝廷との仲が冷えるほど、官位の礼金や公家への付け届けがかさむ（朝廷50以上でもとの額）
     const court = r1(5 * inflation * costRate * (1 + Math.max(0, 50 - g.chotei) * CONFIG.CHOTEI_COURT) * (testament() === 'kyo' ? 2 : 1));
     const upkeep = state.institutions.reduce((sum, id) => sum + (institution(id)?.upkeep || 0), 0);
+    const ogori = ogoriCost();
     const interest = r1(f.debt * CONFIG.INTEREST);
     // 威光が高ければ大名の献上や手伝い普請が入り、低ければ大名を見張る費えがかさむ（威光50で差し引きなし）
     const daimyo = r1((g.ikou - CONFIG.IKOU_CENTER) * CONFIG.IKOU_DAIMYO * inflation);
@@ -1410,7 +1424,7 @@
       ['op', '年貢', nengu], ['op', '金銀山', mine], ['op', '運上金・交易', trade],
       ['op', daimyo >= 0 ? '大名の献上・手伝い普請' : '大名を見張る費え', daimyo],
       ['op', '旗本・御家人の俸禄', -hatamoto], ['op', '家臣の俸禄', -salaries], ['op', '大奥の費え', -ooku],
-      ['op', '朝廷・寺社への費え', -court], ['op', '制度の維持費', -upkeep], ['fin', '借入の利息', -interest],
+      ['op', '朝廷・寺社への費え', -court], ['op', '制度の維持費', -upkeep], ['op', '城中の奢り', -ogori], ['fin', '借入の利息', -interest],
     ];
     for (const [cf, label, amount] of regular) {
       f.cash += amount;
@@ -2288,7 +2302,8 @@
   const WISH_RULES = {
     kura: {
       ok: () => true,
-      target: () => Math.round((Math.max(0, state.fin.cash) + 150 * price()) / 10) * 10,
+      // いまより100万両×物価多く（城中の奢りで、ためこむほど目減りするので、はじめの150万両から下げた）
+      target: () => Math.round((Math.max(0, state.fin.cash) + 100 * price()) / 10) * 10,
       now: () => Math.round(state.fin.cash),
     },
     debt: { ok: () => state.fin.debt >= 20, target: () => 0, now: () => Math.round(state.fin.debt), lower: true },
@@ -2633,7 +2648,7 @@
     // 家臣と組織
     salaryOf, wants, holder, holderValue, postValue, postOf, vacancies, assign, autoAssign, hire, dismiss, raise,
     // 帳簿
-    debtLimit, assets, netAssets, repay, borrowMore, sellRice, runway,
+    debtLimit, assets, netAssets, ogoriCost, repay, borrowMore, sellRice, runway,
     // 出来事
     cardById, fillNames, checkAbility, successChance, choose,
     // 政務の間
