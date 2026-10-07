@@ -1720,3 +1720,35 @@ body.iy-wide .iy-tabbar {
 body.iy-wide .iy-tab[data-tab="seimu"] {
   display: none;
 }
+
+/* ─── 家臣の派閥と相性 */
+.iy-ha {
+  display: inline-block;
+  margin-right: 0.4em;
+  padding: 0 0.4em;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.6;
+  vertical-align: 0.1em;
+  color: #fff;
+  background: var(--color-text-muted);
+}
+
+.iy-ha--budan {
+  background: #a0432c;
+}
+
+.iy-ha--bunchi {
+  background: #2e5a8a;
+}
+
+.iy-ha--kanjo {
+  background: #8a6a1e;
+}
+
+.iy-tie {
+  margin: 0.15rem 0 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}

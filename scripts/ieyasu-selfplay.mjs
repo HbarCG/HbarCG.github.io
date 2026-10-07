@@ -284,7 +284,7 @@ function playOne(seed, policy, fuseki) {
   const counts = { succession: {}, shogunKaku: [], warned: 0, left: 0, candidates: [], raises: 0,
     wives: {}, stars: [0, 0, 0, 0, 0, 0], daughters: 0, meddle: 0, balancedYears: 0, lowYears: 0, gaugeSum: 0, shipsArrived: [], ending: null,
     events: 0, repeats: 0, talks: 0, purse: {}, ratings: [], ends: {}, events1853: 0, repeats1853: 0, repeatsAgain1853: 0,
-    deepCards: {}, crisisCards: {}, crises: 0, oboeAt1853: null };
+    deepCards: {}, crisisCards: {}, crises: 0, oboeAt1853: null, dominantYears: 0, rivalYears: 0, factionCards: {} };
   // 決算報告の「その年の出来事」から数える
   const NOTE_PATTERNS = { warned: /不満を漏らしている/, left: /見切りをつけて去った/ };
 
@@ -316,6 +316,8 @@ function playOne(seed, policy, fuseki) {
       // 諸家の覚え：覚えが深いときの出来事と、危機の年に動いた家
       if (card.deep) counts.deepCards[card.id] = (counts.deepCards[card.id] || 0) + 1;
       if (card.crisis) counts.crisisCards[card.id] = (counts.crisisCards[card.id] || 0) + 1;
+      // 家臣の派閥と相性の出来事
+      if (["kenen", "ha-senko", "roju-feud"].includes(card.id)) counts.factionCards[card.id] = (counts.factionCards[card.id] || 0) + 1;
       dev.choose(policy.choose(g, card));
     } else if (s.phase === "result") {
       s.phase = "manage";
@@ -331,6 +333,8 @@ function playOne(seed, policy, fuseki) {
         if (closed + FOUNDED === 1852) counts.oboeAt1853 = { ...dev.state.oboe };
         if (dev.state.crisis && dev.state.crisis.years === dev.CONFIG.CRISIS_YEARS) counts.crises += 1;
         if (dev.branchesBalanced()) counts.balancedYears += 1;
+        if (dev.dominantFaction && dev.dominantFaction()) counts.dominantYears += 1;
+        if (dev.rivalPairInPosts && dev.rivalPairInPosts()) counts.rivalYears += 1;
         // 威光・民心・朝廷のいちばん低いもの（20を切った年の数と、ならした値）
         const lowest = Math.min(...Object.values(dev.state.gauges));
         if (lowest < 20) counts.lowYears += 1;
@@ -452,6 +456,10 @@ function playOne(seed, policy, fuseki) {
     epithetKinds: (s.meishin || []).map((m) => m.kind),
     decades: (s.decades || []).length,
     town: dev.townView ? dev.townView().level : 0,
+    // 家臣の派閥と相性
+    dominantYears: counts.dominantYears,
+    rivalYears: counts.rivalYears,
+    factionCards: counts.factionCards,
   };
 }
 
@@ -582,6 +590,13 @@ function main() {
     if (oboeGames.length) console.log(`諸家の覚え（1852年の暮れ）: ${parties.map(desc).join(' / ')}`);
     console.log(`　覚えの出来事（1回あたり）: ${tally('deepCards')}`);
     console.log(`　倒幕の危機 1回あたり${avg(results.map((r) => r.crises)).toFixed(2)}回　危機の年に動いた家（1回あたり）: ${tally('crisisCards')}`);
+  }
+  {
+    const per100 = (key) => (avg(results.map((r) => (r[key] / Math.max(1, r.years)) * 100))).toFixed(1);
+    const all = {};
+    for (const r of results) for (const [id, k] of Object.entries(r.factionCards)) all[id] = (all[id] || 0) + k;
+    console.log(`派閥と相性: 専横の年 ${per100("dominantYears")}%　犬猿の二人がともに役に就いていた年 ${per100("rivalYears")}%　出来事（1回あたり）: `
+      + (Object.entries(all).map(([id, k]) => `${id} ${(k / n).toFixed(2)}`).join("・") || "なし"));
   }
   console.log(`出来事: 前に見たものの再登場 ${pct(avg(results.map((r) => r.repeatRate)) * 100, 100)}（1853年まで ${pct(avg(results.map((r) => r.repeatRate1853)) * 100, 100)}・出会った出来事 平均${avg(results.map((r) => r.unique1853)).toFixed(0)}枚・再登場のうち書き出しが変わる ${pct(avg(results.map((r) => r.againRate1853)) * 100, 100)}）　時代の章・史実の節目の掛け合い: 1回あたり平均 ${avg(results.map((r) => r.talks)).toFixed(1)}回`);
   console.log(`損のない選択肢（いちばんお金になり、威光・民心・朝廷を下げず、成否の判定も続きの出来事もないもの）: ${lossFree(g0Data()).join('、') || 'なし'}`);

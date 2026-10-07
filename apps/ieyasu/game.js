@@ -22,6 +22,7 @@
     projectDef, projectCost, projectOptions, bestBugyo, projectLeft,
     banzukeTable, townView, loadZukan,
     oboe, oboeLabel,
+    factionDef, factionCounts, dominantFaction, tieOf, postAdjust,
   } = E;
 
   // ルールの側の操作。状態を変えたあと、保存して描き直す（commit）
@@ -314,6 +315,41 @@
     return r.epithet ? `${r.name}「${r.epithet}」` : r.name;
   }
 
+  // 家臣の名前の行：派閥の札と、名前（二つ名）・歳・俸禄
+  function retainerTitle(r) {
+    const f = factionDef(r.ha);
+    return el('p', { class: 'iy-retainer__name' }, [
+      f ? el('span', { class: `iy-ha iy-ha--${f.id}`, title: f.name, text: f.short }) : null,
+      `${retainerName(r)}（${r.age}歳・俸禄${ryo(r.salary)}）`,
+    ]);
+  }
+
+  // 家臣の相性の行。召し抱える前の候補なら、召し抱えたときに結ばれる相性を出す
+  function tieLine(r, candidate) {
+    const parts = [];
+    if (candidate) {
+      const other = r.tie && state.retainers.find((x) => x.id === r.tie.id);
+      if (other) parts.push(`召し抱えると、${other.name}と${r.tie.kind === 'ally' ? '盟友' : '犬猿の仲'}になる`);
+    } else {
+      const ally = tieOf(r, 'ally');
+      const rival = tieOf(r, 'rival');
+      if (ally) parts.push(`盟友：${ally.name}${ally.post && r.post ? '（ともに役に就き、腕+1）' : ''}`);
+      if (rival) parts.push(`犬猿：${rival.name}${rival.post && r.post ? '（ともに役に就き、腕−1）' : ''}`);
+    }
+    if (parts.length === 0) return null;
+    return el('p', { class: 'iy-tie', text: parts.join('　') });
+  }
+
+  // 役職の派閥の釣り合い（組織の画面の頭に出す）
+  function factionLine() {
+    const counts = factionCounts();
+    const dom = factionDef(dominantFaction());
+    const list = DATA.factions.map((f) => `${f.short}${counts[f.id]}`).join('・');
+    return el('p', { class: dom ? 'iy-warn-box' : 'iy-hint', text: dom
+      ? `役職の派閥：${list}。${dom.name}が役職の${counts[dom.id]}つを占めている（専横）。${dom.name}の役職の腕が+1になるかわりに、威光が毎年${Math.abs(CONFIG.FACTION_IKOU)}下がる。`
+      : `役職の派閥：${list}。同じ派閥が${CONFIG.FACTION_DOMINANT}つ以上を占めると専横になる（その派の腕+1・威光が毎年−${Math.abs(CONFIG.FACTION_IKOU)}）。` });
+  }
+
   // 見立番付の表（東と西に並べる）。limit を渡すと、上からその数まで。highlight の十年（from の年）に印をつける
   function banzukeNodes(limit = Infinity, highlight = null) {
     const table = banzukeTable().slice(0, limit);
@@ -442,7 +478,9 @@
       shoshidai: `朝廷 毎年${signed1((v - 10) / 4)}`,
       jisha: `威光・民心 毎年 各${signed1((v - 10) / 8)}`,
     }[postId];
-    return el('p', { class: 'iy-hint', text: `いまの効き目：${text}` });
+    const adj = postAdjust(holder(postId));
+    const notes = [adj.ally ? '盟友+1' : '', adj.rival ? '犬猿−1' : '', adj.faction ? '専横+1' : ''].filter(Boolean);
+    return el('p', { class: 'iy-hint', text: `いまの効き目：${text}${notes.length ? `（腕に${notes.join('・')}を含む）` : ''}` });
   }
 
   // 特技の札。note は、いまは働いていない特技に添える一言（「将軍になると働く」など）
@@ -475,10 +513,11 @@
     ]);
   }
 
+  // 変化の一覧。text のある変化（「◯◯を役から外した」など）は、その文のまま出す
   function changeList(changes) {
     if (changes.length === 0) return null;
     return el('ul', { class: 'iy-changes' }, changes.map((c) =>
-      el('li', { class: (c.good !== undefined ? c.good : c.delta > 0) ? 'iy-up' : 'iy-down', text: c.unit === '万両' ? `${c.label} ${c.delta > 0 ? '+' : ''}${ryo(c.delta)}` : `${c.label} ${signed(c.delta)}${c.unit || ''}` })));
+      el('li', { class: (c.good !== undefined ? c.good : c.delta > 0) ? 'iy-up' : 'iy-down', text: c.text ? c.text : c.unit === '万両' ? `${c.label} ${c.delta > 0 ? '+' : ''}${ryo(c.delta)}` : `${c.label} ${signed(c.delta)}${c.unit || ''}` })));
   }
 
   function panel(title, children, cls = '') {
@@ -1812,8 +1851,9 @@
       retainerFace(r, true),
       el('div', {}, [
         r.renowned ? el('p', { class: 'iy-renowned' }, [el('strong', { text: '名のある人物' }), ` ${r.renowned}`]) : null,
-        el('p', { class: 'iy-retainer__name', text: `${retainerName(r)}（${r.age}歳・俸禄${ryo(r.salary)}）` }),
+        retainerTitle(r),
         retainerStats(r),
+        tieLine(r, !canRaise),
         loyaltyLine(r, canRaise),
       ]),
       button,
@@ -1842,8 +1882,9 @@
         el('p', { class: 'iy-post__name' }, [el('strong', { text: post.name }), el('span', { class: 'iy-muted', text: `　見る能力：${RETAINER_LABELS[post.stat]}` })]),
         h
           ? el('div', { class: 'iy-retainer' }, [retainerFace(h, true), el('div', {}, [
-            el('p', { class: 'iy-retainer__name', text: `${retainerName(h)}（${h.age}歳・俸禄${ryo(h.salary)}）` }),
+            retainerTitle(h),
             retainerStats(h, post.stat),
+            tieLine(h, false),
             loyaltyLine(h, !over),
           ])])
           : el('p', { class: 'iy-warn', text: '空席' }),
@@ -1869,11 +1910,15 @@
       ]),
       panel('役職', [
         el('p', { class: 'iy-hint', text: `家臣 ${state.retainers.length}人・俸禄の合計 年${ryo(salaries)}（控えの家臣は半額）` }),
+        factionLine(),
         // 決まりごとと役職の説明は長いので、たたんでおく（スマホで組織の画面が長くなりすぎないように）
         el('details', { class: 'iy-rules' }, [
           el('summary', { text: '役職と家臣の決まり' }),
           el('p', { class: 'iy-hint', text: `家臣は、自分の腕（いちばん高い能力）の${CONFIG.WANTS_RATE}倍の格を将軍に求める。足りないと暮れに不満を漏らし、次の暮れにも足りなければ去る。加増すれば、俸禄が上がるかわりに求める格が下がる。` }),
           el('ul', { class: 'iy-hint' }, POSTS.map((p) => el('li', {}, [el('strong', { text: p.name }), `（${RETAINER_LABELS[p.stat]}）　${p.desc}`]))),
+          el('p', { class: 'iy-hint', text: `家臣は、${DATA.factions.map((f) => `${f.name}（${f.desc.replace(/。$/, '')}）`).join('・')}のどれかに属する。`
+            + `役職の${POSTS.length}人のうち${CONFIG.FACTION_DOMINANT}人以上が同じ派閥なら専横になり、その派の腕が1上がるかわりに、威光が毎年下がる。`
+            + '家臣どうしには相性があり、盟友がともに役に就けば腕+1、犬猿の仲がともに役に就けば腕−1。登用の候補には、召し抱えたときの相性が出る。' }),
         ]),
         vacancies().length && reserve.length && !over
           ? el('button', { type: 'button', class: 'iy-secondary', text: '空席に、いちばん向いている控えの家臣を就ける', onclick: autoAssign })

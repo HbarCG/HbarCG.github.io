@@ -11,6 +11,7 @@
 //   recruit: 1 … 有能な登用の候補が1人現れる / debtCut: 借入を帳消しにする額（万両）
 //   heir: { seimu: 2 } など … いちばん年上の若君の能力
 //   branchCurb: 1 … 突出した御三家の血筋を、能力ごとに1下げる / branchLift: 1 … ほかの二家の血筋を、能力ごとに1上げる
+//   rivalSplit: 1 … ともに役職に就いている犬猿の仲の二人のうち、腕の劣るほうを役から外す / rivalMend: 1 … その二人を仲直りさせる
 //   oboe: { daimyo: -2 } など … 諸家の覚え（daimyo 大名・shonin 商人・kuge 朝廷）。プラスは恩、マイナスは恨み。
 //         覚えのわけには「（出来事の題）で「（選択肢）」と裁いた」が残り、のちの出来事の文中に出る
 //
@@ -34,11 +35,14 @@
 //   followUp: true … 過去の選択の続き（出やすい）。clears: 'name' で、その印を消す
 //   grudge: 'daimyo' … その家に恨まれているほど出やすい / favor: 'daimyo' … その家に恩を売っているほど出やすい
 //   deep: { party: 'daimyo', side: 'urami' } … その家の覚えが深い（恨みなら−5以下、恩なら+5以上）ときだけ出る
+//   feud: true … 役職に犬猿の仲の二人がいると、3倍出やすい（家臣の争いの出来事）
 //   crisis: { party: 'daimyo', side: 'on' } … 倒幕の危機の年に、その家の覚えが深い（±3以上）ときだけ出る。出られるなら、ほかの出来事より先に出る
 //   文中の {roju} {kanjo} {machi} {ometsuke} {shoshidai} {jisha} は、その役職の家臣の名前に、{shogun} は将軍の名前に、
 //   {branch} は突出している御三家の名前に、{urami:daimyo} はその家がいちばん根に持っている幕府の仕打ちに、
 //   {on:daimyo} はいちばん恩に着ていることになる（「かつて{urami:daimyo}ことを」の形で使う）
-//   when(s) の s には、ゲームの状態に加えて shogunate（威光・民心・朝廷）と strongBranch（突出している御三家。なければ null）が入る
+//   when(s) の s には、ゲームの状態に加えて shogunate（威光・民心・朝廷）と strongBranch（突出している御三家。なければ null）、
+//   rivalPair（ともに役職に就いている犬猿の仲の二人。なければ null）、dominant（専横している派閥の id。なければ null）が入る。
+//   {rivals} はその二人の名前に、{faction} は専横している派閥の名前になる
 
 window.IEYASU_DATA = {
   // ─────────────────────────────── プロローグ（史実パート）
@@ -246,21 +250,32 @@ window.IEYASU_DATA = {
   // ─────────────────────────────── 名のある人物
   // 将軍の格が高いと、まれに登用の候補に現れる（その年だけ。1回の幕府で1人1度まで）。
   // minYear: この年から現れる / stats: 政務・算用・武威・人望 / desc: 候補の欄に出る一言
+  // ha: 派閥（下の factions の id） / rival: 史実で張り合った人物。両方が仕えると、犬猿の仲になる
   renowned: [
-    { name: '伊奈忠治', minYear: 1637, age: 45, stats: { seimu: 12, sanyo: 16, bui: 8, jinbo: 13 }, desc: '利根川の流れを変えた、治水の名人。' },
-    { name: '酒井忠清', minYear: 1650, age: 30, stats: { seimu: 16, sanyo: 11, bui: 9, jinbo: 10 }, desc: '権勢をふるい「下馬将軍」と呼ばれた男。' },
-    { name: '堀田正俊', minYear: 1670, age: 38, stats: { seimu: 16, sanyo: 12, bui: 9, jinbo: 12 }, desc: '筋を曲げない、硬骨の重臣。' },
-    { name: '柳沢吉保', minYear: 1685, age: 30, stats: { seimu: 16, sanyo: 13, bui: 6, jinbo: 11 }, desc: '主君の信を一身に集める切れ者。' },
-    { name: '荻原重秀', minYear: 1690, age: 34, stats: { seimu: 11, sanyo: 18, bui: 5, jinbo: 7 }, desc: '小判を改めて金蔵を立て直す、勘定の鬼才。' },
-    { name: '新井白石', minYear: 1700, age: 44, stats: { seimu: 18, sanyo: 12, bui: 5, jinbo: 12 }, desc: '学問で政を正そうとする儒者。' },
-    { name: '大岡忠相', minYear: 1715, age: 40, stats: { seimu: 13, sanyo: 11, bui: 8, jinbo: 18 }, desc: '「大岡裁き」で名高い、情けある奉行。' },
-    { name: '田沼意次', minYear: 1760, age: 42, stats: { seimu: 15, sanyo: 18, bui: 6, jinbo: 9 }, desc: '商いの力で幕府を富ませようとする才人。' },
-    { name: '松平定信', minYear: 1780, age: 29, stats: { seimu: 18, sanyo: 14, bui: 8, jinbo: 10 }, desc: '倹約で世を立て直そうとする堅物。' },
-    { name: '長谷川平蔵', minYear: 1780, age: 41, stats: { seimu: 9, sanyo: 7, bui: 18, jinbo: 15 }, desc: '江戸の悪党を震え上がらせる「鬼平」。' },
-    { name: '遠山景元', minYear: 1830, age: 37, stats: { seimu: 12, sanyo: 10, bui: 12, jinbo: 18 }, desc: '町人に慕われる、粋な遊び人あがり。' },
-    { name: '江川英龍', minYear: 1830, age: 35, stats: { seimu: 13, sanyo: 13, bui: 17, jinbo: 12 }, desc: '砲術と海の守りに通じた、伊豆の代官。' },
-    { name: '小栗忠順', minYear: 1855, age: 33, stats: { seimu: 15, sanyo: 18, bui: 11, jinbo: 9 }, desc: '異国に学び、造船所を築こうとする男。' },
-    { name: '勝海舟', minYear: 1855, age: 35, stats: { seimu: 15, sanyo: 10, bui: 16, jinbo: 16 }, desc: '海の向こうを見てきた、口の達者な旗本。' },
+    { name: '伊奈忠治', minYear: 1637, age: 45, stats: { seimu: 12, sanyo: 16, bui: 8, jinbo: 13 }, ha: 'kanjo', desc: '利根川の流れを変えた、治水の名人。' },
+    { name: '酒井忠清', minYear: 1650, age: 30, stats: { seimu: 16, sanyo: 11, bui: 9, jinbo: 10 }, ha: 'bunchi', desc: '権勢をふるい「下馬将軍」と呼ばれた男。' },
+    { name: '堀田正俊', minYear: 1670, age: 38, stats: { seimu: 16, sanyo: 12, bui: 9, jinbo: 12 }, ha: 'bunchi', desc: '筋を曲げない、硬骨の重臣。' },
+    { name: '柳沢吉保', minYear: 1685, age: 30, stats: { seimu: 16, sanyo: 13, bui: 6, jinbo: 11 }, ha: 'bunchi', desc: '主君の信を一身に集める切れ者。' },
+    { name: '荻原重秀', minYear: 1690, age: 34, stats: { seimu: 11, sanyo: 18, bui: 5, jinbo: 7 }, ha: 'kanjo', rival: '新井白石', desc: '小判を改めて金蔵を立て直す、勘定の鬼才。' },
+    { name: '新井白石', minYear: 1700, age: 44, stats: { seimu: 18, sanyo: 12, bui: 5, jinbo: 12 }, ha: 'bunchi', rival: '荻原重秀', desc: '学問で政を正そうとする儒者。' },
+    { name: '大岡忠相', minYear: 1715, age: 40, stats: { seimu: 13, sanyo: 11, bui: 8, jinbo: 18 }, ha: 'bunchi', desc: '「大岡裁き」で名高い、情けある奉行。' },
+    { name: '田沼意次', minYear: 1760, age: 42, stats: { seimu: 15, sanyo: 18, bui: 6, jinbo: 9 }, ha: 'kanjo', rival: '松平定信', desc: '商いの力で幕府を富ませようとする才人。' },
+    { name: '松平定信', minYear: 1780, age: 29, stats: { seimu: 18, sanyo: 14, bui: 8, jinbo: 10 }, ha: 'bunchi', rival: '田沼意次', desc: '倹約で世を立て直そうとする堅物。' },
+    { name: '長谷川平蔵', minYear: 1780, age: 41, stats: { seimu: 9, sanyo: 7, bui: 18, jinbo: 15 }, ha: 'budan', desc: '江戸の悪党を震え上がらせる「鬼平」。' },
+    { name: '遠山景元', minYear: 1830, age: 37, stats: { seimu: 12, sanyo: 10, bui: 12, jinbo: 18 }, ha: 'budan', desc: '町人に慕われる、粋な遊び人あがり。' },
+    { name: '江川英龍', minYear: 1830, age: 35, stats: { seimu: 13, sanyo: 13, bui: 17, jinbo: 12 }, ha: 'budan', desc: '砲術と海の守りに通じた、伊豆の代官。' },
+    { name: '小栗忠順', minYear: 1855, age: 33, stats: { seimu: 15, sanyo: 18, bui: 11, jinbo: 9 }, ha: 'kanjo', desc: '異国に学び、造船所を築こうとする男。' },
+    { name: '勝海舟', minYear: 1855, age: 35, stats: { seimu: 15, sanyo: 10, bui: 16, jinbo: 16 }, ha: 'budan', desc: '海の向こうを見てきた、口の達者な旗本。' },
+  ],
+
+  // ─────────────────────────────── 家臣の派閥と相性
+  // 家臣は三つの派閥のどれかに属する（いちばん高い能力で決まりやすい。engine.js の factionOf）。
+  // 役職の6人のうち4人以上が同じ派閥なら「専横」：その派の役職の腕が1上がるかわりに、威光が毎年下がる。
+  // 家臣どうしには相性がある。盟友がともに役職に就けば腕+1、犬猿の仲がともに役職に就けば腕−1
+  factions: [
+    { id: 'budan', name: '武断派', short: '武断', desc: '武をもって世を治めようとする者たち。' },
+    { id: 'bunchi', name: '文治派', short: '文治', desc: '法と学問で世を治めようとする者たち。' },
+    { id: 'kanjo', name: '勘定派', short: '勘定', desc: '金と帳簿で世を治めようとする者たち。' },
   ],
 
   // ─────────────────────────────── 縁組と、生まれる子
@@ -501,6 +516,7 @@ window.IEYASU_DATA = {
     },
     {
       id: 'roju-feud',
+      feud: true,
       scene: 'hall',
       title: '老中の争い',
       text: '{roju}と、もう一人の老中が、政の方針をめぐって激しく対立している。城中が二つに割れた。',
@@ -514,6 +530,43 @@ window.IEYASU_DATA = {
         { label: '将軍みずから裁く', tag: '慎重', grow: 'jintoku', check: { stat: 'jintoku', dc: 11 },
           effects: { ikou: 5, jisseki: 2 }, text: '将軍の裁きに、両者とも納得した。見事じゃ。',
           fail: { ikou: -5 }, failText: '裁きは筋が通らず、双方の不満を買った。' },
+      ],
+    },
+    {
+      id: 'kenen',
+      feud: true,
+      when: (s) => Boolean(s.rivalPair),
+      scene: 'hall',
+      title: '犬猿の仲',
+      text: '{rivals}が、評定のたびに角を突き合わせている。互いの献策を、ことごとく退け合っているという。',
+      again: '{rivals}が、またも評定で角を突き合わせている。前は「{last}」と収めたが、犬猿の仲とはよく言ったものじゃ。',
+      ieyasu: '仲の悪い者を並べて使うと、互いに足を引っぱる。……うまく使えば、互いに負けまいと励むのじゃが。',
+      options: [
+        { label: '腕の劣るほうを役から外す', tag: '豪胆', grow: 'bui',
+          effects: { rivalSplit: 1, ikou: 2 }, text: '外された者は控えに回った。城中は静まったが、空いた役目を誰に任せるか、考えねばならん。' },
+        { label: '将軍みずから仲を取り持つ', tag: '寛大', grow: 'jintoku', check: { stat: 'jintoku', dc: 12 },
+          effects: { rivalMend: 1, ikou: 1, minshin: 1 }, text: '将軍は二人を酒の席に呼び、腹を割って話させた。翌朝、二人は並んで登城してきた。',
+          fail: { stress: 6, ikou: -2 }, failText: '取り持つどころか、酒の席で口論が始まった。将軍は頭を抱えている。' },
+        { label: '張り合わせて手柄を競わせる', tag: '華美', grow: 'seimu',
+          effects: { jisseki: 3, minshin: -2 }, text: '二人は負けじと献策を重ね、政はめまぐるしく動いた。振り回される下々は、たまったものではない。' },
+      ],
+    },
+    {
+      id: 'ha-senko',
+      when: (s) => Boolean(s.dominant),
+      tone: 'bad',
+      scene: 'league',
+      title: '派閥の専横',
+      text: '役職の多くを{faction}の者が占め、ほかの派の家臣たちが「政が一派に私されている」と訴え出てきた。諸大名も、成り行きをうかがっている。',
+      again: 'またも{faction}の専横を訴える声が上がっている。前は「{last}」と応じたのじゃが。',
+      ieyasu: '気心の知れた者で固めると、話は早い。じゃが、外された者の声は、いずれ大きくなる。',
+      options: [
+        { label: 'ほかの派の者も用いると約束する', tag: '慎重', grow: 'seimu',
+          effects: { ikou: 3, stress: 3 }, text: '将軍は、人の用い方を改めると約束した。……約束を守るかどうかは、組織の顔ぶれしだいじゃ。' },
+        { label: '一派に任せきる', tag: '豪胆', grow: 'bui',
+          effects: { jisseki: 3, ikou: -4, oboe: { daimyo: -1 } }, text: '「よく働く者を用いて何が悪い」。政は速く回るようになったが、外された者たちの恨みは深まった。' },
+        { label: '訴え出た者を退ける', tag: '倹約', grow: 'bui',
+          effects: { ikou: 1, minshin: -3, stress: 2 }, text: '訴えは退けられた。表立って口にする者はいなくなったが、陰口はかえって増えた。' },
       ],
     },
     {
@@ -3642,6 +3695,15 @@ window.IEYASU_DATA = {
         '空席のままだと、その役目の働きが大きく落ちる。メニューの「組織」に赤い印がついたら空席がある。',
         '家臣は役目の中で腕を上げ、60歳前後で職を辞す。毎年、将軍の格に応じた数の登用の候補が現れるので、早めに育てておこう。',
         '控えの家臣にも俸禄の半額がかかる。抱えすぎにも注意。',
+      ],
+    },
+    {
+      title: '家臣の派閥と相性',
+      body: [
+        '家臣は、武断派・文治派・勘定派のどれかに属する（組織の画面で、名前の前の札）。武威が高い者は武断派、政務なら文治派、算用なら勘定派になりやすい。',
+        '六つの役職のうち4人以上が同じ派閥だと「専横」になる。その派の者は息が合って腕が1上がるが、外された者や大名の不満で、威光が毎年1下がる。「派閥の専横」の訴えも来る。',
+        '家臣どうしには相性がある。盟友がともに役職に就けば腕が1上がり、犬猿の仲がともに役職に就けば腕が1下がる。犬猿の二人を並べていると、家臣の争いの出来事が起きやすい。',
+        '登用の候補には、召し抱えたときに誰と盟友・犬猿になるかが出る。史実で張り合った人物どうし（新井白石と荻原重秀、松平定信と田沼意次）は、必ず犬猿の仲になる。',
       ],
     },
     {

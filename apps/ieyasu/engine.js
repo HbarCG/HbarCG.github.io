@@ -124,6 +124,12 @@
     OBOE_WEIGHT: 4,         // 恨み（恩）が1深まるごとに、その家にまつわる厳しい（良い）出来事が 1/4 ずつ出やすくなる
     OBOE_SHIP: 4,           // 異国船の勝負で、覚えの 1/4 が力に足される（海防＝大名・軍資金＝商人・朝廷＝朝廷）
     OBOE_DEBT: 0.025,       // 商人の覚えが1違うごとに、借りられる上限が2.5%増減する
+    // 家臣の派閥と相性（cards.js の factions）
+    FACTION_RANDOM: 0.25,   // 家臣の派閥が、能力と関わりなく決まる見込み（ふつうは、いちばん高い能力で決まる）
+    FACTION_DOMINANT: 4,    // 役職の6人のうち、同じ派閥がこの数以上なら「専横」
+    FACTION_IKOU: -1,       // 専横のあいだ、威光が毎年これだけ動く（その派の役職の腕は+1）
+    TIE_RIVAL: 0.25,        // 登用の候補が、いまの家臣のだれかと犬猿の仲になる見込み（ほかの派閥の者と）
+    TIE_ALLY: 0.2,          // 登用の候補が、いまの家臣のだれかと盟友になる見込み（同じ派閥の者と）
   };
 
   const STATE_LABELS = { ikou: '威光', minshin: '民心', chotei: '朝廷' };
@@ -273,6 +279,8 @@
     }
     // 諸家の覚えを入れる前の保存データ。覚えは平らから始める
     saved.oboe = saved.oboe || { daimyo: 0, shonin: 0, kuge: 0 };
+    // 派閥を入れる前の保存データ。家臣の派閥は、いちばん高い能力で決める（乱数は使わない）
+    for (const r of (saved.retainers || []).concat(saved.candidates || [])) if (!r.ha) r.ha = factionOf(r.stats, false);
     // 言行録を入れる前の保存データ。いまの御治世の裁きは、ここから数える
     if (saved.reign && !saved.reign.deeds) saved.reign.deeds = [];
     saved.oboeLog = saved.oboeLog || [];
@@ -444,9 +452,11 @@
     const seeded = [
       { name: '松平信綱', age: 41, stats: { seimu: 17, sanyo: 12, bui: 8, jinbo: 10 }, post: 'roju' },
       { name: '板倉重宗', age: 51, stats: { seimu: 14, sanyo: 9, bui: 7, jinbo: 12 }, post: 'shoshidai' },
-      { name: '酒井忠勝', age: 50, stats: { seimu: 13, sanyo: 10, bui: 10, jinbo: 11 }, post: null },
+      { name: '酒井忠勝', age: 50, stats: { seimu: 13, sanyo: 10, bui: 10, jinbo: 11 }, post: null, ha: 'budan' },
     ];
     for (const r of seeded) state.retainers.push(makeRetainer(r));
+    // 信綱と忠勝は、どちらも家光を支えた老中。ここでは張り合う間柄にしておく（ともに役に就けば、腕が鈍る）
+    setTie(state.retainers[0], state.retainers[2], 'rival');
     for (const post of ['kanjo', 'machi', 'ometsuke', 'jisha']) {
       const r = makeRetainer();
       r.stats[POSTS.find((p) => p.id === post).stat] = rand(9, 13);
@@ -1119,7 +1129,95 @@
       if (seed.cap) for (const k of Object.keys(stats)) stats[k] = Math.min(stats[k], seed.cap);
     }
     const id = nextId();
-    return { id, name, age: seed.age || rand(22, 40), stats, salary: salaryOf(stats), post: seed.post || null, seed: id * 7 + name.length };
+    return { id, name, age: seed.age || rand(22, 40), stats, salary: salaryOf(stats), post: seed.post || null, seed: id * 7 + name.length,
+      ha: seed.ha || factionOf(stats) };
+  }
+
+  // ─────────────────────────────── 家臣の派閥と相性
+
+  // 派閥（cards.js の factions の id）。いちばん高い能力で決まりやすい（武威→武断・政務→文治・算用→勘定）。
+  // 人望がいちばん高い者と、FACTION_RANDOM の見込みで、どの派閥にもなりうる。roll が false なら乱数を使わない
+  const FACTION_STAT = { bui: 'budan', seimu: 'bunchi', sanyo: 'kanjo' };
+  function factionOf(stats, roll = true) {
+    const best = Object.keys(stats).reduce((a, b) => (stats[b] > stats[a] ? b : a));
+    if (roll && (!FACTION_STAT[best] || Math.random() < CONFIG.FACTION_RANDOM)) return pick(DATA.factions).id;
+    return FACTION_STAT[best] || 'bunchi';
+  }
+
+  function factionDef(id) {
+    return DATA.factions.find((f) => f.id === id) || null;
+  }
+
+  // 相性の相手（いま仕えている者だけ。去った者との相性は消えたものとみなす）。kind: 'ally'（盟友）/ 'rival'（犬猿）
+  function tieOf(r, kind) {
+    const id = r && r[kind];
+    return id ? state.retainers.find((x) => x.id === id) || null : null;
+  }
+
+  function setTie(a, b, kind) {
+    if (!a || !b || a === b) return;
+    a[kind] = b.id;
+    b[kind] = a.id;
+  }
+
+  // 登用の候補に、いまの家臣との相性をつけておく（召し抱えたときに結ばれる）。史実で張り合った人物どうしは、必ず犬猿
+  function rollTie(c) {
+    const free = (kind) => state.retainers.filter((o) => !tieOf(o, kind));
+    const foe = c.rivalName && state.retainers.find((o) => o.name === c.rivalName);
+    if (foe) {
+      c.tie = { kind: 'rival', id: foe.id };
+      return;
+    }
+    const roll = Math.random();
+    let pool = [];
+    let kind = null;
+    if (roll < CONFIG.TIE_RIVAL) [pool, kind] = [free('rival').filter((o) => o.ha !== c.ha), 'rival'];
+    else if (roll < CONFIG.TIE_RIVAL + CONFIG.TIE_ALLY) [pool, kind] = [free('ally').filter((o) => o.ha === c.ha), 'ally'];
+    if (pool.length) c.tie = { kind, id: pick(pool).id };
+  }
+
+  // 役職に就いている者の、派閥ごとの数（{ budan: 2, ... }）
+  function factionCounts() {
+    const counts = {};
+    for (const f of DATA.factions) counts[f.id] = 0;
+    for (const p of POSTS) {
+      const h = holder(p.id);
+      if (h && counts[h.ha] !== undefined) counts[h.ha] += 1;
+    }
+    return counts;
+  }
+
+  // 役職の多くを占めて「専横」になっている派閥の id（なければ null）
+  function dominantFaction() {
+    const counts = factionCounts();
+    return Object.keys(counts).find((k) => counts[k] >= CONFIG.FACTION_DOMINANT) || null;
+  }
+
+  // 役職に就いている家臣の腕の上げ下げ（盟友・犬猿・専横）。{ ally, rival, faction, total }
+  function postAdjust(r) {
+    if (!r || !r.post) return { ally: 0, rival: 0, faction: 0, total: 0 };
+    const ally = tieOf(r, 'ally');
+    const rival = tieOf(r, 'rival');
+    const out = {
+      ally: ally && ally.post ? 1 : 0,
+      rival: rival && rival.post ? -1 : 0,
+      faction: dominantFaction() === r.ha ? 1 : 0,
+    };
+    out.total = out.ally + out.rival + out.faction;
+    return out;
+  }
+
+  // ともに役職に就いている犬猿の仲の二人（いなければ null）。腕の劣るほうを b にする
+  function rivalPairInPosts() {
+    for (const p of POSTS) {
+      const a = holder(p.id);
+      const b = tieOf(a, 'rival');
+      if (a && b && b.post) {
+        const skill = (r) => r.stats[POSTS.find((x) => x.id === r.post).stat];
+        return skill(a) >= skill(b) ? [a, b] : [b, a];
+      }
+    }
+    return null;
   }
 
   // 将軍の格に応じた、毎年の登用の候補の数
@@ -1138,6 +1236,7 @@
     const list = Array.from({ length: candidateCount() }, () => makeRetainer({ age: rand(20, 34), lift, cap }));
     const renowned = renownedCandidate();
     if (renowned) list.unshift(renowned);
+    for (const c of list) rollTie(c);
     return list;
   }
 
@@ -1151,8 +1250,9 @@
     const p = pick(pool);
     state.renownSeen.push(p.name);
     noteZukan('renowned', p.name);
-    const r = makeRetainer({ name: p.name, age: p.age, stats: { ...p.stats } });
+    const r = makeRetainer({ name: p.name, age: p.age, stats: { ...p.stats }, ha: p.ha });
     r.renowned = p.desc;
+    if (p.rival) r.rivalName = p.rival;
     return r;
   }
 
@@ -1168,9 +1268,10 @@
   }
 
   // 役職の働きぶり。将軍の特技が効く役職は、そのぶん上乗せする
+  // 盟友・犬猿・専横による上げ下げも足す
   function postValue(postId) {
     const sk = skillById(state.shogun.skill);
-    return holderValue(postId) + (sk && sk.post === postId ? sk.bonus : 0);
+    return holderValue(postId) + (sk && sk.post === postId ? sk.bonus : 0) + postAdjust(holder(postId)).total;
   }
 
   // 役職の腕による毎年の上乗せ。腕10で0、div 上がるごとに+1（端数は年をまたいで持ち越すので、腕が1違えばそのぶん効く）
@@ -1233,8 +1334,15 @@
     if (state.retainers.length >= CONFIG.MAX_RETAINERS) return;
     const c = state.candidates.splice(index, 1)[0];
     c.since = state.year;
+    // 候補のときに見えていた相性が、ここで結ばれる（相手がもう去っていたり、別の者と結ばれていたりすれば、結ばれない）
+    const other = c.tie && state.retainers.find((x) => x.id === c.tie.id);
+    if (other && !tieOf(other, c.tie.kind)) setTie(c, other, c.tie.kind);
+    delete c.tie;
     state.retainers.push(c);
     addLog(`${c.name}を召し抱えた（俸禄 年${formatRyo(c.salary)}）。`);
+    // 史実で張り合った人物が、もう仕えていれば
+    const foe = c.rivalName && state.retainers.find((x) => x.name === c.rivalName);
+    if (foe && !tieOf(c, 'rival')) setTie(c, foe, 'rival');
   }
 
   function dismiss(id) {
@@ -1507,6 +1615,8 @@
     if (card.favor) w *= 1 + Math.max(0, oboe(card.favor)) / CONFIG.OBOE_WEIGHT;
     // 危機の年に動く家は、覚えが深いほど先に動く
     if (card.crisis) w *= Math.abs(oboe(card.crisis.party));
+    // 役職に犬猿の仲の二人がいると、家臣の争いが起きやすい
+    if (card.feud && rivalPairInPosts()) w *= 3;
     return w;
   }
 
@@ -1517,6 +1627,11 @@
       if (party && (key === 'urami' || key === 'on')) return oboeWhy(party, key);
       if (key === 'shogun') return state.shogun.name;
       if (key === 'branch') return (strongBranch() || { house: '御三家のひとつ' }).house;
+      if (key === 'rivals') {
+        const pair = rivalPairInPosts();
+        return pair ? pair.map((r) => `${postOf(r).replace(/の$/, '')}・${r.name}`).join('と') : '二人の重臣';
+      }
+      if (key === 'faction') return (factionDef(dominantFaction()) || { name: '一つの派閥' }).name;
       const post = POSTS.find((p) => p.id === key);
       if (!post) return all;
       const h = holder(key);
@@ -1526,7 +1641,7 @@
 
   function drawCard() {
     // cards.js の when(s) は s.shogunate や s.heirs、s.strongBranch などを見る
-    const view = { ...state, shogunate: state.gauges, strongBranch: strongBranch() };
+    const view = { ...state, shogunate: state.gauges, strongBranch: strongBranch(), rivalPair: rivalPairInPosts(), dominant: dominantFaction() };
     const usable = (card, useCooldown) => {
       if (card.minYear && state.year < card.minYear) return false;
       if (card.maxYear && state.year > card.maxYear) return false;
@@ -1637,6 +1752,7 @@
           const strong = Object.keys(r.stats).reduce((a, b) => (r.stats[b] > r.stats[a] ? b : a));
           r.stats[strong] = clamp(r.stats[strong] + 4, 1, CONFIG.ABILITY_MAX);
           r.salary = payOf(r);
+          rollTie(r);
           state.candidates.push(r);
         }
         unit = '人';
@@ -1645,6 +1761,20 @@
         f.debt -= v;
         v = -v;
         unit = '万両';
+      } else if (key === 'rivalSplit' || key === 'rivalMend') {
+        // 犬猿の仲の二人。rivalSplit は腕の劣るほうを役から外し（控えに回す）、rivalMend は仲直りさせる
+        const pair = rivalPairInPosts();
+        if (!pair) continue;
+        const [a, b] = pair;
+        if (key === 'rivalSplit') {
+          changes.push({ text: `${postOf(b)}${b.name}を役から外した（控えに回る）`, good: false });
+          b.post = null;
+        } else {
+          delete a.rival;
+          delete b.rival;
+          changes.push({ text: `${a.name}と${b.name}が和解した`, good: true });
+        }
+        continue;
       } else if (key === 'branchCurb' || key === 'branchLift') {
         // 突出した御三家の血筋を下げる／ほかの二家の血筋を上げる（能力ごとに v ずつ）
         const strong = strongBranch();
@@ -1855,6 +1985,8 @@
     }
     // 御三家がそろって強く釣り合っていれば、互いに牽制して幕府の重しになる
     if (branchesBalanced()) drift.ikou += 1;
+    // 家臣の一派が役職を占めていれば（専横）、ほかの者や大名の不満で威光が下がる
+    if (dominantFaction()) drift.ikou += CONFIG.FACTION_IKOU;
     // 放っておくと、威光と民心は少しずつ下がる（手当てをしないと保てない）。
     // 朝廷はもともと将軍の能力では伸びないので、ここでは下げない
     // 先代の遺言
@@ -2713,5 +2845,7 @@
     banzukeTable, banzukeRank, townView, loadZukan,
     // 諸家の覚え（積み重なる歴史）
     oboe, oboeLabel, oboeReached, oboeWhy,
+    // 家臣の派閥と相性
+    factionDef, factionCounts, dominantFaction, tieOf, postAdjust, rivalPairInPosts,
   };
 })();
