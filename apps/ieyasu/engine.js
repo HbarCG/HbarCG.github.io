@@ -75,6 +75,9 @@
     KIEN_EFFECTS: { ikou: -4, minshin: -3, oboe: { shonin: -4 } },
     KIEN_TRADE: 0.5,
     HATAMOTO: 60,           // 旗本・御家人の俸禄のもとの額（万両/年）。物価につれて上がり、勘定奉行や制度で減る
+    // 本編の前の年（1636年）の決算に載せる、日光東照宮の寛永の大造替の費え（万両。史実では金56万8千両）。
+    // 財務の画面が、はじめから0だらけにならないように、前年の決算を1年ぶん作っておく（priorBooks）
+    TOSHOGU_COST: 57,
     // 城中の奢り。金蔵の現金が OGORI_FREE（万両、物価を反映）を超えると、超えたぶんの OGORI_RATE が毎年、奢りに消える
     // （史実でも、吉宗が蓄えた金は、のちの代の華やかな暮らしに消えた）。ためこむより、普請や制度に使うほうが得。
     // 異国船の予兆が出てから来航までは、金蔵は備えの金として奢りに回らない
@@ -470,7 +473,8 @@
     // 信綱と忠勝は、どちらも家光を支えた老中。ここでは張り合う間柄にしておく（ともに役に就けば、腕が鈍る）
     setTie(state.retainers[0], state.retainers[2], 'rival');
     for (const post of ['kanjo', 'machi', 'ometsuke', 'jisha']) {
-      const r = makeRetainer();
+      // 町奉行は老臣にしておく。本編の最初の暮れに辞め、組織の手ほどきの場になる（endYear）
+      const r = makeRetainer(post === 'machi' ? { age: 63 } : {});
       r.stats[POSTS.find((p) => p.id === post).stat] = rand(9, 13);
       r.salary = payOf(r);
       r.post = post;
@@ -492,6 +496,7 @@
 
   // 家光が若くして天に昇り、権現様（プレイヤー）が霊体となって江戸城に降りるところから本編が始まる
   function startMain() {
+    priorBooks();
     state.year = CONFIG.START_YEAR;
     state.phase = 'event';
     state.ledger = { year: state.year, items: [] };
@@ -527,6 +532,24 @@
     state.yearStart = snapshot();
     drawCard();
     beginReign();
+  }
+
+  // 本編の前の年（家光の代の最後の年）の決算を、帳簿に1年ぶん入れておく。
+  // 財務の画面を開いたとき、何をどのくらい稼ぎ、何に使っているかの手がかりになるように。
+  // 金蔵などの中身は動かさない（年末の現金・借入は、本編の始まりの額にそろえる）
+  function priorBooks() {
+    const keep = { ...state.fin };
+    state.year = CONFIG.START_YEAR - 1;
+    state.ledger = { year: state.year, items: [] };
+    book('inv', '日光東照宮の造替', -CONFIG.TOSHOGU_COST);
+    closeBooks();
+    const lastRevenue = state.fin.lastRevenue;
+    Object.assign(state.fin, keep, { lastRevenue });
+    const closed = state.books[0];
+    closed.cash = r1(state.fin.cash + level().cash);
+    closed.debt = r1(state.fin.debt);
+    closed.net = r1(netAssets() + level().cash);
+    closed.limit = debtLimit();
   }
 
   // 最後の布石で、制度ではなく「遺訓」を選んだときの効果
@@ -2042,7 +2065,9 @@
         r.stats[stat] = clamp(r.stats[stat] + 1, 1, CONFIG.ABILITY_MAX);
         r.salary = payOf(r);
       }
-      if (r.age > 58 && Math.random() < (r.age - 58) * 0.05) {
+      // 本編の最初の暮れには、老臣の町奉行が必ず辞める（空いた役職を埋める手ほどきの場。チュートリアルが組織の画面を案内する）
+      const firstYear = state.year === CONFIG.START_YEAR && r.post === 'machi';
+      if (firstYear || (r.age > 58 && Math.random() < (r.age - 58) * 0.05)) {
         state.retainers = state.retainers.filter((x) => x !== r);
         notes.push(`${postOf(r)}${r.name}が老いて職を辞した（${r.age}歳）。`);
       }

@@ -148,12 +148,15 @@
     { id: 'log', icon: '記', label: '記録' },
   ];
 
-  const TUTORIAL_KEY = 'ieyasu-tutorial-done';
+  // チュートリアルで見せ終えた場面（cards.js の tutorial の id）を、ブラウザに覚えておく。
+  // 以前の、はじめに全部を話すチュートリアルを見終えた人には、もう出さない（OLD_TUTORIAL_KEY）
+  const LESSONS_KEY = 'ieyasu-lessons-seen';
+  const OLD_TUTORIAL_KEY = 'ieyasu-tutorial-done';
 
-  // 画面だけの状態（保存しない）。coach はチュートリアルの何番目を見せているか
+  // 画面だけの状態（保存しない）。lesson は見せているチュートリアルの場面の id、coach はその何番目の手順か
   // reportShown は、演出を見せ終えた決算の年（描き直しても、演出をくり返さない）。
   // side は、PCの広い画面で政務の右に並べる画面（家系図・財務・組織・記録のどれか）
-  const ui = { tab: 'seimu', person: null, bookYear: 'now', coach: null, coachLine: 0, reportShown: null, side: 'org' };
+  const ui = { tab: 'seimu', person: null, bookYear: 'now', lesson: null, coach: null, coachLine: 0, reportShown: null, side: 'org' };
 
   // PCの広い画面（2列）。政務を左に、ほかの画面を右に並べる
   const WIDE = window.matchMedia ? window.matchMedia('(min-width: 1100px)') : { matches: false };
@@ -204,17 +207,23 @@
 
   const $ = (id) => document.getElementById(id);
 
-  function tutorialDone() {
+  // 記録できなければ（プライベートブラウズなど）、この画面を開いているあいだだけ覚えておく
+  let lessonsMemo = [];
+
+  function lessonsSeen() {
     try {
-      return localStorage.getItem(TUTORIAL_KEY) === '1';
+      if (localStorage.getItem(OLD_TUTORIAL_KEY) === '1') return DATA.tutorial.map((l) => l.id);
+      return JSON.parse(localStorage.getItem(LESSONS_KEY) || '[]');
     } catch (e) {
-      return false;
+      return lessonsMemo;
     }
   }
 
-  function markTutorialDone() {
+  function saveLessonsSeen(ids) {
+    lessonsMemo = ids;
     try {
-      localStorage.setItem(TUTORIAL_KEY, '1');
+      localStorage.removeItem(OLD_TUTORIAL_KEY);
+      localStorage.setItem(LESSONS_KEY, JSON.stringify(ids));
     } catch (e) {
       // 記録できなければ、次に開いたときにもう一度出るだけ
     }
@@ -240,6 +249,7 @@
       soundFor(state.phase);
     }
     lastPhase = state.phase;
+    maybeLesson();
   }
 
   // 場面が変わったときの音（音を切っていれば何も鳴らない）
@@ -653,7 +663,6 @@
     const nextStep = () => {
       E.nextPrologueStep();
       commit();
-      if (isLastStep && !tutorialDone()) startTutorial();
     };
 
     // 布石を選んだ直後の、家康の一言
@@ -1755,30 +1764,37 @@
     return box;
   }
 
-  function cfTable(items) {
+  // キャッシュフロー計算書。prev（前の年の決算の明細）があれば、右に並べて見比べられるようにする
+  function cfTable(items, prev, heads) {
     const sections = [
       ['op', '営業キャッシュフロー（年貢・経費など）'],
       ['inv', '投資キャッシュフロー（普請・制度の整備）'],
       ['fin', '財務キャッシュフロー（借入・返済・利息）'],
     ];
+    const cols = prev ? [items, prev] : [items];
+    const cell = (amount) => el('td', { class: amount < 0 ? 'iy-down' : '', text: amount === null ? '—' : money(amount) });
     const rows = [];
-    let total = 0;
+    if (prev) rows.push(el('tr', { class: 'iy-table__heads' }, [el('th', { text: '' }), ...heads.map((h) => el('th', { text: h }))]));
+    const totals = cols.map(() => 0);
     for (const [cf, title] of sections) {
-      const list = items.filter((i) => i.cf === cf);
-      const sum = list.reduce((a, b) => a + b.amount, 0);
-      total += sum;
-      rows.push(el('tr', { class: 'iy-table__section' }, [el('th', { colspan: '2', text: title })]));
-      // 同じ名目はまとめて1行にする
-      const merged = new Map();
-      for (const i of list) merged.set(i.label, (merged.get(i.label) || 0) + i.amount);
-      if (merged.size === 0) rows.push(el('tr', {}, [el('td', { class: 'iy-muted', text: 'なし' }), el('td', { text: '' })]));
-      for (const [label, amount] of merged) {
-        rows.push(el('tr', {}, [el('td', { text: label }), el('td', { class: amount < 0 ? 'iy-down' : '', text: money(amount) })]));
+      rows.push(el('tr', { class: 'iy-table__section' }, [el('th', { colspan: String(cols.length + 1), text: title })]));
+      // 同じ名目はまとめて1行にする。名目は、どちらかの年にあれば並べる
+      const merged = cols.map((list) => {
+        const m = new Map();
+        for (const i of list.filter((x) => x.cf === cf)) m.set(i.label, (m.get(i.label) || 0) + i.amount);
+        return m;
+      });
+      const labels = [...new Set(merged.flatMap((m) => [...m.keys()]))];
+      if (labels.length === 0) rows.push(el('tr', {}, [el('td', { class: 'iy-muted', text: 'なし' }), ...cols.map(() => el('td', { text: '' }))]));
+      for (const label of labels) {
+        rows.push(el('tr', {}, [el('td', { text: label }), ...merged.map((m) => cell(m.has(label) ? m.get(label) : null))]));
       }
-      rows.push(el('tr', { class: 'iy-table__sub' }, [el('td', { text: '小計' }), el('td', { class: sum < 0 ? 'iy-down' : '', text: money(sum) })]));
+      const sums = merged.map((m) => [...m.values()].reduce((a, b) => a + b, 0));
+      sums.forEach((v, i) => { totals[i] += v; });
+      rows.push(el('tr', { class: 'iy-table__sub' }, [el('td', { text: '小計' }), ...sums.map(cell)]));
     }
-    rows.push(el('tr', { class: 'iy-table__total' }, [el('td', { text: '現金の増減' }), el('td', { class: total < 0 ? 'iy-down' : '', text: money(total) })]));
-    return el('table', { class: 'iy-table' }, [el('tbody', {}, rows)]);
+    rows.push(el('tr', { class: 'iy-table__total' }, [el('td', { text: '現金の増減' }), ...totals.map(cell)]));
+    return el('table', { class: `iy-table${prev ? ' iy-table--compare' : ''}` }, [el('tbody', {}, rows)]);
   }
 
   function renderFinance() {
@@ -1794,6 +1810,10 @@
     }, [el('option', { value: 'now', text: `${state.year}年（今年・途中経過）`, selected: ui.bookYear === 'now' })]
       .concat(state.books.map((b) => el('option', { value: String(b.year), text: `${b.year}年の決算`, selected: ui.bookYear === String(b.year) }))));
     const shown = state.books.find((b) => String(b.year) === ui.bookYear) || state.ledger;
+    // 見比べる前の年。今年の途中経過は、年を越すまで年貢などが入らないので、前年の決算を並べて手がかりにする
+    const prev = state.books.find((b) => b.year === shown.year - 1);
+    const isNow = shown === state.ledger;
+    const heads = [isNow ? `${shown.year}年（途中）` : `${shown.year}年`, `${shown.year - 1}年`];
 
     const bs = el('table', { class: 'iy-table' }, [el('tbody', {}, [
       el('tr', { class: 'iy-table__section' }, [el('th', { colspan: '2', text: '資産' })]),
@@ -1829,7 +1849,11 @@
         runwayLine(),
         financeChart(),
       ]),
-      panel('キャッシュフロー計算書', [select, cfTable(shown.items)]),
+      panel('キャッシュフロー計算書', [
+        select,
+        isNow && prev ? el('p', { class: 'iy-hint', text: '今年の年貢や経費は、年を越すときの決算で入る。それまでは、前年の決算を手がかりにするとよい。' }) : null,
+        cfTable(shown.items, prev ? prev.items : null, heads),
+      ], 'iy-cf'),
       panel('バランスシート（いま）', [bs]),
       state.books.length ? panel('決算の推移', [el('div', { class: 'iy-scroll' }, trend)]) : null,
     ].filter(Boolean));
@@ -2072,15 +2096,47 @@
     else dialog.removeAttribute('open');
   }
 
-  // ───── チュートリアル（初回だけ。霊体の家光が画面の各部分を順に案内する）
+  // ───── チュートリアル（霊体の家光が、その操作が要る場面で、そこだけを案内する）
 
-  function startTutorial() {
-    if (state.phase === 'prologue') return;
+  // 場面ごとの、案内を出す条件（cards.js の tutorial の id）
+  const LESSON_WHEN = {
+    start: () => state.phase === 'event',
+    manage: () => state.phase === 'manage' && state.result,
+    report: () => state.phase === 'report',
+    marriage: () => state.phase === 'marriage',
+    org: () => state.phase === 'manage' && vacancies().length > 0,
+    family: () => state.phase === 'manage' && (state.heirs.length > 1 || state.daughters.length > 0),
+    ship: () => state.phase === 'manage' && Boolean(state.ships.arriving) && !shipDue(),
+    succession: () => state.phase === 'succession',
+  };
+
+  function lessonById(id) {
+    return DATA.tutorial.find((l) => l.id === id);
+  }
+
+  // 場面が進んだら、まだ見せていない案内のうち、条件に合う最初の1つを出す
+  function maybeLesson() {
+    if (ui.lesson || state.phase === 'prologue' || state.phase === 'over') return;
+    const seen = lessonsSeen();
+    const next = DATA.tutorial.find((l) => !seen.includes(l.id) && LESSON_WHEN[l.id] && LESSON_WHEN[l.id]());
+    if (next) startLesson(next.id);
+  }
+
+  function startLesson(id) {
+    ui.lesson = id;
     ui.coach = 0;
     ui.coachLine = 0;
     ui.tab = 'seimu';
     render();
     showCoach();
+  }
+
+  // 「チュートリアルをもう一度」。見せ終えた記録を消し、いまの場面に合う案内から出しなおす
+  function startTutorial() {
+    if (state.phase === 'prologue') return;
+    saveLessonsSeen([]);
+    const now = DATA.tutorial.find((l) => LESSON_WHEN[l.id] && LESSON_WHEN[l.id]());
+    startLesson((now || DATA.tutorial[0]).id);
   }
 
   function clearSpot() {
@@ -2090,7 +2146,8 @@
   // 案内している場所を光らせる。固定表示の帯の中なら、帯ごと手前に出す
   function applySpot() {
     clearSpot();
-    const step = DATA.tutorial[ui.coach];
+    const lesson = lessonById(ui.lesson);
+    const step = lesson && lesson.steps[ui.coach];
     const target = step && step.target ? document.querySelector(step.target) : null;
     if (!target) return null;
     target.classList.add('iy-spot');
@@ -2100,7 +2157,7 @@
   }
 
   function showCoach() {
-    const steps = DATA.tutorial;
+    const steps = lessonById(ui.lesson).steps;
     const step = steps[ui.coach];
     if (step.tab && ui.tab !== step.tab) {
       ui.tab = step.tab;
@@ -2119,7 +2176,7 @@
     const isLast = ui.coach === steps.length - 1 && lineIndex === lines.length - 1;
     const forward = () => {
       if (lineIndex < lines.length - 1) ui.coachLine = lineIndex + 1;
-      else if (isLast) { endTutorial(); return; }
+      else if (isLast) { endLesson(); return; }
       else { ui.coach += 1; ui.coachLine = 0; }
       showCoach();
     };
@@ -2128,6 +2185,8 @@
       else { ui.coach -= 1; ui.coachLine = [].concat(steps[ui.coach].text).length - 1; }
       showCoach();
     };
+    const total = steps.reduce((n, st) => n + [].concat(st.text).length, 0);
+    const done = steps.slice(0, ui.coach).reduce((n, st) => n + [].concat(st.text).length, 0) + lineIndex;
     const coach = $('coach');
     coach.hidden = false;
     document.body.classList.add('iy-coaching');
@@ -2136,26 +2195,28 @@
       el('div', { class: `iy-coach__card${atTop ? ' iy-coach__card--top' : ''}`, role: 'dialog', 'aria-label': 'チュートリアル' }, [
         iemitsuSays(el('p', { class: 'iy-voice', text: lines[lineIndex] })),
         el('div', { class: 'iy-coach__nav' }, [
-          el('span', { class: 'iy-muted', text: `${ui.coach + 1} / ${steps.length}` }),
-          el('button', { type: 'button', class: 'iy-coach__skip', text: 'とばす', onclick: endTutorial }),
-          ui.coach > 0 || lineIndex > 0 ? el('button', { type: 'button', text: '戻る', onclick: back }) : null,
-          el('button', { type: 'button', class: 'iy-coach__next', text: isLast ? '始める' : '次へ', onclick: forward }),
+          el('span', { class: 'iy-muted', text: `${done + 1} / ${total}` }),
+          el('button', { type: 'button', class: 'iy-coach__skip', text: 'とばす', onclick: endLesson }),
+          done > 0 ? el('button', { type: 'button', text: '戻る', onclick: back }) : null,
+          el('button', { type: 'button', class: 'iy-coach__next', text: isLast ? 'わかった' : '次へ', onclick: forward }),
         ]),
       ]),
     );
     coach.querySelector('.iy-coach__next').focus();
   }
 
-  function endTutorial() {
+  // 案内を閉じる。この場面は見せ終えたものとして覚えておく（「とばす」でも同じ）
+  function endLesson() {
+    const then = (lessonById(ui.lesson) || {}).then || 'seimu';
+    const seen = lessonsSeen();
+    if (ui.lesson && !seen.includes(ui.lesson)) saveLessonsSeen(seen.concat(ui.lesson));
+    ui.lesson = null;
     ui.coach = null;
     clearSpot();
     $('coach').hidden = true;
     $('coach').replaceChildren();
     document.body.classList.remove('iy-coaching');
-    markTutorialDone();
-    ui.tab = 'seimu';
-    render();
-    scrollToGame();
+    openTab(then);
   }
 
   function restart() {
@@ -2175,5 +2236,5 @@
   E.loadOrNew();
   lastPhase = state.phase;
   render();
-  if (!tutorialDone() && ['event', 'result', 'manage'].includes(state.phase)) startTutorial();
+  maybeLesson();
 })();

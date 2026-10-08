@@ -813,6 +813,23 @@ body.iy-has-tabbar {
   border-bottom: 3px double var(--color-text-muted);
 }
 
+/* キャッシュフロー計算書で、前の年を右に並べたとき（前の年は少し淡く） */
+.iy-table--compare td:not(:first-child),
+.iy-table__heads th {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.iy-table--compare td:nth-child(3) {
+  opacity: 0.7;
+}
+
+.iy-table__heads th {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
 .iy-scroll {
   overflow-x: auto;
 }
