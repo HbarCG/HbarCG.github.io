@@ -23,6 +23,7 @@
     banzukeTable, townView, loadZukan,
     oboe, oboeLabel,
     factionDef, factionCounts, dominantFaction, tieOf, postAdjust,
+    scoutDef, scoutCost, scoutOdds, scoutRenownChance, canScout,
   } = E;
 
   // ルールの側の操作。状態を変えたあと、保存して描き直す（commit）
@@ -43,6 +44,8 @@
   const assign = act(E.assign);
   const autoAssign = act(E.autoAssign);
   const hire = act(E.hire);
+  const hireScouted = act(E.hireScouted);
+  const passScouted = act(E.passScouted);
   const raise = act(E.raise);
   const repay = act(E.repay);
   const borrowMore = act(E.borrowMore);
@@ -86,6 +89,14 @@
   // 遺言の決まり（cards.js の testaments）。id がなければ null
   function testamentDef(id) {
     return DATA.testaments.find((t) => t.id === id) || null;
+  }
+
+  // 人を探しに出す。器の大きい者が見つかれば、明るい音にする
+  function scout(id) {
+    E.scout(id);
+    const best = state.scout && state.scout.found[0];
+    if (best) AUDIO.cue(best.rank >= 3 ? 'good' : 'select');
+    commit();
   }
 
   // 年を越す。決算の年を、財務の画面で開く年にしておく（倒幕で終わった年は、そのまま）
@@ -156,7 +167,8 @@
   // 画面だけの状態（保存しない）。lesson は見せているチュートリアルの場面の id、coach はその何番目の手順か
   // reportShown は、演出を見せ終えた決算の年（描き直しても、演出をくり返さない）。
   // side は、PCの広い画面で政務の右に並べる画面（家系図・財務・組織・記録のどれか）
-  const ui = { tab: 'seimu', person: null, bookYear: 'now', lesson: null, coach: null, coachLine: 0, reportShown: null, side: 'org' };
+  // scoutShown は、見つかった者が現れる演出を見せ終えた人材探しの年
+  const ui = { scoutShown: null, tab: 'seimu', person: null, bookYear: 'now', lesson: null, coach: null, coachLine: 0, reportShown: null, side: 'org' };
 
   // PCの広い画面（2列）。政務を左に、ほかの画面を右に並べる
   const WIDE = window.matchMedia ? window.matchMedia('(min-width: 1100px)') : { matches: false };
@@ -330,6 +342,8 @@
     const f = factionDef(r.ha);
     return el('p', { class: 'iy-retainer__name' }, [
       f ? el('span', { class: `iy-ha iy-ha--${f.id}`, title: f.name, text: f.short }) : null,
+      // 人材探しで見つかった者の器（良材より上だけ出す）
+      r.rank >= 2 && r.rank <= 4 ? el('span', { class: `iy-rank iy-rank--${r.rank}`, text: DATA.scoutRanks[r.rank - 1].label }) : null,
       `${retainerName(r)}（${r.age}歳・俸禄${ryo(r.salary)}）`,
     ]);
   }
@@ -1897,6 +1911,64 @@
     ]);
   }
 
+  // 人材探し。探し先を選んで金を払うと、何人かが見つかり、その中から1人を召し抱えられる
+  function scoutPanel() {
+    const over = state.phase === 'over';
+    const sc = state.scout && state.scout.year === state.year ? state.scout : null;
+    const pct = (v) => `${Math.round(v * 100)}%`;
+    const oddsText = (def) => {
+      const o = scoutOdds(def);
+      const parts = [['傑物', o[3]], ['逸材', o[2]], ['良材', o[1]]].filter(([, v]) => v > 0).map(([l, v]) => `${l}${pct(v)}`);
+      const renown = scoutRenownChance(def);
+      return `見込み：${parts.join('・')}${renown > 0 ? `・名のある人物${pct(renown)}` : ''}`;
+    };
+    const nodes = [
+      el('p', { class: 'iy-hint', text: `金をかけて、人を探しに出す（1年に1度）。見つかった者の中から1人だけ召し抱えられ、ほかの者は去る。将軍の格（いま${shogunKaku()}）が高いほど、器の大きい者に出会いやすい。` }),
+    ];
+    if (sc && sc.found.length) {
+      const def = scoutDef(sc.id);
+      const play = ui.scoutShown !== state.year;
+      ui.scoutShown = state.year;
+      const best = sc.found[0];
+      const line = best.renowned ? '名のある人物がおるではないか。この機を逃すでないぞ。'
+        : best.rank >= 4 ? 'これは傑物じゃ。めったに出会えぬ器ぞ。'
+          : best.rank >= 3 ? 'ほう、逸材がおる。よい探しものをしたな。'
+            : best.rank >= 2 ? 'まずまずの者がおるな。'
+              : '……ぱっとせぬのう。格の高い将軍でなければ、よい者は寄ってこぬか。';
+      nodes.push(
+        el('p', { class: 'iy-scout__where' }, [el('strong', { text: def.name }), `で、${sc.found.length}人が見つかった。`]),
+        ieyasuSays(el('p', { class: 'iy-voice', text: line }), best.rank >= 2 || best.renowned ? 'calm' : 'worry'),
+        el('div', { class: `iy-scout__found${play ? ' iy-scout__found--play' : ''}` }, sc.found.map((c, i) => {
+          const row = retainerRow(c, el('button', {
+            type: 'button', text: '召し抱える', disabled: over || state.retainers.length >= CONFIG.MAX_RETAINERS, onclick: () => hireScouted(i),
+          }), false);
+          row.classList.add(`iy-scout__card--${c.renowned ? 5 : c.rank}`);
+          row.style.setProperty('--i', String(i));
+          return row;
+        })),
+        el('button', { type: 'button', class: 'iy-secondary', text: '誰も召し抱えない', disabled: over, onclick: passScouted }),
+      );
+    } else if (sc) {
+      nodes.push(el('p', { class: 'iy-hint', text: '今年はもう人を探しに出した。来年また出せる。' }));
+    } else if (state.retainers.length >= CONFIG.MAX_RETAINERS) {
+      nodes.push(el('p', { class: 'iy-hint', text: `家臣は${CONFIG.MAX_RETAINERS}人までしか抱えられない。控えの家臣に暇を出せば、また探しに出せる。` }));
+    } else {
+      const near = DATA.scouts.find((def) => def.rare === 0);
+      nodes.push(el('p', { class: 'iy-hint', text: `近場の探し先の${oddsText(near)}` }));
+      nodes.push(el('div', { class: 'iy-scout__list' }, DATA.scouts.map((def) => {
+        const cost = scoutCost(def);
+        return el('button', {
+          type: 'button', class: 'iy-option iy-scout__dest', disabled: over || !canScout() || state.fin.cash < cost, onclick: () => scout(def.id),
+        }, [
+          el('strong', { text: `${def.name}へ（${cost}万両）` }),
+          el('span', { class: 'iy-option__hint', text: def.desc }),
+          el('span', { class: 'iy-option__hint', text: `${def.count + (state.shogun.skill === 'mekiki' ? 1 : 0)}人ほど見つかる。${def.rare ? oddsText(def) : ''}` }),
+        ]);
+      })));
+    }
+    return panel('人材を探す', nodes, 'iy-scout');
+  }
+
   function renderOrg() {
     const s = state.shogun;
     const over = state.phase === 'over';
@@ -1965,6 +2037,7 @@
       panel('控えの家臣', reserve.length
         ? reserve.map((r) => retainerRow(r, el('button', { type: 'button', text: '暇を出す', disabled: over, onclick: () => dismiss(r.id) }), !over))
         : [el('p', { class: 'iy-hint', text: '控えの家臣はいない。' })]),
+      scoutPanel(),
       panel(`登用の候補（今年・将軍の格${k}）`, state.candidates.length
         ? state.candidates.map((c, i) => retainerRow(c, el('button', {
           type: 'button', text: '召し抱える', disabled: state.retainers.length >= CONFIG.MAX_RETAINERS || over, onclick: () => hire(i),

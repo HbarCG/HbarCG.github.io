@@ -1769,3 +1769,87 @@ body.iy-wide .iy-tab[data-tab="seimu"] {
   font-size: 0.8rem;
   color: var(--color-text-muted);
 }
+
+/* ───── 人材探し */
+
+.iy-scout__list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.iy-scout__where {
+  margin: 0.4rem 0;
+}
+
+/* 器の印（良材・逸材・傑物） */
+.iy-rank {
+  display: inline-block;
+  margin-right: 0.4em;
+  padding: 0 0.4em;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.6;
+  vertical-align: 0.1em;
+  border: 1px solid currentColor;
+}
+
+.iy-rank--2 {
+  color: #3d7a4a;
+}
+
+.iy-rank--3 {
+  color: var(--color-link);
+}
+
+@media (prefers-color-scheme: dark) {
+  .iy-rank--2 {
+    color: #74c286;
+  }
+}
+
+.iy-rank--4 {
+  color: #fff;
+  background: #a37a12;
+  border-color: #a37a12;
+}
+
+/* 見つかった者の札。器が大きいほど、縁取りを目立たせる */
+.iy-scout__found .iy-retainer--row {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+  border-left: 3px solid transparent;
+}
+
+.iy-scout__found .iy-scout__card--3 {
+  border-left-color: var(--color-link);
+}
+
+.iy-scout__found .iy-scout__card--4,
+.iy-scout__found .iy-scout__card--5 {
+  border-left-color: #a37a12;
+  background: rgba(163, 122, 18, 0.08);
+}
+
+/* 見つかった者が、ひとりずつ現れる（はじめて見たときだけ） */
+.iy-scout__found--play .iy-retainer--row {
+  animation: iy-scout-in 0.45s ease-out both;
+  animation-delay: calc(var(--i) * 0.35s);
+}
+
+@keyframes iy-scout-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iy-scout__found--play .iy-retainer--row {
+    animation: none;
+  }
+}

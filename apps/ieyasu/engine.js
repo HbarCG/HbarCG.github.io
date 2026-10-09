@@ -94,6 +94,11 @@
     RAISE_RATE: 0.5,        // 加増1回で、俸禄がもとの額のこの割合ぶん増える
     RAISE_WANTS: 6,         // 加増1回で、家臣の求める格がこれだけ下がる
     RENOWN_KAKU: 40,        // 将軍の格がこれ以上なら、名のある人物がまれに登用の候補に現れる
+    // 人材探しの見込み。格（＋探し先の rare）が SCOUT_RANK4 を1上回るごとに傑物が、SCOUT_RANK3 を上回るごとに逸材が出やすくなる
+    SCOUT_RANK4: [36, 0.012],   // 格50で約17%
+    SCOUT_RANK3: [26, 0.015],   // 格50で約36%
+    SCOUT_RANK2: 0.35,          // 良材は格によらず
+    SCOUT_RENOWN: [34, 0.015],  // 人材探しで名のある人物に出会う見込み（格50で24%。諸国行脚は1.5倍）
     RENOWN_CHANCE: 0.005,   // 格が RENOWN_KAKU−2 を1上回るごとに、名のある人物が現れる見込みが増える（格50で年6%）
     SKILL_CHANCE: 0.08,     // 若君や御三家の若殿に、特技がたまたまつく見込み
     SKILL_INHERIT: 0.3,     // 親の特技を受け継ぐ見込み
@@ -254,6 +259,7 @@
     saved.synergies = saved.synergies || [];
     saved.honors = saved.honors || [];
     saved.renownSeen = saved.renownSeen || [];
+    if (saved.scout === undefined) saved.scout = null;
     if (!saved.oku) {
       // 縁組を入れる前の保存データ。正室と側室のぶんを別に足すようになったので、もとの大奥の費えを下げておく
       saved.oku = { wife: null, concubines: 0, offers: null, nextOffer: 0 };
@@ -432,6 +438,7 @@
       tension: 0,       // 厳しい出来事が続いた度合い。高いほど良い出来事が来やすい
       synergies: [],    // そろった制度の組み合わせ
       honors: [],       // この周回で得た栄誉
+      scout: null,      // 今年の人材探し（{ year, id: 探し先, found: 見つかった者, done: 召し抱えたか見送ったか }）
       renownSeen: [],   // 登用の候補に現れた、名のある人物の名前
       project: null,    // 進めている普請（{ id, bugyo: 奉行の家臣の id, from: 始めた年 }）
       projectsDone: [], // 終わった普請（{ id, year, total, title, trade }）
@@ -1166,8 +1173,13 @@
     }
     const stats = seed.stats || { seimu: rand(3, 10), sanyo: rand(3, 10), bui: rand(3, 10), jinbo: rand(3, 10) };
     if (!seed.stats) {
-      const strong = pick(Object.keys(stats));
+      const strong = seed.strong || pick(Object.keys(stats));
       stats[strong] = clamp(stats[strong] + Math.max(1, rand(3, 8) + (seed.lift || 0)), 1, CONFIG.ABILITY_MAX);
+      // 2番目の能力への上乗せ（人材探しで見つかる、器の大きい者）
+      if (seed.second) {
+        const other = pick(Object.keys(stats).filter((k) => k !== strong));
+        stats[other] = clamp(stats[other] + seed.second, 1, CONFIG.ABILITY_MAX);
+      }
       if (seed.cap) for (const k of Object.keys(stats)) stats[k] = Math.min(stats[k], seed.cap);
     }
     const id = nextId();
@@ -1282,12 +1294,18 @@
     return list;
   }
 
-  // 名のある人物（その年だけ現れる。1回の幕府で1人1度まで）
-  function renownedCandidate() {
+  // 名のある人物（その年だけ現れる。1回の幕府で1人1度まで）。
+  // 人材探しからは chance（見込み）と stat（得意な能力がこれの者だけ）を渡す
+  function renownedCandidate(chance, stat) {
     const k = shogunKaku();
-    if (k < CONFIG.RENOWN_KAKU) return null;
-    if (Math.random() >= (k - CONFIG.RENOWN_KAKU + 2) * CONFIG.RENOWN_CHANCE) return null;
-    const pool = DATA.renowned.filter((p) => state.year >= p.minYear && !state.renownSeen.includes(p.name));
+    if (chance === undefined) {
+      if (k < CONFIG.RENOWN_KAKU) return null;
+      chance = (k - CONFIG.RENOWN_KAKU + 2) * CONFIG.RENOWN_CHANCE;
+    }
+    if (Math.random() >= chance) return null;
+    const strongest = (st) => Object.keys(st).reduce((a, b) => (st[b] > st[a] ? b : a));
+    const pool = DATA.renowned.filter((p) => state.year >= p.minYear && !state.renownSeen.includes(p.name)
+      && (!stat || strongest(p.stats) === stat));
     if (pool.length === 0) return null;
     const p = pick(pool);
     state.renownSeen.push(p.name);
@@ -1370,6 +1388,91 @@
       best.postSince = state.year;
       addLog(`${best.name}を${post.name}に任じた。`);
     }
+  }
+
+  // ─────────────────────────────── 人材探し
+
+  function scoutDef(id) {
+    return DATA.scouts.find((x) => x.id === id);
+  }
+
+  function scoutCost(def) {
+    return Math.round(def.cost * price());
+  }
+
+  // 器ごとの見込み（[並, 良材, 逸材, 傑物] の割合）。探し先の rare を格に足して数える
+  function scoutOdds(def) {
+    const k = shogunKaku() + (def ? def.rare : 0);
+    const p4 = Math.min(0.5, Math.max(0, k - CONFIG.SCOUT_RANK4[0]) * CONFIG.SCOUT_RANK4[1]);
+    const p3 = Math.min(0.5, Math.max(0, k - CONFIG.SCOUT_RANK3[0]) * CONFIG.SCOUT_RANK3[1]);
+    const p2 = Math.min(CONFIG.SCOUT_RANK2, 1 - p4 - p3);
+    return [1 - p4 - p3 - p2, p2, p3, p4];
+  }
+
+  function scoutRenownChance(def) {
+    return Math.max(0, shogunKaku() - CONFIG.SCOUT_RENOWN[0]) * CONFIG.SCOUT_RENOWN[1] * (def.stat ? 1 : 1.5);
+  }
+
+  // 今年まだ人を探しに出せるか
+  function canScout() {
+    return state.phase !== 'over' && !(state.scout && state.scout.year === state.year)
+      && state.retainers.length < CONFIG.MAX_RETAINERS;
+  }
+
+  // 人を探しに出す。見つかった者は state.scout.found に入り、この中から1人だけ召し抱えられる
+  function scout(id) {
+    const def = scoutDef(id);
+    if (!def || !canScout()) return;
+    const cost = scoutCost(def);
+    state.fin.cash -= cost;
+    book('op', '人材探し', -cost);
+    const k = shogunKaku();
+    const eased = hasSkill('hitotarashi') ? CONFIG.RAISE_WANTS : 0;
+    const cap = clamp(Math.floor((k + eased) / CONFIG.WANTS_RATE), 6, CONFIG.ABILITY_MAX);
+    const lift = clamp(Math.floor((k - 30) / 6), -2, 4);
+    const odds = scoutOdds(def);
+    const found = [];
+    const renowned = renownedCandidate(scoutRenownChance(def), def.stat);
+    if (renowned) {
+      renowned.rank = 5;
+      found.push(renowned);
+    }
+    const count = def.count + (hasSkill('mekiki') ? 1 : 0) - found.length;
+    for (let i = 0; i < count; i++) {
+      let roll = Math.random();
+      let rank = 1;
+      for (let r = 3; r >= 0; r--) {
+        if (roll < odds[r]) { rank = r + 1; break; }
+        roll -= odds[r];
+      }
+      const def2 = DATA.scoutRanks[rank - 1];
+      const r = makeRetainer({ age: rand(20, 36), lift: lift + def2.lift, second: def2.second, cap, strong: def.stat || undefined });
+      r.rank = rank;
+      found.push(r);
+    }
+    // 器の大きい順に並べる
+    found.sort((a, b) => b.rank - a.rank);
+    for (const c of found) rollTie(c);
+    state.scout = { year: state.year, id, found, done: false };
+    const best = found[0];
+    addLog(`${def.name}へ人材を探しに出した（${formatRyo(cost)}）。${found.length}人が見つかった（いちばんの器：${best.renowned ? '名のある人物' : DATA.scoutRanks[best.rank - 1].label}）。`);
+  }
+
+  // 見つかった者のうち1人を召し抱える。ほかの者は去る
+  function hireScouted(index) {
+    const sc = state.scout;
+    if (!sc || sc.done || !sc.found[index] || state.retainers.length >= CONFIG.MAX_RETAINERS) return;
+    const c = sc.found[index];
+    state.candidates.push(c);
+    hire(state.candidates.length - 1);
+    sc.found = [];
+    sc.done = true;
+  }
+
+  function passScouted() {
+    if (!state.scout) return;
+    state.scout.found = [];
+    state.scout.done = true;
   }
 
   function hire(index) {
@@ -2123,6 +2226,8 @@
     if (!died) {
       checkLoyalty(notes);
       state.candidates = makeCandidates();
+      // 人材探しで見つかったまま召し抱えなかった者は、年が明けると去る
+      if (state.scout) state.scout.found = [];
     }
 
     // 子の誕生（決算報告では、別の枠で素質とともに見せる）
@@ -2869,6 +2974,7 @@
     shipDue, roundParts, roundChance, shipDifficulty, boostCost, fight, closeBattle, continueAfterEnding,
     // 家臣と組織
     salaryOf, wants, holder, holderValue, postValue, postOf, vacancies, assign, autoAssign, hire, dismiss, raise,
+    scoutDef, scoutCost, scoutOdds, scoutRenownChance, canScout, scout, hireScouted, passScouted,
     // 帳簿
     debtLimit, assets, netAssets, ogoriCost, repay, borrowMore, sellRice, runway,
     // 出来事

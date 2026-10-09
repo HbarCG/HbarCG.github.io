@@ -102,6 +102,22 @@ const POLICIES = {
         .filter((c) => c.best >= 14)
         .reverse()
         .forEach((c) => { if (s.retainers.length < 10) dev.hire(c.i); });
+      // 人材探し：空いた役職を埋める者がいなければ、その役職の能力の探し先へ。
+      // 金に余裕があれば、諸国行脚で逸材より上の者を探す
+      if (dev.canScout()) {
+        const vacantPost = dev.POSTS.find((p) => !s.retainers.some((r) => r.post === p.id));
+        const reserve = s.retainers.filter((r) => !r.post).length;
+        const def = vacantPost && reserve === 0 ? data.scouts.find((x) => x.stat === vacantPost.stat)
+          : s.fin.cash > 400 && s.retainers.length < 10 ? data.scouts.find((x) => x.id === "angya") : null;
+        if (def && s.fin.cash >= dev.scoutCost(def) + 80) {
+          dev.scout(def.id);
+          const found = s.scout.found;
+          const score = (c) => (def.stat ? c.stats[def.stat] : Math.max(...Object.values(c.stats)));
+          const best = found.reduce((a, c, i) => (score(c) > score(found[a]) ? i : a), 0);
+          if (def.stat || found[best].rank >= 3 || found[best].renowned) dev.hireScouted(best);
+          else dev.passScouted();
+        }
+      }
       fillPosts(g);
       // 不満を漏らしている役職の家臣は、金に余裕があれば加増して引き留める
       for (const r of [...s.retainers]) {
