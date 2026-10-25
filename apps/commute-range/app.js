@@ -91,6 +91,67 @@
   const reachTiles = new ReachLayer({ pane: "reach", updateWhenZooming: false });
   reachTiles.addTo(map);
 
+  // ---- 全画面表示 ----
+  // ブラウザの全画面機能を使う（凡例も一緒に入るよう、地図を囲む要素ごと全画面にする）。
+  // iPhone の Safari のように要素の全画面に対応していないときは、ページの上に地図を画面いっぱいに広げる
+  const mapWrap = document.querySelector(".cr-map-wrap");
+  const canFullscreen = !!(mapWrap.requestFullscreen && document.exitFullscreen);
+  const FullscreenControl = L.Control.extend({
+    options: { position: "topleft" },
+    onAdd() {
+      const box = L.DomUtil.create("div", "leaflet-bar");
+      const btn = L.DomUtil.create("a", "cr-fullscreen-btn", box);
+      btn.href = "#";
+      btn.setAttribute("role", "button");
+      L.DomEvent.disableClickPropagation(box);
+      L.DomEvent.on(btn, "click", (e) => {
+        L.DomEvent.preventDefault(e);
+        toggleFullscreen();
+      });
+      this.btn = btn;
+      return box;
+    },
+  });
+  const fullscreenControl = new FullscreenControl();
+  fullscreenControl.addTo(map);
+
+  function isFullscreen() {
+    return canFullscreen ? document.fullscreenElement === mapWrap : mapWrap.classList.contains("is-fullscreen");
+  }
+
+  function toggleFullscreen() {
+    if (canFullscreen) {
+      if (isFullscreen()) document.exitFullscreen();
+      else mapWrap.requestFullscreen().catch(() => setPseudoFullscreen(true));
+    } else {
+      setPseudoFullscreen(!isFullscreen());
+    }
+  }
+
+  // 全画面機能が使えないときの代わり（CSS で画面いっぱいに広げる）
+  function setPseudoFullscreen(on) {
+    mapWrap.classList.toggle("is-fullscreen", on);
+    onFullscreenChange();
+  }
+
+  function onFullscreenChange() {
+    const on = isFullscreen() || mapWrap.classList.contains("is-fullscreen");
+    const btn = fullscreenControl.btn;
+    btn.textContent = on ? "✕" : "⛶";
+    btn.title = on ? "全画面を終わる（Esc）" : "地図を全画面で表示";
+    btn.setAttribute("aria-label", btn.title);
+    mapWrap.classList.toggle("is-fullscreen-active", on);
+    // 全画面のあいだは後ろのページのスクロール（とスクロールバーのぶんの隙間）をなくす
+    document.documentElement.classList.toggle("cr-no-scroll", on);
+    // 地図の大きさが変わったことを Leaflet に伝える
+    setTimeout(() => map.invalidateSize(), 50);
+  }
+  document.addEventListener("fullscreenchange", onFullscreenChange);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && mapWrap.classList.contains("is-fullscreen")) setPseudoFullscreen(false);
+  });
+  onFullscreenChange();
+
   let destMarker = null;
 
   // 範囲内の駅の点。数百個になることがあるので canvas で描く
