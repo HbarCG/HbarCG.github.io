@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>通勤圏マップ（試作版） | HbarCG</title>
+  <meta name="description" content="職場などの目的地まで、決めた時間内に着ける範囲を地図に塗る試作アプリ。関西圏の電車と、徒歩・自転車・車に対応。">
+  <link rel="canonical" href="https://hbarcg.github.io/apps/commute-range/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="HbarCG">
+  <meta property="og:title" content="通勤圏マップ（試作版）">
+  <meta property="og:description" content="職場などの目的地まで、決めた時間内に着ける範囲を地図に塗る試作アプリ。関西圏の電車と、徒歩・自転車・車に対応。">
+  <meta property="og:url" content="https://hbarcg.github.io/apps/commute-range/">
+  <meta property="og:image" content="https://hbarcg.github.io/brand/og-image.png">
+  <meta property="og:locale" content="ja_JP">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <link rel="stylesheet" href="/apps/commute-range/style.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "c3945604e04946f68c8212fdc5cfbfeb"}'></script>
+</head>
+<body>
+  <div class="page page--wide">
+    <header class="site-header">
+      <p class="site-title"><a href="/"><span class="mark-hb">Hbar</span>CG</a></p>
+      <nav class="site-nav">
+        <a href="/essays/">Essays</a>
+        <a href="/apps/" aria-current="true">Apps</a>
+        <a href="/about/">About</a>
+      </nav>
+    </header>
+
+    <main>
+      <p class="back-link"><a href="/apps/">← Apps</a></p>
+
+      <h1>通勤圏マップ（試作版）</h1>
+      <p class="lede">
+        職場などの目的地を決めると、そこへ決めた時間内に着ける範囲を地図に塗ります。電車は関西圏のみで、時刻表ではなく駅間の距離から見積もった目安です。地図をクリックすると、その地点から目的地までの時間と使う路線が出ます。
+      </p>
+
+      <form id="cr-form" class="cr-controls" autocomplete="off">
+        <div class="cr-field cr-field--dest">
+          <label for="cr-dest">目的地</label>
+          <div class="cr-search">
+            <input type="search" id="cr-dest" placeholder="駅名か住所（例: 大阪、京都市下京区烏丸通）">
+            <button type="submit">探す</button>
+          </div>
+        </div>
+        <div class="cr-field">
+          <label for="cr-mode">手段</label>
+          <select id="cr-mode">
+            <option value="rail">電車＋徒歩</option>
+            <option value="pedestrian">徒歩</option>
+            <option value="bicycle">自転車</option>
+            <option value="auto">車</option>
+          </select>
+        </div>
+        <div class="cr-field">
+          <label for="cr-limit">片道</label>
+          <select id="cr-limit">
+            <option value="15">15分以内</option>
+            <option value="20">20分以内</option>
+            <option value="30" selected>30分以内</option>
+            <option value="45">45分以内</option>
+            <option value="60">60分以内</option>
+          </select>
+        </div>
+      </form>
+
+      <p id="cr-status" class="cr-status" role="status">地図をクリックするか、駅名・住所で目的地を決めてください。</p>
+
+      <div class="cr-map-wrap">
+        <div id="cr-map" class="cr-map"></div>
+        <div id="cr-legend" class="cr-legend" hidden></div>
+      </div>
+
+      <details class="cr-notes">
+        <summary>計算の前提と注意</summary>
+        <ul>
+          <li>電車の時間は時刻表ではなく、駅間の距離と路線の種類（JR・私鉄・地下鉄・路面電車など）から見積もっています。乗るたびに4分（快速・特急などは5分）の待ち時間を足しています。時間帯による本数の違いや、遅延は反映していません。</li>
+          <li>快速・特急などは、主な列車の昼間の停車駅だけを入れています。入っていない列車や停車駅もあります。</li>
+          <li>駅までは歩く前提です（時速4.8km、道の曲がりを見込んで直線距離の1.3倍）。家から駅まで、駅から目的地までの徒歩は、それぞれ20分までにしています。バスは入っていません。</li>
+          <li>「目的地から逆向きにたどった時間」なので、行きと帰りで時間が違う場所では少しずれます。</li>
+          <li>徒歩・自転車・車の範囲は、OpenStreetMap の道路データをもとに公開サーバー（Valhalla）が計算します。車は渋滞を考えていません。</li>
+          <li>物件を決める前に、実際の経路は乗換案内などで確かめてください。</li>
+        </ul>
+      </details>
+
+      <p class="cr-credit">
+        地図: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>／
+        鉄道: 国土交通省「<a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html" target="_blank" rel="noopener">国土数値情報（鉄道データ）</a>」を加工して作成（<a href="https://creativecommons.org/licenses/by/4.0/deed.ja" target="_blank" rel="noopener">CC BY 4.0</a>）／
+        徒歩・自転車・車: <a href="https://valhalla.openstreetmap.de/" target="_blank" rel="noopener">Valhalla</a>（FOSSGIS e.V.）、道路データ <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>／
+        住所検索: 国土地理院
+      </p>
+    </main>
+
+    <footer class="site-footer">
+      <p>&copy; 2026 HbarCG</p>
+    </footer>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="/apps/commute-range/rail.js"></script>
+  <script src="/apps/commute-range/app.js"></script>
+</body>
+</html>

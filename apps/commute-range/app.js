@@ -1,0 +1,487 @@
+(function () {
+  "use strict";
+
+  const Rail = window.CommuteRail;
+
+  const DATA_URL = "/apps/commute-range/data/kansai.json";
+  const VALHALLA_URL = "https://valhalla1.openstreetmap.de/isochrone";
+  const ADDRESS_SEARCH_URL = "https://msearch.gsi.go.jp/address-search/AddressSearch?q=";
+  const DEFAULT_CENTER = [34.7025, 135.4959]; // 大阪駅
+  const DEFAULT_ZOOM = 11;
+
+  // 近い → 遠い の3段階（同じ青の濃い → 薄い）。上限時間を3等分して塗り分ける
+  const BAND_COLORS = ["#184f95", "#3987e5", "#86b6ef"];
+  const BAND_RGB = BAND_COLORS.map((hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)));
+  const REACH_OPACITY = 0.5; // 塗りの濃さは pane ごとまとめて下げる（重なっても色が濃くならない）
+  const SAMPLE_PX = 2; // 電車の塗りは2pxごとに計算する
+
+  const MODE_LABELS = { rail: "電車＋徒歩", pedestrian: "徒歩", bicycle: "自転車", auto: "車" };
+
+  const form = document.getElementById("cr-form");
+  const destInput = document.getElementById("cr-dest");
+  const modeSelect = document.getElementById("cr-mode");
+  const limitSelect = document.getElementById("cr-limit");
+  const statusEl = document.getElementById("cr-status");
+  const legendEl = document.getElementById("cr-legend");
+
+  const state = {
+    dest: null, // { lat, lon, label }
+    mode: "rail",
+    limit: 30,
+    graph: null,
+    railBounds: null, // 電車のデータがある範囲
+    railResult: null,
+    railSources: [], // 塗りに使う { lat, lon, t }（駅と目的地）
+    reachGeo: null, // Valhalla の結果（GeoJSON）
+    requestId: 0,
+  };
+
+  // ---- 地図 ----
+
+  const map = L.map("cr-map", { center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM });  L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", {
+    maxZoom: 18,
+    attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
+  }).addTo(map);
+
+  map.createPane("reach");
+  map.getPane("reach").style.zIndex = 350;
+  map.getPane("reach").style.opacity = String(REACH_OPACITY);
+  map.getPane("reach").style.pointerEvents = "none";
+
+  const RailLayer = L.GridLayer.extend({
+    createTile(coords) {
+      const tile = document.createElement("canvas");
+      const size = this.getTileSize();
+      tile.width = size.x;
+      tile.height = size.y;
+      drawRailTile(tile, coords, size.x);
+      return tile;
+    },
+  });
+  const railLayer = new RailLayer({ pane: "reach", updateWhenZooming: false });
+  railLayer.addTo(map);
+
+  let reachLayer = null;
+  let destMarker = null;
+
+  // ---- 電車の塗り ----
+
+  // タイル内の各点について「いちばん早く目的地に着ける駅（または目的地まで直接歩く）」の時間を出し、段階の色で塗る
+  function drawRailTile(canvas, coords, size) {
+    if (!state.railResult || !state.railSources.length) return;
+    const ctx = canvas.getContext("2d");
+    const img = ctx.createImageData(size, size);
+    const scale = 256 * Math.pow(2, coords.z);
+    const x0 = coords.x * size;
+    const y0 = coords.y * size;
+    const lonAt = (px) => (px / scale) * 360 - 180;
+    const latAt = (py) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * py) / scale))) * 180) / Math.PI;
+
+    const north = latAt(y0);
+    const south = latAt(y0 + size);
+    const west = lonAt(x0);
+    const east = lonAt(x0 + size);
+    const kx = 111320 * Math.cos((((north + south) / 2) * Math.PI) / 180);
+    const ky = 110540;
+    const p = state.graph.params;
+    const minPerMeter = p.walkDetour / p.walkMetersPerMin;
+    const limit = state.limit;
+
+    // このタイルに届く駅だけに絞る（残り時間で歩ける距離がタイルにかかるもの）
+    const near = [];
+    for (const s of state.railSources) {
+      const reach = Math.min(limit - s.t, s.maxWalk) / minPerMeter;
+      const dx = Math.max(west - s.lon, 0, s.lon - east) * kx;
+      const dy = Math.max(south - s.lat, 0, s.lat - north) * ky;
+      if (dx * dx + dy * dy <= reach * reach) near.push(s);
+    }
+    if (!near.length) return;
+    near.sort((a, b) => a.t - b.t);
+
+    const band1 = limit / 3;
+    const band2 = (limit * 2) / 3;
+    for (let sy = 0; sy < size; sy += SAMPLE_PX) {
+      const lat = latAt(y0 + sy + SAMPLE_PX / 2);
+      for (let sx = 0; sx < size; sx += SAMPLE_PX) {
+        const lon = lonAt(x0 + sx + SAMPLE_PX / 2);
+        let best = Infinity;
+        for (const s of near) {
+          if (s.t >= best) break; // t の小さい順に並べてあるので、ここから先は更新されない
+          const dx = (lon - s.lon) * kx;
+          const dy = (lat - s.lat) * ky;
+          const walk = Math.sqrt(dx * dx + dy * dy) * minPerMeter;
+          if (walk > s.maxWalk) continue;
+          const t = s.t + walk;
+          if (t < best) best = t;
+        }
+        if (best > limit) continue;
+        const rgb = BAND_RGB[best <= band1 ? 0 : best <= band2 ? 1 : 2];
+        for (let yy = sy; yy < sy + SAMPLE_PX && yy < size; yy++) {
+          for (let xx = sx; xx < sx + SAMPLE_PX && xx < size; xx++) {
+            const o = (yy * size + xx) * 4;
+            img.data[o] = rgb[0];
+            img.data[o + 1] = rgb[1];
+            img.data[o + 2] = rgb[2];
+            img.data[o + 3] = 255;
+          }
+        }
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  function inRailArea(lat, lon) {
+    const b = state.railBounds;
+    return b && lat >= b.south && lat <= b.north && lon >= b.west && lon <= b.east;
+  }
+
+  function computeRail() {
+    const { dest, limit, graph } = state;
+    state.railResult = Rail.timesTo(graph, dest.lat, dest.lon, limit);
+    // 目的地へ直接歩くのは上限時間まで、駅まで歩くのは maxStationWalkMin まで
+    const sources = [{ lat: dest.lat, lon: dest.lon, t: 0, maxWalk: limit }];
+    const maxWalk = graph.params.maxStationWalkMin;
+    for (let i = 0; i < graph.n; i++) {
+      const t = state.railResult.time[i];
+      if (t <= limit) sources.push({ lat: graph.stations[i].lat, lon: graph.stations[i].lon, t, maxWalk });
+    }
+    state.railSources = sources;
+    railLayer.redraw();
+    const stationNames = new Set();
+    for (let i = 0; i < graph.n; i++) {
+      if (state.railResult.time[i] <= limit) stationNames.add(graph.stations[i].name);
+    }
+    let msg = `「${dest.label}」まで${MODE_LABELS.rail}で${limit}分以内の範囲です（使える駅 ${stationNames.size}）。`;
+    if (!inRailArea(dest.lat, dest.lon)) {
+      msg += " 電車のデータは関西圏だけなので、この目的地では徒歩の範囲しか出ません。";
+    }
+    setStatus(msg);
+  }
+
+  function clearRail() {
+    state.railResult = null;
+    state.railSources = [];
+    railLayer.redraw();
+  }
+
+  // ---- 徒歩・自転車・車（Valhalla） ----
+
+  async function computeReach() {
+    const { dest, limit, mode } = state;
+    const id = ++state.requestId;
+    setStatus("計算中です…");
+    const body = {
+      locations: [{ lat: dest.lat, lon: dest.lon }],
+      costing: mode,
+      contours: [limit / 3, (limit * 2) / 3, limit].map((time) => ({ time: Math.round(time * 10) / 10 })),
+      polygons: true,
+      reverse: true, // 「ここから行ける範囲」ではなく「ここへ来られる範囲」
+    };
+    let geo;
+    try {
+      const res = await fetch(VALHALLA_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      geo = await res.json();
+    } catch (err) {
+      if (id !== state.requestId) return;
+      setStatus(`範囲を計算できませんでした（${err.message}）。公開サーバーが混んでいる可能性があります。少し待ってからもう一度試してください。`, true);
+      return;
+    }
+    if (id !== state.requestId) return; // あとから別の条件で計算し直した
+    state.reachGeo = geo;
+    if (reachLayer) reachLayer.remove();
+    // 大きい範囲から順に重ね、内側（近い）ほど上に来るようにする
+    const features = (geo.features || []).slice().sort((a, b) => b.properties.contour - a.properties.contour);
+    reachLayer = L.geoJSON(
+      { type: "FeatureCollection", features },
+      {
+        pane: "reach",
+        interactive: false,
+        style: (f) => ({ stroke: false, fillOpacity: 1, fillColor: BAND_COLORS[bandOf(f.properties.contour)] }),
+      }
+    ).addTo(map);
+    setStatus(`「${dest.label}」まで${MODE_LABELS[mode]}で${limit}分以内の範囲です。`);
+  }
+
+  function bandOf(minutes) {
+    if (minutes <= state.limit / 3 + 0.01) return 0;
+    if (minutes <= (state.limit * 2) / 3 + 0.01) return 1;
+    return 2;
+  }
+
+  function clearReach() {
+    state.requestId++;
+    state.reachGeo = null;
+    if (reachLayer) {
+      reachLayer.remove();
+      reachLayer = null;
+    }
+  }
+
+  // ---- 全体の流れ ----
+
+  function update() {
+    saveToUrl();
+    renderLegend();
+    if (!state.dest) return;
+    if (state.mode === "rail") {
+      clearReach();
+      if (!state.graph) {
+        setStatus("電車のデータを読み込み中です…");
+        return; // 読み込みが終わったら loadRail から呼び直す
+      }
+      computeRail();
+    } else {
+      clearRail();
+      computeReach();
+    }
+  }
+
+  function setDest(lat, lon, label) {
+    state.dest = { lat, lon, label: label || "地図で選んだ地点" };
+    destInput.value = state.dest.label === "地図で選んだ地点" ? "" : state.dest.label;
+    if (destMarker) {
+      destMarker.setLatLng([lat, lon]);
+    } else {
+      destMarker = L.marker([lat, lon], { draggable: true, title: "目的地（ドラッグで動かせます）" }).addTo(map);
+      destMarker.on("dragend", () => {
+        const ll = destMarker.getLatLng();
+        setDest(ll.lat, ll.lng, "地図で選んだ地点");
+      });
+    }
+    map.closePopup();
+    update();
+  }
+
+  function renderLegend() {
+    if (!state.dest) {
+      legendEl.hidden = true;
+      return;
+    }
+    const l = state.limit;
+    const edges = [0, Math.round(l / 3), Math.round((l * 2) / 3), l];
+    legendEl.innerHTML =
+      `<span class="cr-legend__title">目的地までの時間</span>` +
+      BAND_COLORS.map(
+        (c, i) =>
+          `<span class="cr-legend__row"><span class="cr-swatch" style="background:${onLightMap(i)}"></span>${
+            i === 0 ? "" : edges[i]
+          }〜${edges[i + 1]}分</span>`
+      ).join("<br>");
+    legendEl.hidden = false;
+  }
+
+  // 凡例の色は、地図（白っぽい地理院の淡色地図）に半透明で重なったときの見え方に合わせる
+  function onLightMap(band) {
+    const mix = BAND_RGB[band].map((v) => Math.round(v * REACH_OPACITY + 255 * (1 - REACH_OPACITY)));
+    return `rgb(${mix.join(",")})`;
+  }
+
+  function setStatus(text, isError) {
+    statusEl.textContent = text;
+    statusEl.classList.toggle("is-error", !!isError);
+  }
+
+  // ---- 地図のクリック: その地点からの時間を出す ----
+
+  map.on("click", (e) => {
+    const { lat, lng } = e.latlng;
+    if (!state.dest) {
+      setDest(lat, lng);
+      return;
+    }
+    const box = document.createElement("div");
+    box.className = "cr-popup";
+    box.innerHTML = popupHtml(lat, lng);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "ここを目的地にする";
+    btn.addEventListener("click", () => setDest(lat, lng));
+    box.appendChild(btn);
+    L.popup().setLatLng(e.latlng).setContent(box).openOn(map);
+  });
+
+  function popupHtml(lat, lon) {
+    if (state.mode === "rail" && state.railResult) {
+      const r = Rail.timeFromPoint(state.graph, state.railResult, state.dest, lat, lon);
+      if (r.minutes > state.limit) {
+        return `<p class="cr-popup__time">${state.limit}分では着きません</p>`;
+      }
+      const walk = (m) => Math.max(1, Math.round(m));
+      if (r.station < 0) {
+        return `<p class="cr-popup__time">約${walk(r.minutes)}分</p><ol><li>目的地まで歩く</li></ol>`;
+      }
+      const s = state.graph.stations[r.station];
+      const toStation = Rail.walkMin(Rail.metersBetween(lat, lon, s.lat, s.lon), state.graph.params);
+      const items = [`${escapeHtml(s.name)}駅まで歩く（約${walk(toStation)}分）`];
+      for (const step of Rail.describeRoute(state.graph, state.railResult, r.station)) {
+        if (step.type === "ride") {
+          items.push(`${escapeHtml(shortName(step.service))}で${escapeHtml(step.to)}まで`);
+        } else if (step.type === "walk") {
+          items.push(`${escapeHtml(step.to)}駅まで歩いて乗り換え`);
+        } else if (step.type === "walk-to-dest") {
+          items.push(`目的地まで歩く（約${walk(step.minutes - state.graph.params.exitMin)}分）`);
+        }
+      }
+      return `<p class="cr-popup__time">約${Math.round(r.minutes)}分</p><ol>${items.map((t) => `<li>${t}</li>`).join("")}</ol>`;
+    }
+    if (state.reachGeo) {
+      const inside = (state.reachGeo.features || [])
+        .filter((f) => containsPoint(f.geometry, lon, lat))
+        .map((f) => f.properties.contour);
+      if (!inside.length) return `<p class="cr-popup__time">${state.limit}分では着きません</p>`;
+      return `<p class="cr-popup__time">約${Math.round(Math.min(...inside))}分以内</p>`;
+    }
+    return "";
+  }
+
+  function containsPoint(geometry, x, y) {
+    const polys = geometry.type === "Polygon" ? [geometry.coordinates] : geometry.type === "MultiPolygon" ? geometry.coordinates : [];
+    return polys.some((rings) => {
+      let inside = false;
+      for (const ring of rings) {
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+          const [xi, yi] = ring[i];
+          const [xj, yj] = ring[j];
+          if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+        }
+      }
+      return inside;
+    });
+  }
+
+  // データの正式名（事業者名＋法律上の路線名）を、ふだんの呼び方に寄せる
+  const SHORT_NAMES = [
+    [/西日本旅客鉄道 /g, "JR "],
+    [/大阪市高速電気軌道 \d号線\((.+?)\)/g, "Osaka Metro $1"],
+    [/大阪市高速電気軌道 /g, "Osaka Metro "],
+    [/近畿日本鉄道 /g, "近鉄 "],
+    [/南海電気鉄道 /g, "南海 "],
+    [/京阪電気鉄道 /g, "京阪 "],
+    [/阪神電気鉄道 /g, "阪神 "],
+    [/阪急電鉄 /g, "阪急 "],
+    [/山陽電気鉄道 /g, "山陽電鉄 "],
+    [/北大阪急行電鉄 南北線/g, "北大阪急行"],
+    [/京都市 /g, "京都市営地下鉄 "],
+    [/神戸市 /g, "神戸市営地下鉄 "],
+  ];
+  function shortName(name) {
+    return SHORT_NAMES.reduce((s, [re, to]) => s.replace(re, to), name);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  }
+
+  // ---- 目的地の検索: まず駅名、見つからなければ住所（国土地理院） ----
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const q = destInput.value.trim();
+    if (!q) return;
+    const station = findStation(q);
+    if (station) {
+      setDest(station.lat, station.lon, station.label);
+      map.setView([station.lat, station.lon], Math.max(map.getZoom(), 12));
+      return;
+    }
+    setStatus("住所を探しています…");
+    try {
+      const res = await fetch(ADDRESS_SEARCH_URL + encodeURIComponent(q));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const list = await res.json();
+      if (!list.length) {
+        setStatus(`「${q}」は見つかりませんでした。別の書き方を試すか、地図をクリックしてください。`, true);
+        return;
+      }
+      const [lon, lat] = list[0].geometry.coordinates;
+      setDest(lat, lon, list[0].properties.title || q);
+      map.setView([lat, lon], Math.max(map.getZoom(), 13));
+    } catch (err) {
+      setStatus(`住所を検索できませんでした（${err.message}）。地図をクリックして目的地を選んでください。`, true);
+    }
+  });
+
+  function findStation(q) {
+    if (!state.graph) return null;
+    const name = q.replace(/駅$/, "");
+    const hits = state.graph.stations.filter((s) => s.name === name);
+    if (!hits.length) return null;
+    // 同じ名前の駅が離れた場所に複数ある（例: 京都府と兵庫県）ことがあるので、最初に見つかった駅の近くだけ平均する
+    const first = hits[0];
+    const group = hits.filter((s) => Rail.metersBetween(s.lat, s.lon, first.lat, first.lon) < 1000);
+    return {
+      lat: group.reduce((a, s) => a + s.lat, 0) / group.length,
+      lon: group.reduce((a, s) => a + s.lon, 0) / group.length,
+      label: `${name}駅`,
+    };
+  }
+
+  // ---- 条件をURLに残す（ブックマークや共有で同じ地図を開けるように） ----
+
+  function saveToUrl() {
+    const params = new URLSearchParams();
+    if (state.dest) {
+      params.set("lat", state.dest.lat.toFixed(5));
+      params.set("lon", state.dest.lon.toFixed(5));
+      if (state.dest.label !== "地図で選んだ地点") params.set("name", state.dest.label);
+    }
+    params.set("mode", state.mode);
+    params.set("limit", String(state.limit));
+    history.replaceState(null, "", "?" + params.toString());
+  }
+
+  function loadFromUrl() {
+    const params = new URLSearchParams(location.search);
+    if (MODE_LABELS[params.get("mode")]) state.mode = params.get("mode");
+    const limit = Number(params.get("limit"));
+    if ([15, 20, 30, 45, 60].includes(limit)) state.limit = limit;
+    modeSelect.value = state.mode;
+    limitSelect.value = String(state.limit);
+    const lat = Number(params.get("lat"));
+    const lon = Number(params.get("lon"));
+    if (params.has("lat") && Number.isFinite(lat) && Number.isFinite(lon)) {
+      map.setView([lat, lon], 12);
+      setDest(lat, lon, params.get("name") || "地図で選んだ地点");
+    }
+  }
+
+  modeSelect.addEventListener("change", () => {
+    state.mode = modeSelect.value;
+    update();
+  });
+  limitSelect.addEventListener("change", () => {
+    state.limit = Number(limitSelect.value);
+    update();
+  });
+
+  // ---- 電車のデータの読み込み ----
+
+  async function loadRail() {
+    try {
+      const res = await fetch(DATA_URL);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      state.graph = Rail.build(data);
+      const lats = state.graph.stations.map((s) => s.lat);
+      const lons = state.graph.stations.map((s) => s.lon);
+      state.railBounds = {
+        south: Math.min(...lats),
+        north: Math.max(...lats),
+        west: Math.min(...lons),
+        east: Math.max(...lons),
+      };
+      if (state.dest && state.mode === "rail") update();
+    } catch (err) {
+      setStatus(`電車のデータを読み込めませんでした（${err.message}）。徒歩・自転車・車は使えます。`, true);
+    }
+  }
+
+  loadFromUrl();
+  renderLegend();
+  loadRail();
+})();
