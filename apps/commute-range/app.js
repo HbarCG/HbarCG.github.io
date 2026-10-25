@@ -13,7 +13,15 @@
   const DEFAULT_CENTER = [34.7025, 135.4959]; // 大阪駅
   const DEFAULT_ZOOM = 11;
 
-  // 近い → 遠い の3段階（同じ青の濃い → 薄い）。上限時間を3等分して塗り分ける
+  // 目的地は4か所まで。A〜D の記号で呼ぶ
+  const MAX_DESTS = 4;
+  const LETTERS = ["A", "B", "C", "D"];
+  const LIMIT_OPTIONS = [15, 20, 30, 45, 60];
+  const DEFAULT_LIMIT = 30;
+  const MAP_POINT_LABEL = "地図で選んだ地点";
+
+  // 近い → 遠い の3段階（同じ青の濃い → 薄い）。上限時間を3等分して塗り分ける。
+  // 目的地が複数あるときは、いちばん遠い目的地で見た「上限に対する割合」で塗り分ける
   const BAND_COLORS = ["#184f95", "#3987e5", "#86b6ef"];
   const BAND_RGB = BAND_COLORS.map((hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)));
   const REACH_OPACITY = 0.5; // 塗りの濃さは pane ごとまとめて下げる（重なっても色が濃くならない）
@@ -23,8 +31,9 @@
 
   const form = document.getElementById("cr-form");
   const destInput = document.getElementById("cr-dest");
+  const destsBox = document.getElementById("cr-dests");
+  const destsList = document.getElementById("cr-dests-list");
   const modeSelect = document.getElementById("cr-mode");
-  const limitSelect = document.getElementById("cr-limit");
   const transfersSelect = document.getElementById("cr-transfers");
   const hazardSelect = document.getElementById("cr-hazard");
   const statusEl = document.getElementById("cr-status");
@@ -36,19 +45,20 @@
   const stationsNote = document.getElementById("cr-stations-note");
 
   const state = {
-    dest: null, // { lat, lon, label }
+    // 目的地 { lat, lon, label, limit, result（電車の計算）, sources（電車の塗りに使う点）, geo（Valhalla の範囲）, marker }
+    dests: [],
     mode: "rail",
-    limit: 30,
     maxTransfers: null, // 乗り換えの上限（null なら制限なし）。電車のときだけ使う
     hazardLevel: 0, // 災害リスクで除外する段階（0 なら除外しない。hazard.js を参照）
     graph: null,
     railBounds: null, // 電車のデータがある範囲
-    railResult: null,
-    railSources: [], // 塗りに使う { lat, lon, t }（駅と目的地）
-    reachGeo: null, // Valhalla の結果（GeoJSON）
+    railReady: false, // 電車の計算が済んでいるか
     requestId: 0,
     stationsRequestId: 0,
   };
+
+  const letterOf = (d) => LETTERS[state.dests.indexOf(d)];
+  const multi = () => state.dests.length > 1;
 
   // ---- 地図 ----
 
@@ -152,22 +162,27 @@
   });
   onFullscreenChange();
 
-  let destMarker = null;
-
   // 範囲内の駅の点。数百個になることがあるので canvas で描く
   map.createPane("stations");
   map.getPane("stations").style.zIndex = 450;
   const stationRenderer = L.canvas({ pane: "stations", padding: 0.5 });
   const stationLayer = L.layerGroup().addTo(map);
 
+  // 上限に対する割合（0〜1）から塗りの段階を決める
+  function bandOfRatio(r) {
+    if (r <= 1 / 3 + 1e-6) return 0;
+    if (r <= 2 / 3 + 1e-6) return 1;
+    return 2;
+  }
+
   // ---- 電車の塗り ----
 
-  // タイル内の各点について「いちばん早く目的地に着ける駅（または目的地まで直接歩く）」の時間を出し、段階の色で塗る
+  // タイル内の各点について、目的地ごとに「いちばん早く着ける駅（または目的地まで直接歩く）」の時間を出す。
+  // すべての目的地に上限時間内で着ける点だけを、いちばん遠い目的地の上限に対する割合で塗り分ける。
   // 何か描いたら true を返す
   function drawRailTile(canvas, coords, size) {
-    if (!state.railResult || !state.railSources.length) return false;
-    const ctx = canvas.getContext("2d");
-    const img = ctx.createImageData(size, size);
+    // 目的地を足した直後など、まだ計算していない目的地があるときは描かない
+    if (!state.railReady || !state.dests.length || state.dests.some((d) => !d.sources)) return false;
     const scale = 256 * Math.pow(2, coords.z);
     const x0 = coords.x * size;
     const y0 = coords.y * size;
@@ -182,40 +197,50 @@
     const ky = 110540;
     const p = state.graph.params;
     const minPerMeter = p.walkDetour / p.walkMetersPerMin;
-    const limit = state.limit;
 
-    // このタイルに届く駅だけに絞る（残り時間で歩ける距離がタイルにかかるもの）
-    const near = [];
+    // 目的地ごとに、このタイルに届く駅だけに絞る（残り時間で歩ける距離がタイルにかかるもの）。
     // 一覧で駅を絞り込んでいるときは、絞り込んだ駅の周りだけを塗る（目的地まで直接歩く範囲は塗らない）
     const only = state.filteredStations;
-    for (const s of state.railSources) {
-      if (only && (s.i === undefined || !only.has(s.i))) continue;
-      const reach = Math.min(limit - s.t, s.maxWalk) / minPerMeter;
-      const dx = Math.max(west - s.lon, 0, s.lon - east) * kx;
-      const dy = Math.max(south - s.lat, 0, s.lat - north) * ky;
-      if (dx * dx + dy * dy <= reach * reach) near.push(s);
+    const nears = [];
+    for (const d of state.dests) {
+      const near = [];
+      for (const s of d.sources) {
+        if (only && (s.i === undefined || !only.has(s.i))) continue;
+        const reach = Math.min(d.limit - s.t, s.maxWalk) / minPerMeter;
+        const dx = Math.max(west - s.lon, 0, s.lon - east) * kx;
+        const dy = Math.max(south - s.lat, 0, s.lat - north) * ky;
+        if (dx * dx + dy * dy <= reach * reach) near.push(s);
+      }
+      if (!near.length) return false; // この目的地に届く場所がタイルにない＝すべてを満たす場所もない
+      near.sort((a, b) => a.t - b.t);
+      nears.push(near);
     }
-    if (!near.length) return false;
-    near.sort((a, b) => a.t - b.t);
 
-    const band1 = limit / 3;
-    const band2 = (limit * 2) / 3;
+    const ctx = canvas.getContext("2d");
+    const img = ctx.createImageData(size, size);
     for (let sy = 0; sy < size; sy += SAMPLE_PX) {
       const lat = latAt(y0 + sy + SAMPLE_PX / 2);
       for (let sx = 0; sx < size; sx += SAMPLE_PX) {
         const lon = lonAt(x0 + sx + SAMPLE_PX / 2);
-        let best = Infinity;
-        for (const s of near) {
-          if (s.t >= best) break; // t の小さい順に並べてあるので、ここから先は更新されない
-          const dx = (lon - s.lon) * kx;
-          const dy = (lat - s.lat) * ky;
-          const walk = Math.sqrt(dx * dx + dy * dy) * minPerMeter;
-          if (walk > s.maxWalk) continue;
-          const t = s.t + walk;
-          if (t < best) best = t;
+        let worst = 0;
+        let ok = true;
+        for (let k = 0; k < nears.length && ok; k++) {
+          const limit = state.dests[k].limit;
+          let best = Infinity;
+          for (const s of nears[k]) {
+            if (s.t >= best) break; // t の小さい順に並べてあるので、ここから先は更新されない
+            const dx = (lon - s.lon) * kx;
+            const dy = (lat - s.lat) * ky;
+            const walk = Math.sqrt(dx * dx + dy * dy) * minPerMeter;
+            if (walk > s.maxWalk) continue;
+            const t = s.t + walk;
+            if (t < best) best = t;
+          }
+          if (best > limit) ok = false;
+          else worst = Math.max(worst, best / limit);
         }
-        if (best > limit) continue;
-        const rgb = BAND_RGB[best <= band1 ? 0 : best <= band2 ? 1 : 2];
+        if (!ok) continue;
+        const rgb = BAND_RGB[bandOfRatio(worst)];
         for (let yy = sy; yy < sy + SAMPLE_PX && yy < size; yy++) {
           for (let xx = sx; xx < sx + SAMPLE_PX && xx < size; xx++) {
             const o = (yy * size + xx) * 4;
@@ -231,10 +256,14 @@
     return true;
   }
 
-  // Valhalla の範囲（GeoJSON の多角形）をタイルに描く。大きい範囲から順に重ね、内側（近い）ほど上に来るようにする
-  function drawRoadTile(canvas, coords, size) {
-    if (!state.reachGeo) return false;
-    const ctx = canvas.getContext("2d");
+  // ---- 徒歩・自転車・車の塗り（Valhalla の範囲） ----
+
+  // 目的地ごとに範囲（GeoJSON の多角形）をタイルの形に塗り、画素ごとの段階（0 = 範囲外、1〜3 = 段階+1）にする
+  function rasterizeRoad(d, coords, size) {
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
     const scale = 256 * Math.pow(2, coords.z);
     const x0 = coords.x * size;
     const y0 = coords.y * size;
@@ -242,7 +271,9 @@
       const s = Math.sin((lat * Math.PI) / 180);
       return [((lon + 180) / 360) * scale - x0, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * scale - y0];
     };
-    const features = (state.reachGeo.features || []).slice().sort((a, b) => b.properties.contour - a.properties.contour);
+    // 大きい範囲（遠い段階）から順に重ね、内側（近い段階）ほど上に来るようにする。段階は赤の強さで表す
+    const SHADE = [255, 170, 85];
+    const features = (d.geo.features || []).slice().sort((a, b) => b.properties.contour - a.properties.contour);
     for (const f of features) {
       const g = f.geometry;
       const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
@@ -257,11 +288,47 @@
           ctx.closePath();
         }
       }
-      ctx.fillStyle = BAND_COLORS[bandOf(f.properties.contour)];
+      ctx.fillStyle = `rgb(${SHADE[bandOfRatio(f.properties.contour / d.limit)]},0,0)`;
       ctx.fill("evenodd");
     }
-    return features.length > 0;
+    const rgba = ctx.getImageData(0, 0, size, size).data;
+    const out = new Uint8Array(size * size);
+    for (let i = 0; i < out.length; i++) {
+      if (rgba[i * 4 + 3] < 128) continue;
+      const r = rgba[i * 4];
+      out[i] = r > 212 ? 1 : r > 127 ? 2 : 3;
+    }
+    return out;
   }
+
+  function drawRoadTile(canvas, coords, size) {
+    if (!state.dests.length || state.dests.some((d) => !d.geo)) return false;
+    const layers = state.dests.map((d) => rasterizeRoad(d, coords, size));
+    const ctx = canvas.getContext("2d");
+    const img = ctx.createImageData(size, size);
+    let any = false;
+    for (let i = 0; i < size * size; i++) {
+      let worst = 0;
+      for (const l of layers) {
+        if (!l[i]) {
+          worst = 0;
+          break;
+        }
+        worst = Math.max(worst, l[i]);
+      }
+      if (!worst) continue;
+      const rgb = BAND_RGB[worst - 1];
+      img.data[i * 4] = rgb[0];
+      img.data[i * 4 + 1] = rgb[1];
+      img.data[i * 4 + 2] = rgb[2];
+      img.data[i * 4 + 3] = 255;
+      any = true;
+    }
+    ctx.putImageData(img, 0, 0);
+    return any;
+  }
+
+  // ---- 電車の計算 ----
 
   function inRailArea(lat, lon) {
     const b = state.railBounds;
@@ -269,16 +336,18 @@
   }
 
   function computeRail() {
-    const { dest, limit, graph } = state;
-    state.railResult = Rail.timesTo(graph, dest.lat, dest.lon, limit, state.maxTransfers);
-    // 目的地へ直接歩くのは上限時間まで、駅まで歩くのは maxStationWalkMin まで
-    const sources = [{ lat: dest.lat, lon: dest.lon, t: 0, maxWalk: limit }];
+    const { graph } = state;
     const maxWalk = graph.params.maxStationWalkMin;
-    for (let i = 0; i < graph.n; i++) {
-      const t = state.railResult.time[i];
-      if (t <= limit) sources.push({ i, lat: graph.stations[i].lat, lon: graph.stations[i].lon, t, maxWalk });
+    for (const d of state.dests) {
+      d.result = Rail.timesTo(graph, d.lat, d.lon, d.limit, state.maxTransfers);
+      // 目的地へ直接歩くのは上限時間まで、駅まで歩くのは maxStationWalkMin まで
+      d.sources = [{ lat: d.lat, lon: d.lon, t: 0, maxWalk: d.limit }];
+      for (let i = 0; i < graph.n; i++) {
+        const t = d.result.time[i];
+        if (t <= d.limit) d.sources.push({ i, lat: graph.stations[i].lat, lon: graph.stations[i].lon, t, maxWalk });
+      }
     }
-    state.railSources = sources;
+    state.railReady = true;
     reachTiles.redraw();
     const groups = groupStations();
     const id = ++state.stationsRequestId;
@@ -297,7 +366,9 @@
     const failuresBefore = Hazard.failureCount();
     Promise.all(
       groups.map((g) => {
-        const radius = Math.min(limit - g.minutes, p.maxStationWalkMin) / minPerMeter;
+        // 住める範囲は、どの目的地にも間に合う範囲（残り時間がいちばん少ない目的地で決まる）
+        const spare = Math.min(...state.dests.map((d, k) => d.limit - g.minutesBy[k]));
+        const radius = Math.min(spare, p.maxStationWalkMin) / minPerMeter;
         return Hazard.safeShare(g.lat, g.lon, radius, state.hazardLevel);
       })
     ).then((shares) => {
@@ -313,8 +384,14 @@
     });
   }
 
+  // 「「大阪駅」まで30分以内」「「大阪駅」(A)まで30分以内・「京都駅」(B)まで45分以内」
+  function destsText() {
+    return state.dests
+      .map((d) => `「${d.label}」${multi() ? `（${letterOf(d)}）` : ""}まで${d.limit}分以内`)
+      .join("・");
+  }
+
   function railStatus(count, removed) {
-    const { dest, limit } = state;
     const transfers =
       state.maxTransfers === null ? "" : state.maxTransfers === 0 ? "・乗り換えなし" : `・乗り換え${state.maxTransfers}回まで`;
     const stations =
@@ -324,17 +401,21 @@
           ? `駅 ${count}。ほかに、歩いて住める範囲がすべて除外の対象になる駅が ${removed}`
           : `駅 ${count}`;
     const hazard = state.hazardLevel ? `${HAZARD_LABELS[state.hazardLevel]}。` : "";
-    let msg = `「${dest.label}」まで${MODE_LABELS.rail}で${limit}分以内${transfers}の範囲です（${hazard}${stations}）。`;
-    if (!inRailArea(dest.lat, dest.lon)) {
-      msg += " 電車のデータは関西圏だけなので、この目的地では徒歩の範囲しか出ません。";
+    const all = multi() ? "（すべてを満たす場所）" : "";
+    let msg = `${destsText()}${all}、${MODE_LABELS.rail}${transfers}の範囲です（${hazard}${stations}）。`;
+    if (state.dests.some((d) => !inRailArea(d.lat, d.lon))) {
+      msg += " 電車のデータは関西圏だけなので、関西圏の外の目的地には徒歩の範囲しか出ません。";
     }
     return msg;
   }
 
   function clearRail() {
     state.stationsRequestId++;
-    state.railResult = null;
-    state.railSources = [];
+    state.railReady = false;
+    for (const d of state.dests) {
+      d.result = null;
+      d.sources = null;
+    }
     reachTiles.redraw();
     renderStations([]);
   }
@@ -342,14 +423,17 @@
   // ---- 範囲内の駅の一覧と地図の点 ----
 
   // データでは駅が路線ごとに分かれているので、同じ名前で近く（500m以内）にある駅を1つにまとめる。
-  // 時間はまとめた中でいちばん早い路線のもの
+  // すべての目的地に上限時間内で着ける駅だけを出す。時間は目的地ごとに、まとめた中でいちばん早い路線のもの
   function groupStations() {
-    const { graph, railResult, limit } = state;
+    const { graph } = state;
+    const dests = state.dests;
+    const ok = (i) => dests.every((d) => d.result.time[i] <= d.limit);
+    const worstRatio = (i) => Math.max(...dests.map((d) => d.result.time[i] / d.limit));
     const idx = [];
     for (let i = 0; i < graph.n; i++) {
-      if (railResult.time[i] <= limit) idx.push(i);
+      if (ok(i)) idx.push(i);
     }
-    idx.sort((a, b) => railResult.time[a] - railResult.time[b]);
+    idx.sort((a, b) => worstRatio(a) - worstRatio(b));
     const groups = [];
     for (const i of idx) {
       const s = graph.stations[i];
@@ -358,19 +442,24 @@
       if (g) {
         if (!g.lines.includes(line)) g.lines.push(line);
         g.members.push(i);
+        // 目的地ごとに、いちばん早く着ける路線の駅を選び直す
+        dests.forEach((d, k) => {
+          if (d.result.time[i] < g.minutesBy[k]) {
+            g.minutesBy[k] = d.result.time[i];
+            g.stationBy[k] = i;
+          }
+        });
         continue;
       }
-      const rides = Rail.describeRoute(graph, railResult, i).filter((step) => step.type === "ride");
       groups.push({
         name: s.name,
         lat: s.lat,
         lon: s.lon,
         station: i,
         members: [i],
-        minutes: railResult.time[i],
+        stationBy: dests.map(() => i), // 目的地ごとに、経路の出発に使う駅
+        minutesBy: dests.map((d) => d.result.time[i]),
         lines: [line],
-        transfers: Math.max(0, rides.length - 1),
-        via: rides.map((r) => shortName(r.service)).join(" → "),
       });
     }
     // 範囲外の路線も含めて、同じ駅の路線をすべて members に入れる（乗降客数は路線ごとに分かれているため）
@@ -381,6 +470,13 @@
           g.members.push(i);
         }
       }
+      // 目的地ごとの経路。一覧の「乗り換え」はいちばん多い目的地のもの、「目的地まで」はいちばん遠い目的地のもの
+      g.ridesBy = dests.map((d, k) => Rail.describeRoute(graph, d.result, g.stationBy[k]).filter((step) => step.type === "ride"));
+      g.transfers = Math.max(...g.ridesBy.map((r) => Math.max(0, r.length - 1)));
+      g.viaBy = g.ridesBy.map((rides) => rides.map((r) => shortName(r.service)).join(" → "));
+      g.via = g.viaBy.join(" / ");
+      g.minutes = Math.max(...g.minutesBy);
+      g.ratio = Math.max(...g.minutesBy.map((m, k) => m / dests[k].limit));
       Object.assign(g, stationInfo(g.members));
     }
     return groups;
@@ -397,7 +493,7 @@
       return null;
     };
     const byOperator = new Map();
-    members.forEach((i, k) => {
+    members.forEach((i) => {
       const r = state.info.stations[i];
       if (!r) return;
       const op = state.graph.lines[state.graph.stations[i].line][0].split(" ")[0];
@@ -438,7 +534,7 @@
   const stationQuery = { sortKey: "minutes", sortDir: 1 };
   const SORT_VALUES = {
     name: (g) => g.name,
-    minutes: (g) => g.minutes,
+    minutes: (g) => (multi() ? g.ratio : g.minutes),
     safe: (g) => (g.safeShare === undefined ? null : g.safeShare),
     transfers: (g) => g.transfers,
     via: (g) => g.via,
@@ -479,8 +575,20 @@
   function passengersText(g) {
     if (!g.passengers) return "—";
     const n = g.passengers >= 10000 ? `${(g.passengers / 10000).toFixed(1)}万` : g.passengers.toLocaleString("ja-JP");
-    const ch = g.passengersChange === null || g.passengersChange === undefined ? "" : `<span class="cr-sub">2019年比 ${percentText(g.passengersChange)}</span>`;
+    const ch =
+      g.passengersChange === null || g.passengersChange === undefined
+        ? ""
+        : `<span class="cr-sub">2019年比 ${percentText(g.passengersChange)}</span>`;
     return `${n}${ch}`;
+  }
+  // 目的地が複数あるときは「A 12分」「B 25分」のように目的地ごとに並べる
+  function minutesText(g) {
+    if (!multi()) return `${Math.round(g.minutes)}分`;
+    return g.minutesBy.map((m, k) => `<span class="cr-per-dest">${LETTERS[k]} ${Math.round(m)}分</span>`).join("");
+  }
+  function viaText(g) {
+    if (!multi()) return g.viaBy[0] ? escapeHtml(g.viaBy[0]) : "徒歩";
+    return g.viaBy.map((v, k) => `<span class="cr-per-dest">${LETTERS[k]}: ${v ? escapeHtml(v) : "徒歩"}</span>`).join("");
   }
 
   function queryValues() {
@@ -541,7 +649,7 @@
     stationLayer.clearLayers();
     if (!all.length) {
       updateMapFilter(null, []);
-      stationsSection.hidden = state.mode === "rail" && !!state.dest ? false : true;
+      stationsSection.hidden = state.mode === "rail" && state.dests.length ? false : true;
       stationsBody.innerHTML = "";
       stationsCount.textContent = "";
       stationsNote.textContent = state.mode === "rail" ? "範囲内に駅はありません。" : "";
@@ -554,7 +662,7 @@
         (q.maxMinutes === null || g.minutes <= q.maxMinutes) &&
         (q.minSafe === null || !state.hazardLevel || (g.safeShare !== undefined && g.safeShare * 100 >= q.minSafe - 1e-9)) &&
         (q.maxTransfers === null || g.transfers <= q.maxTransfers) &&
-        (!q.via || (g.via || "徒歩").includes(q.via)) &&
+        (!q.via || g.viaBy.some((v) => (v || "徒歩").includes(q.via))) &&
         (q.maxLand === null || (g.landPrice && (g.landPrice * M2_PER_TSUBO) / 10000 <= q.maxLand)) &&
         (q.minPop === null || (g.popChange !== null && g.popChange !== undefined && g.popChange * 100 >= q.minPop - 1e-9)) &&
         groundOk(g, q.ground) &&
@@ -566,9 +674,9 @@
       const va = key(a);
       const vb = key(b);
       // 値のない駅は向きにかかわらず最後に
-      if (va === null || vb === null) return (va === null) - (vb === null) || a.minutes - b.minutes;
+      if (va === null || vb === null) return (va === null) - (vb === null) || a.ratio - b.ratio;
       const c = typeof va === "string" ? va.localeCompare(vb, "ja") : va - vb;
-      return c * stationQuery.sortDir || a.minutes - b.minutes;
+      return c * stationQuery.sortDir || a.ratio - b.ratio;
     });
     for (const th of stationsTable.querySelectorAll("thead [data-sort]")) {
       th.setAttribute(
@@ -583,11 +691,14 @@
         radius: 5,
         color: "#ffffff",
         weight: 2,
-        fillColor: BAND_COLORS[bandOf(g.minutes)],
+        fillColor: BAND_COLORS[bandOfRatio(g.ratio)],
         fillOpacity: 1,
         bubblingMouseEvents: false, // 点のクリックを、地図のクリック（その地点からの時間）として扱わない
       });
-      marker.bindTooltip(`${escapeHtml(g.name)}　約${Math.round(g.minutes)}分`, { direction: "top", offset: [0, -4] });
+      const times = multi()
+        ? g.minutesBy.map((m, k) => `${LETTERS[k]} ${Math.round(m)}分`).join(" / ")
+        : `約${Math.round(g.minutes)}分`;
+      marker.bindTooltip(`${escapeHtml(g.name)}　${times}`, { direction: "top", offset: [0, -4] });
       marker.on("click", () => openStationPopup(g));
       marker.addTo(stationLayer);
     }
@@ -595,16 +706,16 @@
       .map(
         (g, k) =>
           `<tr data-k="${k}" tabindex="0"><th scope="row"><span class="cr-swatch" style="background:${onLightMap(
-            bandOf(g.minutes)
+            bandOfRatio(g.ratio)
           )}"></span>${escapeHtml(g.name)}<span class="cr-lines">${escapeHtml(
             g.lines.join("、")
-          )}</span></th><td class="cr-num">${Math.round(g.minutes)}分</td><td class="cr-num cr-safe">${safeText(
+          )}</span></th><td class="cr-num">${minutesText(g)}</td><td class="cr-num cr-safe">${safeText(
             g
-          )}</td><td class="cr-num">${g.transfers}回</td><td class="cr-via">${
-            g.via ? escapeHtml(g.via) : "徒歩"
-          }</td><td class="cr-num">${landText(g)}</td><td class="cr-num">${popText(g)}</td><td class="cr-num">${groundText(
+          )}</td><td class="cr-num">${g.transfers}回</td><td class="cr-via">${viaText(g)}</td><td class="cr-num">${landText(
             g
-          )}</td><td class="cr-num">${passengersText(g)}</td></tr>`
+          )}</td><td class="cr-num">${popText(g)}</td><td class="cr-num">${groundText(g)}</td><td class="cr-num">${passengersText(
+            g
+          )}</td></tr>`
       )
       .join("");
     stationsTable.classList.toggle("has-hazard", !!state.hazardLevel);
@@ -697,6 +808,8 @@
     // 表の最小の幅は、表示している列の数に合わせる（狭い画面では横にスクロールする）
     const visible = COLUMNS.filter((c) => !hiddenColumns.has(c.n) && (!c.hazardOnly || state.hazardLevel)).length;
     stationsTable.style.minWidth = `${8 + visible * 6}rem`;
+    // 「◯分以内」の絞り込みは、目的地が複数あるときはいちばん遠い目的地で見る
+    document.getElementById("cr-q-minutes").title = multi() ? "いちばん遠い目的地までの時間で絞り込みます" : "";
   }
   applyColumns();
 
@@ -709,12 +822,25 @@
   function openStationPopup(g) {
     const box = document.createElement("div");
     box.className = "cr-popup";
+    const routes = state.dests
+      .map((d, k) => {
+        const head = multi()
+          ? `<p class="cr-popup__time">${LETTERS[k]}「${escapeHtml(d.label)}」まで約${Math.round(g.minutesBy[k])}分</p>`
+          : `<p class="cr-popup__time">${escapeHtml(g.name)}駅から約${Math.round(g.minutes)}分</p>`;
+        const items = routeItems(d, g.stationBy[k]);
+        if (g.stationBy[k] !== g.station) {
+          // 目的地によって、同じ駅の別の路線（ホーム）から乗るほうが早いことがある
+          items.unshift(`${escapeHtml(state.graph.stations[g.stationBy[k]].name)}駅（${escapeHtml(shortName(state.graph.lines[state.graph.stations[g.stationBy[k]].line][0]))}）から`);
+        }
+        return head + `<ol>${items.map((t) => `<li>${t}</li>`).join("")}</ol>`;
+      })
+      .join("");
     box.innerHTML =
-      `<p class="cr-popup__time">${escapeHtml(g.name)}駅から約${Math.round(g.minutes)}分</p>` +
+      (multi() ? `<p class="cr-popup__name">${escapeHtml(g.name)}駅</p>` : "") +
       (state.hazardLevel && g.safeShare !== undefined
         ? `<p class="cr-popup__risk">駅から歩いて住める範囲のうち、災害リスクで除外されない場所: 約${Math.round(g.safeShare * 100)}%</p>`
         : "") +
-      `<ol>${routeItems(g.station).map((t) => `<li>${t}</li>`).join("")}</ol>` +
+      routes +
       stationDetailsHtml(g);
     L.popup({ offset: [0, -4], maxWidth: 320 }).setLatLng([g.lat, g.lon]).setContent(box).openOn(map);
   }
@@ -736,46 +862,50 @@
 
   // ---- 徒歩・自転車・車（Valhalla） ----
 
-  async function computeReach() {
-    const { dest, limit, mode } = state;
-    const id = ++state.requestId;
-    setStatus("計算中です…");
+  async function fetchIsochrone(d) {
     const body = {
-      locations: [{ lat: dest.lat, lon: dest.lon }],
-      costing: mode,
-      contours: [limit / 3, (limit * 2) / 3, limit].map((time) => ({ time: Math.round(time * 10) / 10 })),
+      locations: [{ lat: d.lat, lon: d.lon }],
+      costing: state.mode,
+      contours: [d.limit / 3, (d.limit * 2) / 3, d.limit].map((time) => ({ time: Math.round(time * 10) / 10 })),
       polygons: true,
       reverse: true, // 「ここから行ける範囲」ではなく「ここへ来られる範囲」
     };
-    let geo;
+    const res = await fetch(VALHALLA_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
+
+  async function computeReach() {
+    const id = ++state.requestId;
+    setStatus("計算中です…");
+    let geos;
     try {
-      const res = await fetch(VALHALLA_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      geo = await res.json();
+      // 公開サーバーに負担をかけないよう、目的地ごとに順番に問い合わせる
+      geos = [];
+      for (const d of state.dests) geos.push(await fetchIsochrone(d));
     } catch (err) {
       if (id !== state.requestId) return;
       setStatus(`範囲を計算できませんでした（${err.message}）。公開サーバーが混んでいる可能性があります。少し待ってからもう一度試してください。`, true);
       return;
     }
     if (id !== state.requestId) return; // あとから別の条件で計算し直した
-    state.reachGeo = geo;
+    state.dests.forEach((d, k) => (d.geo = geos[k]));
     reachTiles.redraw();
-    setStatus(`「${dest.label}」まで${MODE_LABELS[mode]}で${limit}分以内${hazardSuffix()}の範囲です。`);
+    setStatus(roadStatus());
   }
 
-  function bandOf(minutes) {
-    if (minutes <= state.limit / 3 + 0.01) return 0;
-    if (minutes <= (state.limit * 2) / 3 + 0.01) return 1;
-    return 2;
+  function roadStatus() {
+    const all = multi() ? "（すべてを満たす場所）" : "";
+    return `${destsText()}${all}、${MODE_LABELS[state.mode]}の範囲です${hazardSuffix()}。`;
   }
 
   function clearReach() {
     state.requestId++;
-    state.reachGeo = null;
+    for (const d of state.dests) d.geo = null;
     reachTiles.redraw();
   }
 
@@ -788,8 +918,16 @@
 
   function update() {
     saveToUrl();
+    renderDests();
     renderLegend();
-    if (!state.dest) return;
+    applyColumns();
+    if (!state.dests.length) {
+      clearReach();
+      clearRail();
+      stationsSection.hidden = true;
+      setStatus("地図をクリックするか、駅名・住所で目的地を決めてください。");
+      return;
+    }
     if (state.mode === "rail") {
       clearReach();
       if (!state.graph) {
@@ -803,38 +941,115 @@
     }
   }
 
-  function setDest(lat, lon, label) {
-    state.dest = { lat, lon, label: label || "地図で選んだ地点" };
-    destInput.value = state.dest.label === "地図で選んだ地点" ? "" : state.dest.label;
-    if (destMarker) {
-      destMarker.setLatLng([lat, lon]);
-    } else {
-      destMarker = L.marker([lat, lon], { draggable: true, title: "目的地（ドラッグで動かせます）" }).addTo(map);
-      destMarker.on("dragend", () => {
-        const ll = destMarker.getLatLng();
-        setDest(ll.lat, ll.lng, "地図で選んだ地点");
-      });
+  // 目的地を足す（4か所まで）。上限時間は、ひとつ前の目的地と同じにしておく
+  function addDest(lat, lon, label, limit) {
+    if (state.dests.length >= MAX_DESTS) {
+      setStatus(`目的地は${MAX_DESTS}か所までです。どれかを消してから足してください。`, true);
+      return;
     }
+    const last = state.dests[state.dests.length - 1];
+    const d = { lat, lon, label: label || MAP_POINT_LABEL, limit: limit || (last ? last.limit : DEFAULT_LIMIT) };
+    d.marker = L.marker([lat, lon], { draggable: true, icon: destIcon("?") }).addTo(map);
+    d.marker.on("dragend", () => {
+      const ll = d.marker.getLatLng();
+      d.lat = ll.lat;
+      d.lon = ll.lng;
+      d.label = MAP_POINT_LABEL;
+      update();
+    });
+    state.dests.push(d);
+    destInput.value = "";
     map.closePopup();
     update();
   }
 
+  function removeDest(d) {
+    d.marker.remove();
+    state.dests.splice(state.dests.indexOf(d), 1);
+    map.closePopup();
+    update();
+  }
+
+  function destIcon(letter) {
+    return L.divIcon({
+      className: "cr-dest-pin",
+      html: `<span>${letter}</span>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
+    });
+  }
+
+  // 目的地の一覧（記号・名前・上限時間・消すボタン）。地図の印の記号もここでそろえる
+  function renderDests() {
+    destsList.innerHTML = "";
+    state.dests.forEach((d, k) => {
+      const letter = multi() ? LETTERS[k] : "";
+      // 目的地が1つのときはふつうのピン、複数のときは A〜D の印にする
+      d.marker.setIcon(letter ? destIcon(letter) : new L.Icon.Default());
+      d.marker.options.title = `目的地${letter}（ドラッグで動かせます）`;
+      const li = document.createElement("li");
+      li.className = "cr-dest";
+      const name = document.createElement("span");
+      name.className = "cr-dest__name";
+      name.innerHTML = `${letter ? `<span class="cr-dest__letter">${letter}</span>` : ""}${escapeHtml(d.label)}`;
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", `${d.label}までの片道の上限`);
+      for (const m of LIMIT_OPTIONS) {
+        const o = document.createElement("option");
+        o.value = String(m);
+        o.textContent = `${m}分以内`;
+        if (m === d.limit) o.selected = true;
+        select.appendChild(o);
+      }
+      select.addEventListener("change", () => {
+        d.limit = Number(select.value);
+        update();
+      });
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "cr-dest__remove";
+      del.textContent = "×";
+      del.title = "この目的地を消す";
+      del.setAttribute("aria-label", `${d.label}を消す`);
+      del.addEventListener("click", () => removeDest(d));
+      li.append(name, select, del);
+      destsList.appendChild(li);
+    });
+    destsBox.hidden = !state.dests.length;
+    destInput.placeholder = state.dests.length
+      ? state.dests.length >= MAX_DESTS
+        ? `目的地は${MAX_DESTS}か所までです`
+        : "目的地を追加（駅名か住所）"
+      : "駅名か住所（例: 大阪、京都市下京区烏丸通）";
+  }
+
   function renderLegend() {
-    if (!state.dest) {
+    if (!state.dests.length) {
       legendEl.hidden = true;
       return;
     }
-    const l = state.limit;
-    const edges = [0, Math.round(l / 3), Math.round((l * 2) / 3), l];
-    legendEl.innerHTML =
-      `<span class="cr-legend__title">目的地までの時間</span>` +
-      BAND_COLORS.map(
-        (c, i) =>
-          `<span class="cr-legend__row"><span class="cr-swatch" style="background:${onLightMap(i)}"></span>${
-            i === 0 ? "" : edges[i]
-          }〜${edges[i + 1]}分</span>`
-      ).join("<br>") +
-      (state.filteredStations ? `<span class="cr-legend__note">一覧で絞り込んだ駅の周りだけ表示中</span>` : "");
+    const note = state.filteredStations ? `<span class="cr-legend__note">一覧で絞り込んだ駅の周りだけ表示中</span>` : "";
+    if (multi()) {
+      // 目的地ごとに上限が違うので、上限に対する割合で表す
+      const labels = ["上限の1/3以内", "上限の2/3以内", "上限まで"];
+      legendEl.innerHTML =
+        `<span class="cr-legend__title">いちばん遠い目的地まで</span>` +
+        labels.map((t, i) => `<span class="cr-legend__row"><span class="cr-swatch" style="background:${onLightMap(i)}"></span>${t}</span>`).join("<br>") +
+        `<span class="cr-legend__note">すべての目的地に時間内で着ける場所</span>` +
+        note;
+    } else {
+      const l = state.dests[0].limit;
+      const edges = [0, Math.round(l / 3), Math.round((l * 2) / 3), l];
+      legendEl.innerHTML =
+        `<span class="cr-legend__title">目的地までの時間</span>` +
+        BAND_COLORS.map(
+          (c, i) =>
+            `<span class="cr-legend__row"><span class="cr-swatch" style="background:${onLightMap(i)}"></span>${
+              i === 0 ? "" : edges[i]
+            }〜${edges[i + 1]}分</span>`
+        ).join("<br>") +
+        note;
+    }
     legendEl.hidden = false;
   }
 
@@ -853,22 +1068,24 @@
 
   map.on("click", (e) => {
     const { lat, lng } = e.latlng;
-    if (!state.dest) {
-      setDest(lat, lng);
+    if (!state.dests.length) {
+      addDest(lat, lng);
       return;
     }
     const box = document.createElement("div");
     box.className = "cr-popup";
     box.innerHTML = popupHtml(lat, lng);
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = "ここを目的地にする";
-    btn.addEventListener("click", () => setDest(lat, lng));
     const risk = document.createElement("p");
     risk.className = "cr-popup__risk";
     risk.textContent = "災害リスクを確認中…";
     box.appendChild(risk);
-    box.appendChild(btn);
+    if (state.dests.length < MAX_DESTS) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = `ここを目的地に追加（${LETTERS[state.dests.length]}）`;
+      btn.addEventListener("click", () => addDest(lat, lng));
+      box.appendChild(btn);
+    }
     const popup = L.popup().setLatLng(e.latlng).setContent(box).openOn(map);
     Hazard.risksAt(lat, lng, map.getZoom()).then((risks) => {
       risk.textContent = risks.length
@@ -880,36 +1097,35 @@
     });
   });
 
+  // クリックした地点から各目的地までの時間と経路
   function popupHtml(lat, lon) {
-    if (state.mode === "rail" && state.railResult) {
-      const r = Rail.timeFromPoint(state.graph, state.railResult, state.dest, lat, lon);
-      if (r.minutes > state.limit) {
-        return `<p class="cr-popup__time">${state.limit}分では着きません</p>`;
+    const walk = (m) => Math.max(1, Math.round(m));
+    const parts = state.dests.map((d, k) => {
+      const name = multi() ? `${LETTERS[k]}「${escapeHtml(d.label)}」まで` : "";
+      if (state.mode === "rail" && d.result) {
+        const r = Rail.timeFromPoint(state.graph, d.result, d, lat, lon);
+        if (r.minutes > d.limit) return `<p class="cr-popup__time">${name}${d.limit}分では着きません</p>`;
+        if (r.station < 0) return `<p class="cr-popup__time">${name}約${walk(r.minutes)}分</p><ol><li>目的地まで歩く</li></ol>`;
+        const s = state.graph.stations[r.station];
+        const toStation = Rail.walkMin(Rail.metersBetween(lat, lon, s.lat, s.lon), state.graph.params);
+        const items = [`${escapeHtml(s.name)}駅まで歩く（約${walk(toStation)}分）`].concat(routeItems(d, r.station));
+        return `<p class="cr-popup__time">${name}約${Math.round(r.minutes)}分</p><ol>${items.map((t) => `<li>${t}</li>`).join("")}</ol>`;
       }
-      const walk = (m) => Math.max(1, Math.round(m));
-      if (r.station < 0) {
-        return `<p class="cr-popup__time">約${walk(r.minutes)}分</p><ol><li>目的地まで歩く</li></ol>`;
+      if (d.geo) {
+        const inside = (d.geo.features || []).filter((f) => containsPoint(f.geometry, lon, lat)).map((f) => f.properties.contour);
+        if (!inside.length) return `<p class="cr-popup__time">${name}${d.limit}分では着きません</p>`;
+        return `<p class="cr-popup__time">${name}約${Math.round(Math.min(...inside))}分以内</p>`;
       }
-      const s = state.graph.stations[r.station];
-      const toStation = Rail.walkMin(Rail.metersBetween(lat, lon, s.lat, s.lon), state.graph.params);
-      const items = [`${escapeHtml(s.name)}駅まで歩く（約${walk(toStation)}分）`].concat(routeItems(r.station));
-      return `<p class="cr-popup__time">約${Math.round(r.minutes)}分</p><ol>${items.map((t) => `<li>${t}</li>`).join("")}</ol>`;
-    }
-    if (state.reachGeo) {
-      const inside = (state.reachGeo.features || [])
-        .filter((f) => containsPoint(f.geometry, lon, lat))
-        .map((f) => f.properties.contour);
-      if (!inside.length) return `<p class="cr-popup__time">${state.limit}分では着きません</p>`;
-      return `<p class="cr-popup__time">約${Math.round(Math.min(...inside))}分以内</p>`;
-    }
-    return "";
+      return "";
+    });
+    return parts.join("");
   }
 
-  // 駅（ホーム）から目的地までの手順を、表示用の文の配列にする
-  function routeItems(station) {
+  // 駅（ホーム）から目的地 d までの手順を、表示用の文の配列にする
+  function routeItems(d, station) {
     const walk = (m) => Math.max(1, Math.round(m));
     const items = [];
-    for (const step of Rail.describeRoute(state.graph, state.railResult, station)) {
+    for (const step of Rail.describeRoute(state.graph, d.result, station)) {
       if (step.type === "ride") {
         items.push(`${escapeHtml(shortName(step.service))}で${escapeHtml(step.to)}まで`);
       } else if (step.type === "walk") {
@@ -959,15 +1175,19 @@
     return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   }
 
-  // ---- 目的地の検索: まず駅名、見つからなければ住所（国土地理院） ----
+  // ---- 目的地の検索: まず駅名、見つからなければ住所（国土地理院）。見つかった場所を目的地に足す ----
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const q = destInput.value.trim();
     if (!q) return;
+    if (state.dests.length >= MAX_DESTS) {
+      setStatus(`目的地は${MAX_DESTS}か所までです。どれかを消してから足してください。`, true);
+      return;
+    }
     const station = findStation(q);
     if (station) {
-      setDest(station.lat, station.lon, station.label);
+      addDest(station.lat, station.lon, station.label);
       map.setView([station.lat, station.lon], Math.max(map.getZoom(), 12));
       return;
     }
@@ -981,7 +1201,7 @@
         return;
       }
       const [lon, lat] = list[0].geometry.coordinates;
-      setDest(lat, lon, list[0].properties.title || q);
+      addDest(lat, lon, list[0].properties.title || q);
       map.setView([lat, lon], Math.max(map.getZoom(), 13));
     } catch (err) {
       setStatus(`住所を検索できませんでした（${err.message}）。地図をクリックして目的地を選んでください。`, true);
@@ -1004,16 +1224,16 @@
   }
 
   // ---- 条件をURLに残す（ブックマークや共有で同じ地図を開けるように） ----
+  // 目的地は d=緯度,経度,上限（分）,名前 を目的地の数だけ並べる
 
   function saveToUrl() {
     const params = new URLSearchParams();
-    if (state.dest) {
-      params.set("lat", state.dest.lat.toFixed(5));
-      params.set("lon", state.dest.lon.toFixed(5));
-      if (state.dest.label !== "地図で選んだ地点") params.set("name", state.dest.label);
+    for (const d of state.dests) {
+      const parts = [d.lat.toFixed(5), d.lon.toFixed(5), String(d.limit)];
+      if (d.label !== MAP_POINT_LABEL) parts.push(d.label);
+      params.append("d", parts.join(","));
     }
     params.set("mode", state.mode);
-    params.set("limit", String(state.limit));
     if (state.maxTransfers !== null) params.set("transfers", String(state.maxTransfers));
     if (state.hazardLevel) params.set("hazard", String(state.hazardLevel));
     history.replaceState(null, "", "?" + params.toString());
@@ -1022,23 +1242,49 @@
   function loadFromUrl() {
     const params = new URLSearchParams(location.search);
     if (MODE_LABELS[params.get("mode")]) state.mode = params.get("mode");
-    const limit = Number(params.get("limit"));
-    if ([15, 20, 30, 45, 60].includes(limit)) state.limit = limit;
     const transfers = params.get("transfers");
     if (["0", "1", "2"].includes(transfers)) state.maxTransfers = Number(transfers);
     modeSelect.value = state.mode;
-    limitSelect.value = String(state.limit);
     transfersSelect.value = state.maxTransfers === null ? "" : String(state.maxTransfers);
     transfersSelect.disabled = state.mode !== "rail";
     const hazard = params.get("hazard");
     if (["1", "2", "3"].includes(hazard)) state.hazardLevel = Number(hazard);
     hazardSelect.value = String(state.hazardLevel);
-    const lat = Number(params.get("lat"));
-    const lon = Number(params.get("lon"));
-    if (params.has("lat") && Number.isFinite(lat) && Number.isFinite(lon)) {
-      map.setView([lat, lon], 12);
-      setDest(lat, lon, params.get("name") || "地図で選んだ地点");
+
+    const found = [];
+    for (const v of params.getAll("d").slice(0, MAX_DESTS)) {
+      const [la, lo, lim, ...name] = v.split(",");
+      const lat = Number(la);
+      const lon = Number(lo);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      found.push({ lat, lon, limit: LIMIT_OPTIONS.includes(Number(lim)) ? Number(lim) : DEFAULT_LIMIT, label: name.join(",") || MAP_POINT_LABEL });
     }
+    // 目的地が1つだったころの形（lat=&lon=&limit=&name=）でも開けるようにする
+    if (!found.length && params.has("lat")) {
+      const lat = Number(params.get("lat"));
+      const lon = Number(params.get("lon"));
+      const lim = Number(params.get("limit"));
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        found.push({ lat, lon, limit: LIMIT_OPTIONS.includes(lim) ? lim : DEFAULT_LIMIT, label: params.get("name") || MAP_POINT_LABEL });
+      }
+    }
+    if (!found.length) return;
+    // 1つずつ足すと毎回計算し直すので、まとめて入れてから1回だけ計算する
+    for (const f of found) {
+      const d = { ...f };
+      d.marker = L.marker([f.lat, f.lon], { draggable: true, icon: destIcon("?") }).addTo(map);
+      d.marker.on("dragend", () => {
+        const ll = d.marker.getLatLng();
+        d.lat = ll.lat;
+        d.lon = ll.lng;
+        d.label = MAP_POINT_LABEL;
+        update();
+      });
+      state.dests.push(d);
+    }
+    if (found.length === 1) map.setView([found[0].lat, found[0].lon], 12);
+    else map.fitBounds(L.latLngBounds(found.map((f) => [f.lat, f.lon])).pad(0.5));
+    update();
   }
 
   modeSelect.addEventListener("change", () => {
@@ -1059,11 +1305,7 @@
     // 徒歩・自転車・車は範囲を取り直さず、塗り直すだけ
     saveToUrl();
     reachTiles.redraw();
-    if (state.reachGeo) setStatus(`「${state.dest.label}」まで${MODE_LABELS[state.mode]}で${state.limit}分以内${hazardSuffix()}の範囲です。`);
-  });
-  limitSelect.addEventListener("change", () => {
-    state.limit = Number(limitSelect.value);
-    update();
+    if (state.dests.length && state.dests.every((d) => d.geo)) setStatus(roadStatus());
   });
 
   // ---- 電車のデータの読み込み ----
@@ -1087,13 +1329,14 @@
         west: Math.min(...lons),
         east: Math.max(...lons),
       };
-      if (state.dest && state.mode === "rail") update();
+      if (state.dests.length && state.mode === "rail") update();
     } catch (err) {
       setStatus(`電車のデータを読み込めませんでした（${err.message}）。徒歩・自転車・車は使えます。`, true);
     }
   }
 
   loadFromUrl();
+  renderDests();
   renderLegend();
   loadRail();
 })();

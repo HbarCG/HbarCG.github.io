@@ -36,7 +36,7 @@
 
       <h1>通勤圏マップ（試作版）</h1>
       <p class="lede">
-        職場などの目的地を決めると、そこへ決めた時間内に着ける範囲を地図に塗ります。電車は関西圏のみで、時刻表ではなく駅間の距離から見積もった目安です。地図をクリックすると、その地点から目的地までの時間と使う路線が出ます。電車のときは、範囲内の駅を目的地まで近い順に一覧にします。
+        職場などの目的地を決めると、そこへ決めた時間内に着ける範囲を地図に塗ります。目的地は4か所まで足せて、そのときは「すべての目的地に時間内で着ける場所」を塗ります（共働きで職場が2か所ある場合など）。電車は関西圏のみで、時刻表ではなく駅間の距離から見積もった目安です。地図をクリックすると、その地点から目的地までの時間と使う路線が出ます。電車のときは、範囲内の駅を目的地まで近い順に一覧にします。
       </p>
 
       <form id="cr-form" class="cr-controls" autocomplete="off">
@@ -44,7 +44,7 @@
           <label for="cr-dest">目的地</label>
           <div class="cr-search">
             <input type="search" id="cr-dest" placeholder="駅名か住所（例: 大阪、京都市下京区烏丸通）">
-            <button type="submit">探す</button>
+            <button type="submit">追加</button>
           </div>
         </div>
         <div class="cr-field">
@@ -54,16 +54,6 @@
             <option value="pedestrian">徒歩</option>
             <option value="bicycle">自転車</option>
             <option value="auto">車</option>
-          </select>
-        </div>
-        <div class="cr-field">
-          <label for="cr-limit">片道</label>
-          <select id="cr-limit">
-            <option value="15">15分以内</option>
-            <option value="20">20分以内</option>
-            <option value="30" selected>30分以内</option>
-            <option value="45">45分以内</option>
-            <option value="60">60分以内</option>
           </select>
         </div>
         <div class="cr-field">
@@ -83,6 +73,10 @@
             <option value="2">中程度以上を除く</option>
             <option value="3">想定のある場所をすべて除く</option>
           </select>
+        </div>
+        <div id="cr-dests" class="cr-dests" hidden>
+          <p class="cr-dests__title">目的地と片道の上限（地図の印はドラッグで動かせます）</p>
+          <ol id="cr-dests-list" class="cr-dests__list"></ol>
         </div>
       </form>
 
