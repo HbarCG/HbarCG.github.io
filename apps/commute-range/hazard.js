@@ -32,8 +32,8 @@
   ];
 
   // 川や海の水面。ハザードマップは水面そのものを塗らないので、そのままだと「リスクのない場所」に見えてしまう。
-  // 地理院の淡色地図の水色で見分ける。ズーム12以下では太い川も線で描かれていて見分けられないので使わない
-  const WATER = { id: "pale", base: "https://cyberjapandata.gsi.go.jp/xyz/", kind: "water", minZoom: 13 };
+  // 地理院の淡色地図の水色で見分ける。ズーム9以下では川が細い線になり見分けられないので使わない
+  const WATER = { id: "pale", base: "https://cyberjapandata.gsi.go.jp/xyz/", kind: "water", minZoom: 10 };
   const WATER_SHARE_ZOOM = 14; // 安全な範囲の割合を出すときに水面を見るズーム
 
   // 浸水深の凡例の色（shinsui_legend3.png）
@@ -248,7 +248,23 @@
       z >= WATER.minZoom ? loadTile(WATER, z, x, y) : null,
       ...layers.map((l) => loadTile(l, hz, x >> (z - hz), y >> (z - hz))),
     ]);
-    if (water) mask.set(water); // 水面は 1
+    // 水面は 1。水面のすぐ外側（堤防の内側の河川敷など）も住む場所ではないので、2px 広げて消す
+    if (water) {
+      const R = 2;
+      for (let y = 0; y < 256; y++) {
+        for (let x = 0; x < 256; x++) {
+          if (!water[y * 256 + x]) continue;
+          for (let dy = -R; dy <= R; dy++) {
+            const yy = y + dy;
+            if (yy < 0 || yy > 255) continue;
+            for (let dx = -R; dx <= R; dx++) {
+              const xx = x + dx;
+              if (xx >= 0 && xx <= 255) mask[yy * 256 + xx] = 1;
+            }
+          }
+        }
+      }
+    }
     layers.forEach((layer, k) => {
       const codes = datas[k];
       if (!codes) return;

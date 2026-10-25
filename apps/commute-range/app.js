@@ -24,7 +24,9 @@
   // 目的地が複数あるときは、いちばん遠い目的地で見た「上限に対する割合」で塗り分ける
   const BAND_COLORS = ["#184f95", "#3987e5", "#86b6ef"];
   const BAND_RGB = BAND_COLORS.map((hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)));
-  const REACH_OPACITY = 0.5; // 塗りの濃さは pane ごとまとめて下げる（重なっても色が濃くならない）
+  const REACH_OPACITY = 0.7; // 塗りの濃さは pane ごとまとめて下げる（重なっても色が濃くならない）
+  const OUTLINE_RGB = [13, 54, 107]; // 範囲の境目の線（塗りのいちばん濃い青よりさらに濃い色）
+  const STATIONS_MIN_ZOOM = 13; // 駅の点はこのズーム以上で出す（一覧で絞り込んでいるときはいつでも出す）
   const SAMPLE_PX = 2; // 電車の塗りは2pxごとに計算する
 
   const MODE_LABELS = { rail: "電車＋徒歩", pedestrian: "徒歩", bicycle: "自転車", auto: "車" };
@@ -81,7 +83,10 @@
       const size = this.getTileSize();
       tile.width = size.x;
       tile.height = size.y;
+      // 境目の線と災害リスクの除外で何度も画素を読み返すので、そのための設定で作っておく
+      tile.getContext("2d", { willReadFrequently: true });
       const drawn = state.mode === "rail" ? drawRailTile(tile, coords, size.x) : drawRoadTile(tile, coords, size.x);
+      if (drawn) addOutline(tile, size.x);
       if (!drawn || !state.hazardLevel) {
         setTimeout(() => done(null, tile), 0);
         return tile;
@@ -100,6 +105,31 @@
   });
   const reachTiles = new ReachLayer({ pane: "reach", updateWhenZooming: false });
   reachTiles.addTo(map);
+
+  // 範囲の境目に線を引く。塗った画素のうち、2px 以内に塗っていない画素があるものを線の色にする。
+  // タイルの外は分からないので「塗ってある」とみなす（タイルの継ぎ目に線が出ないように）。
+  // 災害リスクで消す前の範囲に引くので、ハザードの細かい穴ごとに線が増えることはない
+  function addOutline(canvas, size) {
+    const ctx = canvas.getContext("2d");
+    const img = ctx.getImageData(0, 0, size, size);
+    const a = img.data;
+    const filled = (x, y) => x < 0 || y < 0 || x >= size || y >= size || a[(y * size + x) * 4 + 3] > 0;
+    const edge = [];
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        if (!a[(y * size + x) * 4 + 3]) continue;
+        if (!filled(x - 1, y) || !filled(x + 1, y) || !filled(x, y - 1) || !filled(x, y + 1) || !filled(x - 2, y) || !filled(x + 2, y) || !filled(x, y - 2) || !filled(x, y + 2)) {
+          edge.push((y * size + x) * 4);
+        }
+      }
+    }
+    for (const o of edge) {
+      a[o] = OUTLINE_RGB[0];
+      a[o + 1] = OUTLINE_RGB[1];
+      a[o + 2] = OUTLINE_RGB[2];
+    }
+    ctx.putImageData(img, 0, 0);
+  }
 
   // ---- 全画面表示 ----
   // ブラウザの全画面機能を使う（凡例も一緒に入るよう、地図を囲む要素ごと全画面にする）。
@@ -167,6 +197,16 @@
   map.getPane("stations").style.zIndex = 450;
   const stationRenderer = L.canvas({ pane: "stations", padding: 0.5 });
   const stationLayer = L.layerGroup().addTo(map);
+
+  // 駅の点は数百個になり、広く見ると範囲を隠してしまうので、拡大したときだけ出す。
+  // 一覧で絞り込んでいるときは、絞り込んだ駅がどこかを見たいので、いつでも出す
+  function updateStationVisibility() {
+    const show = map.getZoom() >= STATIONS_MIN_ZOOM || !!state.filteredStations;
+    if (show && !map.hasLayer(stationLayer)) stationLayer.addTo(map);
+    if (!show && map.hasLayer(stationLayer)) stationLayer.remove();
+    renderLegend();
+  }
+  map.on("zoomend", updateStationVisibility);
 
   // 上限に対する割合（0〜1）から塗りの段階を決める
   function bandOfRatio(r) {
@@ -638,7 +678,7 @@
     if (key === mapFilterKey) return;
     mapFilterKey = key;
     state.filteredStations = active ? new Set(ids) : null;
-    renderLegend();
+    updateStationVisibility(); // 凡例も描き直す
     // 入力のたびに塗り直すと重いので、手が止まってから塗り直す
     clearTimeout(mapFilterTimer);
     mapFilterTimer = setTimeout(() => reachTiles.redraw(), 200);
@@ -1028,15 +1068,21 @@
       legendEl.hidden = true;
       return;
     }
-    const note = state.filteredStations ? `<span class="cr-legend__note">一覧で絞り込んだ駅の周りだけ表示中</span>` : "";
+    const outline = `<br><span class="cr-legend__row"><span class="cr-legend__line"></span>範囲の境目</span>`;
+    const stationsHint =
+      state.mode === "rail" && !map.hasLayer(stationLayer) ? `<span class="cr-legend__note">駅の点は拡大すると表示します</span>` : "";
+    const note =
+      outline +
+      stationsHint +
+      (state.filteredStations ? `<span class="cr-legend__note">一覧で絞り込んだ駅の周りだけ表示中</span>` : "");
     if (multi()) {
       // 目的地ごとに上限が違うので、上限に対する割合で表す
       const labels = ["上限の1/3以内", "上限の2/3以内", "上限まで"];
       legendEl.innerHTML =
         `<span class="cr-legend__title">いちばん遠い目的地まで</span>` +
         labels.map((t, i) => `<span class="cr-legend__row"><span class="cr-swatch" style="background:${onLightMap(i)}"></span>${t}</span>`).join("<br>") +
-        `<span class="cr-legend__note">すべての目的地に時間内で着ける場所</span>` +
-        note;
+        note +
+        `<span class="cr-legend__note">すべての目的地に時間内で着ける場所</span>`;
     } else {
       const l = state.dests[0].limit;
       const edges = [0, Math.round(l / 3), Math.round((l * 2) / 3), l];

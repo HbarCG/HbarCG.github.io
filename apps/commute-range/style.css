@@ -250,6 +250,22 @@ html.cr-no-scroll {
   font-size: 0.75rem;
 }
 
+/* 下の地図は白黒にして少し薄くし、塗った範囲が浮かび上がるようにする */
+.cr-map .leaflet-tile-pane {
+  filter: grayscale(1) contrast(0.85) brightness(1.08);
+}
+
+/* 凡例の「範囲の境目」の線 */
+.cr-legend__line {
+  display: inline-block;
+  width: 0.9rem;
+  height: 0;
+  border-top: 3px solid rgb(13, 54, 107);
+  vertical-align: 0.2rem;
+  margin-right: 0.3rem;
+  opacity: 0.85;
+}
+
 .cr-legend__note {
   display: block;
   margin-top: 0.2rem;
