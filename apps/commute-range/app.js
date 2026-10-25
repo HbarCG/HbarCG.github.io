@@ -10,13 +10,16 @@
   const INFO_URL = "/apps/commute-range/data/kansai-info.json";
   const VALHALLA_URL = "https://valhalla1.openstreetmap.de/isochrone";
   const ADDRESS_SEARCH_URL = "https://msearch.gsi.go.jp/address-search/AddressSearch?q=";
+  // 地図で選んだ地点の住所（国土地理院の逆ジオコーダ。市区町村コードと町名が返る）と、市区町村コードの一覧
+  const REVERSE_GEOCODE_URL = "https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress";
+  const MUNI_LIST_URL = "https://maps.gsi.go.jp/js/muni.js";
   const DEFAULT_CENTER = [34.7025, 135.4959]; // 大阪駅
   const DEFAULT_ZOOM = 11;
 
   // 目的地は4か所まで。A〜D の記号で呼ぶ
   const MAX_DESTS = 4;
   const LETTERS = ["A", "B", "C", "D"];
-  const LIMIT_OPTIONS = [15, 20, 30, 45, 60];
+  const LIMIT_OPTIONS = Array.from({ length: 17 }, (_, i) => 10 + i * 5); // 10〜90分を5分刻み
   const DEFAULT_LIMIT = 30;
   const MAP_POINT_LABEL = "地図で選んだ地点";
 
@@ -988,19 +991,87 @@
       return;
     }
     const last = state.dests[state.dests.length - 1];
-    const d = { lat, lon, label: label || MAP_POINT_LABEL, limit: limit || (last ? last.limit : DEFAULT_LIMIT) };
-    d.marker = L.marker([lat, lon], { draggable: true, icon: destIcon("?") }).addTo(map);
-    d.marker.on("dragend", () => {
-      const ll = d.marker.getLatLng();
-      d.lat = ll.lat;
-      d.lon = ll.lng;
-      d.label = MAP_POINT_LABEL;
-      update();
-    });
-    state.dests.push(d);
+    state.dests.push(makeDest(lat, lon, label, limit || (last ? last.limit : DEFAULT_LIMIT)));
     destInput.value = "";
     map.closePopup();
     update();
+  }
+
+  // 目的地を作り、地図に印を置く。地図で選んだ地点（名前がない）なら、住所を調べて名前にする
+  function makeDest(lat, lon, label, limit) {
+    const d = { lat, lon, label: label || MAP_POINT_LABEL, limit };
+    d.marker = L.marker([lat, lon], { draggable: true, icon: destIcon("?") }).addTo(map);
+    d.marker.on("dragend", () => {
+      const ll = d.marker.getLatLng();
+      moveDest(d, ll.lat, ll.lng, null);
+    });
+    if (d.label === MAP_POINT_LABEL) labelFromAddress(d);
+    return d;
+  }
+
+  // 目的地を動かす（印のドラッグ、または目的地の欄に駅名・住所を入れ直したとき）
+  function moveDest(d, lat, lon, label) {
+    d.lat = lat;
+    d.lon = lon;
+    d.label = label || MAP_POINT_LABEL;
+    d.marker.setLatLng([lat, lon]);
+    map.closePopup();
+    update();
+    if (!label) labelFromAddress(d);
+  }
+
+  // 地図で選んだ地点の住所を調べて、目的地の名前（入力欄・一覧・URL・案内の文）にする
+  async function labelFromAddress(d) {
+    const { lat, lon } = d;
+    const name = await reverseGeocode(lat, lon);
+    // 調べているあいだに消されたり動かされたりしていたら使わない
+    if (!name || !state.dests.includes(d) || d.lat !== lat || d.lon !== lon || d.label !== MAP_POINT_LABEL) return;
+    d.label = name;
+    renderDests();
+    saveToUrl();
+    statusEl.textContent = statusEl.textContent.split(`「${MAP_POINT_LABEL}」`).join(`「${name}」`);
+  }
+
+  // 緯度経度から「大阪市北区梅田三丁目」のような住所にする。分からなければ null
+  let muniNames = null; // Promise<Map<市区町村コード, 名前>>
+  async function reverseGeocode(lat, lon) {
+    try {
+      if (!muniNames) {
+        // 市区町村コードの一覧は地理院地図の JavaScript ファイル。実行はせず、文字列として読んで取り出す
+        muniNames = fetch(MUNI_LIST_URL)
+          .then((r) => (r.ok ? r.text() : ""))
+          .then((text) => {
+            const m = new Map();
+            for (const [, code, row] of text.matchAll(/MUNI_ARRAY\["(\d+)"\]\s*=\s*'([^']*)'/g)) {
+              const name = (row.split(",")[3] || "").replace(/[\s　]/g, "");
+              if (name) m.set(code, name);
+            }
+            return m;
+          })
+          .catch(() => new Map());
+      }
+      const res = await fetch(`${REVERSE_GEOCODE_URL}?lat=${lat.toFixed(6)}&lon=${lon.toFixed(6)}`);
+      if (!res.ok) return null;
+      const r = (await res.json()).results;
+      if (!r) return null;
+      const muni = (await muniNames).get(String(Number(r.muniCd))) || "";
+      const town = r.lv01Nm && r.lv01Nm !== "－" && r.lv01Nm !== "-" ? r.lv01Nm : "";
+      return muni + town || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // 駅名か住所から場所を探す。見つからなければ null、検索できなければ例外
+  async function resolvePlace(q) {
+    const station = findStation(q);
+    if (station) return station;
+    const res = await fetch(ADDRESS_SEARCH_URL + encodeURIComponent(q));
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const list = await res.json();
+    if (!list.length) return null;
+    const [lon, lat] = list[0].geometry.coordinates;
+    return { lat, lon, label: list[0].properties.title || q };
   }
 
   function removeDest(d) {
@@ -1029,9 +1100,48 @@
       d.marker.options.title = `目的地${letter}（ドラッグで動かせます）`;
       const li = document.createElement("li");
       li.className = "cr-dest";
+      // 目的地の名前は入力欄にする。地図で選んだ地点は住所を入れ、駅名や住所を打ち直すとその場所へ動かせる
       const name = document.createElement("span");
       name.className = "cr-dest__name";
-      name.innerHTML = `${letter ? `<span class="cr-dest__letter">${letter}</span>` : ""}${escapeHtml(d.label)}`;
+      if (letter) {
+        const badge = document.createElement("span");
+        badge.className = "cr-dest__letter";
+        badge.textContent = letter;
+        name.appendChild(badge);
+      }
+      const input = document.createElement("input");
+      input.type = "search";
+      input.className = "cr-dest__input";
+      input.value = d.label === MAP_POINT_LABEL ? "" : d.label;
+      input.placeholder = d.label === MAP_POINT_LABEL ? "住所を調べています…" : "駅名か住所";
+      input.setAttribute("aria-label", `目的地${letter}（駅名か住所を入れ直すと動かせます）`);
+      const commit = async () => {
+        const q = input.value.trim();
+        if (!q || q === d.label) {
+          input.value = d.label === MAP_POINT_LABEL ? "" : d.label;
+          return;
+        }
+        setStatus("場所を探しています…");
+        try {
+          const place = await resolvePlace(q);
+          if (!place) {
+            setStatus(`「${q}」は見つかりませんでした。別の書き方を試すか、地図の印をドラッグしてください。`, true);
+            input.value = d.label === MAP_POINT_LABEL ? "" : d.label;
+            return;
+          }
+          moveDest(d, place.lat, place.lon, place.label);
+          map.setView([place.lat, place.lon], Math.max(map.getZoom(), 12));
+        } catch (err) {
+          setStatus(`場所を検索できませんでした（${err.message}）。`, true);
+        }
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault(); // 上の「追加」のフォームを送らない
+        input.blur(); // change で commit される
+      });
+      input.addEventListener("change", commit);
+      name.appendChild(input);
       const select = document.createElement("select");
       select.setAttribute("aria-label", `${d.label}までの片道の上限`);
       for (const m of LIMIT_OPTIONS) {
@@ -1231,24 +1341,15 @@
       setStatus(`目的地は${MAX_DESTS}か所までです。どれかを消してから足してください。`, true);
       return;
     }
-    const station = findStation(q);
-    if (station) {
-      addDest(station.lat, station.lon, station.label);
-      map.setView([station.lat, station.lon], Math.max(map.getZoom(), 12));
-      return;
-    }
-    setStatus("住所を探しています…");
+    setStatus("場所を探しています…");
     try {
-      const res = await fetch(ADDRESS_SEARCH_URL + encodeURIComponent(q));
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const list = await res.json();
-      if (!list.length) {
+      const place = await resolvePlace(q);
+      if (!place) {
         setStatus(`「${q}」は見つかりませんでした。別の書き方を試すか、地図をクリックしてください。`, true);
         return;
       }
-      const [lon, lat] = list[0].geometry.coordinates;
-      addDest(lat, lon, list[0].properties.title || q);
-      map.setView([lat, lon], Math.max(map.getZoom(), 13));
+      addDest(place.lat, place.lon, place.label);
+      map.setView([place.lat, place.lon], Math.max(map.getZoom(), 12));
     } catch (err) {
       setStatus(`住所を検索できませんでした（${err.message}）。地図をクリックして目的地を選んでください。`, true);
     }
@@ -1316,18 +1417,7 @@
     }
     if (!found.length) return;
     // 1つずつ足すと毎回計算し直すので、まとめて入れてから1回だけ計算する
-    for (const f of found) {
-      const d = { ...f };
-      d.marker = L.marker([f.lat, f.lon], { draggable: true, icon: destIcon("?") }).addTo(map);
-      d.marker.on("dragend", () => {
-        const ll = d.marker.getLatLng();
-        d.lat = ll.lat;
-        d.lon = ll.lng;
-        d.label = MAP_POINT_LABEL;
-        update();
-      });
-      state.dests.push(d);
-    }
+    for (const f of found) state.dests.push(makeDest(f.lat, f.lon, f.label, f.limit));
     if (found.length === 1) map.setView([found[0].lat, found[0].lon], 12);
     else map.fitBounds(L.latLngBounds(found.map((f) => [f.lat, f.lon])).pad(0.5));
     update();

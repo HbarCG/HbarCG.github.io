@@ -89,10 +89,15 @@
 .cr-dest__name {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.cr-controls .cr-dest__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.95rem;
 }
 
 .cr-dest__letter,
