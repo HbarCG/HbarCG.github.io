@@ -2,6 +2,7 @@
   "use strict";
 
   const Rail = window.CommuteRail;
+  const Hazard = window.CommuteHazard;
 
   const DATA_URL = "/apps/commute-range/data/kansai.json";
   const VALHALLA_URL = "https://valhalla1.openstreetmap.de/isochrone";
@@ -22,6 +23,7 @@
   const modeSelect = document.getElementById("cr-mode");
   const limitSelect = document.getElementById("cr-limit");
   const transfersSelect = document.getElementById("cr-transfers");
+  const hazardSelect = document.getElementById("cr-hazard");
   const statusEl = document.getElementById("cr-status");
   const legendEl = document.getElementById("cr-legend");
   const stationsSection = document.getElementById("cr-stations");
@@ -34,17 +36,20 @@
     mode: "rail",
     limit: 30,
     maxTransfers: null, // 乗り換えの上限（null なら制限なし）。電車のときだけ使う
+    hazardLevel: 0, // 災害リスクで除外する段階（0 なら除外しない。hazard.js を参照）
     graph: null,
     railBounds: null, // 電車のデータがある範囲
     railResult: null,
     railSources: [], // 塗りに使う { lat, lon, t }（駅と目的地）
     reachGeo: null, // Valhalla の結果（GeoJSON）
     requestId: 0,
+    stationsRequestId: 0,
   };
 
   // ---- 地図 ----
 
-  const map = L.map("cr-map", { center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM });  L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", {
+  const map = L.map("cr-map", { center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM });
+  L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", {
     maxZoom: 18,
     attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>',
   }).addTo(map);
@@ -54,20 +59,34 @@
   map.getPane("reach").style.opacity = String(REACH_OPACITY);
   map.getPane("reach").style.pointerEvents = "none";
 
-  const RailLayer = L.GridLayer.extend({
-    createTile(coords) {
+  // 通勤圏の塗り。電車は自前の計算、徒歩・自転車・車は Valhalla の範囲をタイルごとに描き、
+  // 災害リスクで除外する設定なら、そのあとでハザードマップの該当箇所を消す
+  const ReachLayer = L.GridLayer.extend({
+    createTile(coords, done) {
       const tile = document.createElement("canvas");
       const size = this.getTileSize();
       tile.width = size.x;
       tile.height = size.y;
-      drawRailTile(tile, coords, size.x);
+      const drawn = state.mode === "rail" ? drawRailTile(tile, coords, size.x) : drawRoadTile(tile, coords, size.x);
+      if (!drawn || !state.hazardLevel) {
+        setTimeout(() => done(null, tile), 0);
+        return tile;
+      }
+      Hazard.maskForTile(coords.z, coords.x, coords.y, state.hazardLevel).then((mask) => {
+        const ctx = tile.getContext("2d");
+        const img = ctx.getImageData(0, 0, size.x, size.y);
+        for (let i = 0; i < mask.length; i++) {
+          if (mask[i]) img.data[i * 4 + 3] = 0;
+        }
+        ctx.putImageData(img, 0, 0);
+        done(null, tile);
+      });
       return tile;
     },
   });
-  const railLayer = new RailLayer({ pane: "reach", updateWhenZooming: false });
-  railLayer.addTo(map);
+  const reachTiles = new ReachLayer({ pane: "reach", updateWhenZooming: false });
+  reachTiles.addTo(map);
 
-  let reachLayer = null;
   let destMarker = null;
 
   // 範囲内の駅の点。数百個になることがあるので canvas で描く
@@ -79,8 +98,9 @@
   // ---- 電車の塗り ----
 
   // タイル内の各点について「いちばん早く目的地に着ける駅（または目的地まで直接歩く）」の時間を出し、段階の色で塗る
+  // 何か描いたら true を返す
   function drawRailTile(canvas, coords, size) {
-    if (!state.railResult || !state.railSources.length) return;
+    if (!state.railResult || !state.railSources.length) return false;
     const ctx = canvas.getContext("2d");
     const img = ctx.createImageData(size, size);
     const scale = 256 * Math.pow(2, coords.z);
@@ -107,7 +127,7 @@
       const dy = Math.max(south - s.lat, 0, s.lat - north) * ky;
       if (dx * dx + dy * dy <= reach * reach) near.push(s);
     }
-    if (!near.length) return;
+    if (!near.length) return false;
     near.sort((a, b) => a.t - b.t);
 
     const band1 = limit / 3;
@@ -140,6 +160,39 @@
       }
     }
     ctx.putImageData(img, 0, 0);
+    return true;
+  }
+
+  // Valhalla の範囲（GeoJSON の多角形）をタイルに描く。大きい範囲から順に重ね、内側（近い）ほど上に来るようにする
+  function drawRoadTile(canvas, coords, size) {
+    if (!state.reachGeo) return false;
+    const ctx = canvas.getContext("2d");
+    const scale = 256 * Math.pow(2, coords.z);
+    const x0 = coords.x * size;
+    const y0 = coords.y * size;
+    const toPx = ([lon, lat]) => {
+      const s = Math.sin((lat * Math.PI) / 180);
+      return [((lon + 180) / 360) * scale - x0, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * scale - y0];
+    };
+    const features = (state.reachGeo.features || []).slice().sort((a, b) => b.properties.contour - a.properties.contour);
+    for (const f of features) {
+      const g = f.geometry;
+      const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+      ctx.beginPath();
+      for (const rings of polys) {
+        for (const ring of rings) {
+          ring.forEach((c, i) => {
+            const [px, py] = toPx(c);
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          });
+          ctx.closePath();
+        }
+      }
+      ctx.fillStyle = BAND_COLORS[bandOf(f.properties.contour)];
+      ctx.fill("evenodd");
+    }
+    return features.length > 0;
   }
 
   function inRailArea(lat, lon) {
@@ -158,22 +211,46 @@
       if (t <= limit) sources.push({ lat: graph.stations[i].lat, lon: graph.stations[i].lon, t, maxWalk });
     }
     state.railSources = sources;
-    railLayer.redraw();
+    reachTiles.redraw();
     const groups = groupStations();
-    renderStations(groups);
+    const id = ++state.stationsRequestId;
+    if (!state.hazardLevel) {
+      renderStations(groups);
+      setStatus(railStatus(groups.length));
+      return;
+    }
+    // 災害リスクで除外するときは、駅の場所が除外の対象になる駅を一覧と地図から外す（タイルの読み込みを待つ）
+    renderStations([]);
+    stationsNote.textContent = "駅の災害リスクを確認中です…";
+    setStatus(railStatus(null));
+    const threshold = 4 - state.hazardLevel;
+    Promise.all(groups.map((g) => Hazard.risksAt(g.lat, g.lon, 13))).then((risksList) => {
+      if (id !== state.stationsRequestId) return; // あとから別の条件で計算し直した
+      const kept = groups.filter((g, k) => !risksList[k].some((r) => r.sev >= threshold));
+      renderStations(kept);
+      setStatus(railStatus(kept.length, groups.length - kept.length));
+    });
+  }
+
+  function railStatus(count, removed) {
+    const { dest, limit } = state;
     const transfers =
       state.maxTransfers === null ? "" : state.maxTransfers === 0 ? "・乗り換えなし" : `・乗り換え${state.maxTransfers}回まで`;
-    let msg = `「${dest.label}」まで${MODE_LABELS.rail}で${limit}分以内${transfers}の範囲です（駅 ${groups.length}）。`;
+    const stations =
+      count === null ? "駅の災害リスクを確認中…" : removed ? `駅 ${count}。ほかに駅の場所が除外の対象の駅が ${removed}` : `駅 ${count}`;
+    const hazard = state.hazardLevel ? `${HAZARD_LABELS[state.hazardLevel]}。` : "";
+    let msg = `「${dest.label}」まで${MODE_LABELS.rail}で${limit}分以内${transfers}の範囲です（${hazard}${stations}）。`;
     if (!inRailArea(dest.lat, dest.lon)) {
       msg += " 電車のデータは関西圏だけなので、この目的地では徒歩の範囲しか出ません。";
     }
-    setStatus(msg);
+    return msg;
   }
 
   function clearRail() {
+    state.stationsRequestId++;
     state.railResult = null;
     state.railSources = [];
-    railLayer.redraw();
+    reachTiles.redraw();
     renderStations([]);
   }
 
@@ -299,18 +376,8 @@
     }
     if (id !== state.requestId) return; // あとから別の条件で計算し直した
     state.reachGeo = geo;
-    if (reachLayer) reachLayer.remove();
-    // 大きい範囲から順に重ね、内側（近い）ほど上に来るようにする
-    const features = (geo.features || []).slice().sort((a, b) => b.properties.contour - a.properties.contour);
-    reachLayer = L.geoJSON(
-      { type: "FeatureCollection", features },
-      {
-        pane: "reach",
-        interactive: false,
-        style: (f) => ({ stroke: false, fillOpacity: 1, fillColor: BAND_COLORS[bandOf(f.properties.contour)] }),
-      }
-    ).addTo(map);
-    setStatus(`「${dest.label}」まで${MODE_LABELS[mode]}で${limit}分以内の範囲です。`);
+    reachTiles.redraw();
+    setStatus(`「${dest.label}」まで${MODE_LABELS[mode]}で${limit}分以内${hazardSuffix()}の範囲です。`);
   }
 
   function bandOf(minutes) {
@@ -322,10 +389,12 @@
   function clearReach() {
     state.requestId++;
     state.reachGeo = null;
-    if (reachLayer) {
-      reachLayer.remove();
-      reachLayer = null;
-    }
+    reachTiles.redraw();
+  }
+
+  const HAZARD_LABELS = ["", "危険度の高い場所を除外", "中程度以上の危険がある場所を除外", "災害の想定がある場所をすべて除外"];
+  function hazardSuffix() {
+    return state.hazardLevel ? `（${HAZARD_LABELS[state.hazardLevel]}）` : "";
   }
 
   // ---- 全体の流れ ----
@@ -407,8 +476,20 @@
     btn.type = "button";
     btn.textContent = "ここを目的地にする";
     btn.addEventListener("click", () => setDest(lat, lng));
+    const risk = document.createElement("p");
+    risk.className = "cr-popup__risk";
+    risk.textContent = "災害リスクを確認中…";
+    box.appendChild(risk);
     box.appendChild(btn);
-    L.popup().setLatLng(e.latlng).setContent(box).openOn(map);
+    const popup = L.popup().setLatLng(e.latlng).setContent(box).openOn(map);
+    Hazard.risksAt(lat, lng, map.getZoom()).then((risks) => {
+      risk.textContent = risks.length
+        ? "この地点の想定: " + risks.map((r) => (r.text ? `${r.label} ${r.text}` : r.label)).join("、")
+        : "この地点に、洪水・高潮・津波・土砂災害の想定はありません（ハザードマップの範囲で）。";
+      const threshold = 4 - state.hazardLevel;
+      if (state.hazardLevel && risks.some((r) => r.sev >= threshold)) risk.textContent += "（除外の対象）";
+      popup.update();
+    });
   });
 
   function popupHtml(lat, lon) {
@@ -546,6 +627,7 @@
     params.set("mode", state.mode);
     params.set("limit", String(state.limit));
     if (state.maxTransfers !== null) params.set("transfers", String(state.maxTransfers));
+    if (state.hazardLevel) params.set("hazard", String(state.hazardLevel));
     history.replaceState(null, "", "?" + params.toString());
   }
 
@@ -560,6 +642,9 @@
     limitSelect.value = String(state.limit);
     transfersSelect.value = state.maxTransfers === null ? "" : String(state.maxTransfers);
     transfersSelect.disabled = state.mode !== "rail";
+    const hazard = params.get("hazard");
+    if (["1", "2", "3"].includes(hazard)) state.hazardLevel = Number(hazard);
+    hazardSelect.value = String(state.hazardLevel);
     const lat = Number(params.get("lat"));
     const lon = Number(params.get("lon"));
     if (params.has("lat") && Number.isFinite(lat) && Number.isFinite(lon)) {
@@ -576,6 +661,17 @@
   transfersSelect.addEventListener("change", () => {
     state.maxTransfers = transfersSelect.value === "" ? null : Number(transfersSelect.value);
     update();
+  });
+  hazardSelect.addEventListener("change", () => {
+    state.hazardLevel = Number(hazardSelect.value);
+    if (state.mode === "rail") {
+      update();
+      return;
+    }
+    // 徒歩・自転車・車は範囲を取り直さず、塗り直すだけ
+    saveToUrl();
+    reachTiles.redraw();
+    if (state.reachGeo) setStatus(`「${state.dest.label}」まで${MODE_LABELS[state.mode]}で${state.limit}分以内${hazardSuffix()}の範囲です。`);
   });
   limitSelect.addEventListener("change", () => {
     state.limit = Number(limitSelect.value);
