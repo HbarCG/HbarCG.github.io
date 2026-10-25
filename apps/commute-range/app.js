@@ -21,6 +21,7 @@
   const destInput = document.getElementById("cr-dest");
   const modeSelect = document.getElementById("cr-mode");
   const limitSelect = document.getElementById("cr-limit");
+  const transfersSelect = document.getElementById("cr-transfers");
   const statusEl = document.getElementById("cr-status");
   const legendEl = document.getElementById("cr-legend");
   const stationsSection = document.getElementById("cr-stations");
@@ -32,6 +33,7 @@
     dest: null, // { lat, lon, label }
     mode: "rail",
     limit: 30,
+    maxTransfers: null, // 乗り換えの上限（null なら制限なし）。電車のときだけ使う
     graph: null,
     railBounds: null, // 電車のデータがある範囲
     railResult: null,
@@ -147,7 +149,7 @@
 
   function computeRail() {
     const { dest, limit, graph } = state;
-    state.railResult = Rail.timesTo(graph, dest.lat, dest.lon, limit);
+    state.railResult = Rail.timesTo(graph, dest.lat, dest.lon, limit, state.maxTransfers);
     // 目的地へ直接歩くのは上限時間まで、駅まで歩くのは maxStationWalkMin まで
     const sources = [{ lat: dest.lat, lon: dest.lon, t: 0, maxWalk: limit }];
     const maxWalk = graph.params.maxStationWalkMin;
@@ -159,7 +161,9 @@
     railLayer.redraw();
     const groups = groupStations();
     renderStations(groups);
-    let msg = `「${dest.label}」まで${MODE_LABELS.rail}で${limit}分以内の範囲です（駅 ${groups.length}）。`;
+    const transfers =
+      state.maxTransfers === null ? "" : state.maxTransfers === 0 ? "・乗り換えなし" : `・乗り換え${state.maxTransfers}回まで`;
+    let msg = `「${dest.label}」まで${MODE_LABELS.rail}で${limit}分以内${transfers}の範囲です（駅 ${groups.length}）。`;
     if (!inRailArea(dest.lat, dest.lon)) {
       msg += " 電車のデータは関西圏だけなので、この目的地では徒歩の範囲しか出ません。";
     }
@@ -541,6 +545,7 @@
     }
     params.set("mode", state.mode);
     params.set("limit", String(state.limit));
+    if (state.maxTransfers !== null) params.set("transfers", String(state.maxTransfers));
     history.replaceState(null, "", "?" + params.toString());
   }
 
@@ -549,8 +554,12 @@
     if (MODE_LABELS[params.get("mode")]) state.mode = params.get("mode");
     const limit = Number(params.get("limit"));
     if ([15, 20, 30, 45, 60].includes(limit)) state.limit = limit;
+    const transfers = params.get("transfers");
+    if (["0", "1", "2"].includes(transfers)) state.maxTransfers = Number(transfers);
     modeSelect.value = state.mode;
     limitSelect.value = String(state.limit);
+    transfersSelect.value = state.maxTransfers === null ? "" : String(state.maxTransfers);
+    transfersSelect.disabled = state.mode !== "rail";
     const lat = Number(params.get("lat"));
     const lon = Number(params.get("lon"));
     if (params.has("lat") && Number.isFinite(lat) && Number.isFinite(lon)) {
@@ -561,6 +570,11 @@
 
   modeSelect.addEventListener("change", () => {
     state.mode = modeSelect.value;
+    transfersSelect.disabled = state.mode !== "rail"; // 乗り換えは電車のときだけ意味がある
+    update();
+  });
+  transfersSelect.addEventListener("change", () => {
+    state.maxTransfers = transfersSelect.value === "" ? null : Number(transfersSelect.value);
     update();
   });
   limitSelect.addEventListener("change", () => {

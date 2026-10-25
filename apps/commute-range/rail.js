@@ -291,12 +291,22 @@
   }
 
   // 目的地 (lat, lon) まで、各ノードから何分かかるかを求める（limitMin を超えたところは打ち切る）。
-  // 戻り値: { time, next }。next[v] は目的地へ向かう次のノード（-1 なら歩いて目的地へ）
-  function timesTo(graph, lat, lon, limitMin) {
-    const { n, stations, edges, params } = graph;
+  // maxTransfers を数で渡すと、乗り換えがその回数以下の経路だけを使う（null なら制限なし）。
+  // 直通運転で乗ったまま別の路線に入るのは乗り換えに数えない。
+  //
+  // 乗り換えを数えるため、「ノード × それまでに乗った回数」を1つの状態として探す（状態 = 回数 * size + ノード）。
+  // 戻り値:
+  //   time[v]   ノード v から目的地までの最短時間（条件を満たす経路のうち）
+  //   state[v]  その最短時間になる状態
+  //   next[s]   状態 s から目的地へ向かう次の状態（-1 なら歩いて目的地へ）
+  //   stateTime[s]  状態 s から目的地までの時間
+  function timesTo(graph, lat, lon, limitMin, maxTransfers) {
+    const { n, stations, edges, nodeService, params } = graph;
     const size = edges.length;
-    const time = new Float64Array(size).fill(Infinity);
-    const next = new Int32Array(size).fill(-2);
+    const limited = maxTransfers !== null && maxTransfers !== undefined;
+    const layers = limited ? maxTransfers + 2 : 1; // 乗った回数 0..maxTransfers+1
+    const stateTime = new Float64Array(size * layers).fill(Infinity);
+    const next = new Int32Array(size * layers).fill(-2);
 
     // 逆向きのグラフ（v -> w の辺を w から v へたどる）
     if (!graph.reverse) {
@@ -312,24 +322,43 @@
       const walk = walkMin(metersBetween(s.lat, s.lon, lat, lon), params);
       const t = walk + params.exitMin;
       if (walk <= params.maxStationWalkMin && t <= limitMin) {
-        time[i] = t;
+        stateTime[i] = t;
         next[i] = -1;
         heap.push(t, i);
       }
     }
     while (heap.size) {
-      const [t, w] = heap.pop();
-      if (t > time[w]) continue;
+      const [t, sw] = heap.pop();
+      if (t > stateTime[sw]) continue;
+      const layer = Math.floor(sw / size);
+      const w = sw - layer * size;
       for (const [v, dt] of graph.reverse[w]) {
+        // ホーム → 電車 の辺は「1回乗る」
+        const boards = nodeService[v] === null && nodeService[w] !== null;
+        const nl = limited && boards ? layer + 1 : layer;
+        if (nl >= layers) continue;
+        const sv = nl * size + v;
         const nt = t + dt;
-        if (nt < time[v] && nt <= limitMin) {
-          time[v] = nt;
-          next[v] = w;
-          heap.push(nt, v);
+        if (nt < stateTime[sv] && nt <= limitMin) {
+          stateTime[sv] = nt;
+          next[sv] = sw;
+          heap.push(nt, sv);
         }
       }
     }
-    return { time, next };
+
+    const time = new Float64Array(size).fill(Infinity);
+    const state = new Int32Array(size).fill(-1);
+    for (let l = 0; l < layers; l++) {
+      for (let v = 0; v < size; v++) {
+        const t = stateTime[l * size + v];
+        if (t < time[v]) {
+          time[v] = t;
+          state[v] = l * size + v;
+        }
+      }
+    }
+    return { time, state, next, stateTime, size };
   }
 
   // 地点 (lat, lon) から目的地までの時間と、どの駅から乗るのが最短か（-1 なら目的地まで歩く）
@@ -358,14 +387,16 @@
   function describeRoute(graph, result, i) {
     const { stations, nodeStation, nodeService } = graph;
     const steps = [];
-    let v = i;
-    for (let guard = 0; v >= 0 && guard < 100000; guard++) {
-      const w = result.next[v];
-      if (w === -1) {
-        steps.push({ type: "walk-to-dest", from: stations[nodeStation[v]].name, minutes: result.time[v] });
+    let s = result.state[i];
+    for (let guard = 0; s >= 0 && guard < 100000; guard++) {
+      const ns = result.next[s];
+      const v = s % result.size;
+      if (ns === -1) {
+        steps.push({ type: "walk-to-dest", from: stations[nodeStation[v]].name, minutes: result.stateTime[s] });
         break;
       }
-      if (w < 0) break;
+      if (ns < 0) break;
+      const w = ns % result.size;
       const fromName = stations[nodeStation[v]].name;
       const toName = stations[nodeStation[w]].name;
       const onV = nodeService[v] !== null;
@@ -384,7 +415,7 @@
       } else if (!onV && !onW && fromName !== toName) {
         steps.push({ type: "walk", from: fromName, to: toName });
       }
-      v = w;
+      s = ns;
     }
     return steps;
   }
