@@ -1,3 +1,4 @@
+// Copyright (c) 2026 HbarCG. All rights reserved. 無断での複製・転用を禁じます（apps/commute-range/LICENSE.txt）。
 // 通勤圏マップの災害リスクの判定。国土交通省「重ねるハザードマップ」の地図タイル（PNG）を読み、
 // 色からリスクの程度を判定する。データはURLから都度読み込む（保存・再配布はしない）。
 //   https://disaportal.gsi.go.jp/hazardmapportal/hazardmap/copyright/opendata.html

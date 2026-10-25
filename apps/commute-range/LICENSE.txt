@@ -1,0 +1,21 @@
+通勤圏マップ（https://hbarcg.github.io/apps/commute-range/）
+
+Copyright (c) 2026 HbarCG. All rights reserved.
+
+このフォルダ（apps/commute-range/）のプログラム・画面の文章・計算の仕組みを記述したコードと、
+データを作るスクリプト（scripts/commute-rail-build.mjs）の著作権は HbarCG に帰属します。
+ソースコードは閲覧できるように公開していますが、オープンソースではありません。
+HbarCG の許可なく、複製・改変・再配布・他のサービスへの転用をすることはできません。
+（ページを開いて使うこと、リンクを張ることは自由です。）
+
+利用している外部のデータは、それぞれの提供元の条件に従います。HbarCG の権利は、これらのデータそのものには及びません。
+
+- data/kansai.json … 国土交通省「国土数値情報（鉄道データ）」を加工して作成（CC BY 4.0）
+  https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html
+- 地図 … 国土地理院「地理院タイル」
+- 災害リスク … ハザードマップポータルサイト（国土交通省・国土地理院）。土砂災害は「国土数値情報（令和7年度土砂災害警戒区域）」をもとに国土地理院が加工
+- 徒歩・自転車・車の範囲 … Valhalla（FOSSGIS e.V.）、道路データ © OpenStreetMap contributors
+- 住所検索 … 国土地理院
+- 地図の表示 … Leaflet（BSD-2-Clause）
+
+利用の許可を希望する場合は、HbarCG に連絡してください。

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 HbarCG. All rights reserved. 無断での複製・転用を禁じます（apps/commute-range/LICENSE.txt）。
 (function () {
   "use strict";
 

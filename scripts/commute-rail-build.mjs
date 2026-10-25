@@ -1,3 +1,4 @@
+// Copyright (c) 2026 HbarCG. All rights reserved. 無断での複製・転用を禁じます（apps/commute-range/LICENSE.txt）。
 // 通勤圏マップ（apps/commute-range/）が使う鉄道データを作る。
 // 元データは国土交通省「国土数値情報（鉄道）」。CC BY 4.0 で公開されている。
 //   https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html
