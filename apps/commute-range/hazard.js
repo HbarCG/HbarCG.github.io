@@ -144,5 +144,53 @@
     return out;
   }
 
-  root.CommuteHazard = { LAYERS, classify, maskForTile, risksAt };
+  // 地点 (lat, lon) を中心に半径 radiusM の円の中で、除外の段階 level でも残る（安全な）場所の割合（0〜1）。
+  // 円の中を格子状に約100点調べる。ズーム13（1画素およそ20m）のタイルで見る
+  async function safeShare(lat, lon, radiusM, level, z) {
+    z = z || 13;
+    const threshold = 4 - level;
+    const scale = 256 * Math.pow(2, z);
+    const toGlobal = (la, lo) => {
+      const s = Math.sin((la * Math.PI) / 180);
+      return [((lo + 180) / 360) * scale, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * scale];
+    };
+    const kx = 111320 * Math.cos((lat * Math.PI) / 180);
+    const ky = 110540;
+    const step = Math.max(radiusM / 5.5, 1);
+    const points = [];
+    for (let dy = -radiusM; dy <= radiusM + 1e-9; dy += step) {
+      for (let dx = -radiusM; dx <= radiusM + 1e-9; dx += step) {
+        if (dx * dx + dy * dy <= radiusM * radiusM) points.push(toGlobal(lat + dy / ky, lon + dx / kx));
+      }
+    }
+    if (!points.length) points.push(toGlobal(lat, lon));
+
+    // 必要なタイルをまとめて読む
+    const tiles = new Map(); // "x/y" -> [Uint8ClampedArray | null, ...]（LAYERS の順）
+    for (const [gx, gy] of points) tiles.set(`${Math.floor(gx / 256)}/${Math.floor(gy / 256)}`, null);
+    await Promise.all(
+      [...tiles.keys()].map(async (k) => {
+        const [x, y] = k.split("/").map(Number);
+        tiles.set(k, await Promise.all(LAYERS.map((l) => (z >= l.minZoom ? loadTile(l, z, x, y) : null))));
+      })
+    );
+
+    let safe = 0;
+    for (const [gx, gy] of points) {
+      const x = Math.floor(gx / 256);
+      const y = Math.floor(gy / 256);
+      const o = (Math.floor(gy - y * 256) * 256 + Math.floor(gx - x * 256)) * 4;
+      const datas = tiles.get(`${x}/${y}`);
+      const risky = LAYERS.some((layer, k) => {
+        const d = datas[k];
+        if (!d) return false;
+        const c = classify(layer.kind, d[o], d[o + 1], d[o + 2], d[o + 3]);
+        return c && c.sev >= threshold;
+      });
+      if (!risky) safe++;
+    }
+    return safe / points.length;
+  }
+
+  root.CommuteHazard = { LAYERS, classify, maskForTile, risksAt, safeShare };
 })(window);

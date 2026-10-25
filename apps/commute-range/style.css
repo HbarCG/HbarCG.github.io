@@ -218,6 +218,15 @@
   outline: none;
 }
 
+.cr-table .cr-short {
+  display: none;
+}
+
+/* 「安全な範囲」の列は、災害リスクで除外しているときだけ出す */
+.cr-table:not(.has-hazard) .cr-safe {
+  display: none;
+}
+
 .cr-table .cr-num {
   text-align: right;
   white-space: nowrap;
@@ -263,11 +272,20 @@
     padding: 0.35rem 0.4rem;
   }
 
-  .cr-table thead th {
-    white-space: normal;
+  .cr-table {
+    font-size: 0.8rem;
+  }
+
+  /* 見出しは短い言葉に切り替える */
+  .cr-table .cr-long {
+    display: none;
+  }
+
+  .cr-table .cr-short {
+    display: inline;
   }
 
   .cr-table tbody th {
-    min-width: 0;
+    min-width: 5.5em;
   }
 }

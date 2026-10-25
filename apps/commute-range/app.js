@@ -28,6 +28,7 @@
   const legendEl = document.getElementById("cr-legend");
   const stationsSection = document.getElementById("cr-stations");
   const stationsBody = document.getElementById("cr-stations-body");
+  const stationsTable = document.querySelector(".cr-table");
   const stationsCount = document.getElementById("cr-stations-count");
   const stationsNote = document.getElementById("cr-stations-note");
 
@@ -219,14 +220,22 @@
       setStatus(railStatus(groups.length));
       return;
     }
-    // 災害リスクで除外するときは、駅の場所が除外の対象になる駅を一覧と地図から外す（タイルの読み込みを待つ）
-    renderStations([]);
-    stationsNote.textContent = "駅の災害リスクを確認中です…";
+    // 災害リスクで除外するときは、駅から歩いて住める範囲（地図の塗りと同じ円）のうち
+    // 除外されずに残る場所の割合を出す。残る場所がまったくない駅だけ一覧と地図から外す。
+    // 一覧は先に出し、割合はタイルを読み終えてから埋める
+    renderStations(groups);
     setStatus(railStatus(null));
-    const threshold = 4 - state.hazardLevel;
-    Promise.all(groups.map((g) => Hazard.risksAt(g.lat, g.lon, 13))).then((risksList) => {
+    const p = graph.params;
+    const minPerMeter = p.walkDetour / p.walkMetersPerMin;
+    Promise.all(
+      groups.map((g) => {
+        const radius = Math.min(limit - g.minutes, p.maxStationWalkMin) / minPerMeter;
+        return Hazard.safeShare(g.lat, g.lon, radius, state.hazardLevel);
+      })
+    ).then((shares) => {
       if (id !== state.stationsRequestId) return; // あとから別の条件で計算し直した
-      const kept = groups.filter((g, k) => !risksList[k].some((r) => r.sev >= threshold));
+      groups.forEach((g, k) => (g.safeShare = shares[k]));
+      const kept = groups.filter((g) => g.safeShare > 0);
       renderStations(kept);
       setStatus(railStatus(kept.length, groups.length - kept.length));
     });
@@ -237,7 +246,11 @@
     const transfers =
       state.maxTransfers === null ? "" : state.maxTransfers === 0 ? "・乗り換えなし" : `・乗り換え${state.maxTransfers}回まで`;
     const stations =
-      count === null ? "駅の災害リスクを確認中…" : removed ? `駅 ${count}。ほかに駅の場所が除外の対象の駅が ${removed}` : `駅 ${count}`;
+      count === null
+        ? "駅の周りの災害リスクを確認中…"
+        : removed
+          ? `駅 ${count}。ほかに、歩いて住める範囲がすべて除外の対象になる駅が ${removed}`
+          : `駅 ${count}`;
     const hazard = state.hazardLevel ? `${HAZARD_LABELS[state.hazardLevel]}。` : "";
     let msg = `「${dest.label}」まで${MODE_LABELS.rail}で${limit}分以内${transfers}の範囲です（${hazard}${stations}）。`;
     if (!inRailArea(dest.lat, dest.lon)) {
@@ -319,11 +332,12 @@
             bandOf(g.minutes)
           )}"></span>${escapeHtml(g.name)}<span class="cr-lines">${escapeHtml(
             g.lines.join("、")
-          )}</span></th><td class="cr-num">${Math.round(g.minutes)}分</td><td class="cr-num">${
-            g.transfers
-          }回</td><td class="cr-via">${g.via ? escapeHtml(g.via) : "徒歩"}</td></tr>`
+          )}</span></th><td class="cr-num">${Math.round(g.minutes)}分</td><td class="cr-num cr-safe">${safeText(
+            g
+          )}</td><td class="cr-num">${g.transfers}回</td><td class="cr-via">${g.via ? escapeHtml(g.via) : "徒歩"}</td></tr>`
       )
       .join("");
+    stationsTable.classList.toggle("has-hazard", !!state.hazardLevel);
     stationsBody.onclick = stationsBody.onkeydown = (e) => {
       if (e.type === "keydown" && e.key !== "Enter") return;
       const row = e.target.closest("tr[data-k]");
@@ -338,11 +352,20 @@
     stationsSection.hidden = false;
   }
 
+  // 駅から歩いて住める範囲のうち、災害リスクで除外されずに残る場所の割合
+  function safeText(g) {
+    if (g.safeShare === undefined) return "確認中…";
+    return `${Math.round(g.safeShare * 100)}%`;
+  }
+
   function openStationPopup(g) {
     const box = document.createElement("div");
     box.className = "cr-popup";
     box.innerHTML =
       `<p class="cr-popup__time">${escapeHtml(g.name)}駅から約${Math.round(g.minutes)}分</p>` +
+      (state.hazardLevel && g.safeShare !== undefined
+        ? `<p class="cr-popup__risk">駅から歩いて住める範囲のうち、災害リスクで除外されない場所: 約${Math.round(g.safeShare * 100)}%</p>`
+        : "") +
       `<ol>${routeItems(g.station).map((t) => `<li>${t}</li>`).join("")}</ol>`;
     L.popup({ offset: [0, -4] }).setLatLng([g.lat, g.lon]).setContent(box).openOn(map);
   }

@@ -95,12 +95,12 @@
 
       <section id="cr-stations" class="cr-stations" hidden>
         <h2>範囲内の駅<span id="cr-stations-count"></span></h2>
-        <p class="cr-stations__lead">時間は、その駅から目的地までのめやすです（駅で電車を待つ時間と、降りてから目的地まで歩く時間を含みます）。行を選ぶと地図でその駅と経路を表示します。</p>
+        <p class="cr-stations__lead">時間は、その駅から目的地までのめやすです（駅で電車を待つ時間と、降りてから目的地まで歩く時間を含みます）。行を選ぶと地図でその駅と経路を表示します。「災害リスク」で除外しているときは、駅から歩いて住める範囲（地図で塗られる範囲）のうち、除外されずに残る場所の割合を「安全な範囲」に出します。残る場所がない駅は一覧から外します。</p>
         <p id="cr-stations-note" class="cr-stations__note"></p>
         <div class="cr-table-wrap">
           <table class="cr-table">
             <thead>
-              <tr><th scope="col">駅</th><th scope="col" class="cr-num">目的地まで</th><th scope="col" class="cr-num">乗り換え</th><th scope="col">経路</th></tr>
+              <tr><th scope="col">駅</th><th scope="col" class="cr-num"><span class="cr-long">目的地まで</span><span class="cr-short">時間</span></th><th scope="col" class="cr-num cr-safe"><span class="cr-long">安全な範囲</span><span class="cr-short">安全</span></th><th scope="col" class="cr-num"><span class="cr-long">乗り換え</span><span class="cr-short">乗換</span></th><th scope="col">経路</th></tr>
             </thead>
             <tbody id="cr-stations-body"></tbody>
           </table>
