@@ -5,8 +5,9 @@
 //
 // リスクの程度（sev）:
 //   3 = 高い   家屋倒壊等氾濫想定区域、土砂災害特別警戒区域、浸水3m以上
-//   2 = 中     土砂災害警戒区域、浸水0.5m以上3m未満
+//   2 = 中     土砂災害警戒区域、大規模盛土造成地、浸水0.5m以上3m未満
 //   1 = 低い   浸水0.5m未満
+// 浸水は洪水・内水・高潮・津波のどれでも同じ基準で見る。
 // 除外の段階（level）が 1 なら sev 3 だけ、2 なら sev 2 以上、3 なら sev 1 以上を除く。
 // 川や海の水面は、段階にかかわらず「住めない場所」として除く。
 (function (root) {
@@ -17,6 +18,8 @@
 
   const LAYERS = [
     { id: "01_flood_l2_shinsuishin_data", kind: "depth", label: "洪水", minZoom: 2 },
+    // 内水（下水があふれる浸水）。市町村がデータを公開している地域だけ（大阪市などは含まれない）
+    { id: "02_naisui_data", kind: "depth", label: "内水氾濫", minZoom: 2 },
     { id: "03_hightide_l2_shinsuishin_data", kind: "depth", label: "高潮", minZoom: 2 },
     { id: "04_tsunami_newlegend_data", kind: "depth", label: "津波", minZoom: 2 },
     { id: "01_flood_l2_kaokutoukai_hanran_data", kind: "collapse", label: "家屋倒壊等氾濫想定区域（氾濫流）", minZoom: 4 },
@@ -24,6 +27,8 @@
     { id: "05_dosekiryukeikaikuiki", kind: "landslide", label: "土砂災害（土石流）", minZoom: 2 },
     { id: "05_kyukeishakeikaikuiki", kind: "landslide", label: "土砂災害（がけ崩れ）", minZoom: 2 },
     { id: "05_jisuberikeikaikuiki", kind: "landslide", label: "土砂災害（地すべり）", minZoom: 2 },
+    // 大規模盛土造成地。タイルではなく区域のデータ（data/<地域>-morido.json）をタイルの形に塗って使う
+    { id: "morido", kind: "fill", label: "大規模盛土造成地", minZoom: 2 },
   ];
 
   // 川や海の水面。ハザードマップは水面そのものを塗らないので、そのままだと「リスクのない場所」に見えてしまう。
@@ -73,6 +78,7 @@
   function describe(kind, code) {
     if (!code) return null;
     if (kind === "collapse") return { sev: 3, text: "" };
+    if (kind === "fill") return { sev: 2, text: "" };
     if (kind === "landslide") return code === 2 ? { sev: 3, text: "特別警戒区域" } : { sev: 2, text: "警戒区域" };
     const c = DEPTH_COLORS[code - 1];
     return { sev: c.sev, text: `浸水${c.text}` };
@@ -80,15 +86,18 @@
 
   // 区分の番号ごとのリスクの程度（毎回 describe を呼ばずに済むように表にしておく）
   const SEV = {};
-  for (const kind of ["depth", "collapse", "landslide"]) {
+  for (const kind of ["depth", "collapse", "landslide", "fill"]) {
     SEV[kind] = new Uint8Array(16);
     for (let code = 1; code < 16; code++) {
       if (kind === "depth" && code > DEPTH_COLORS.length) break;
-      if (kind === "collapse" && code > 1) break;
+      if ((kind === "collapse" || kind === "fill") && code > 1) break;
       if (kind === "landslide" && code > 2) break;
       SEV[kind][code] = describe(kind, code).sev;
     }
   }
+
+  // その層でいちばん高いリスクの程度。選んだ段階で除外されない層は読み込まずに済ませる
+  const maxSev = (layer) => Math.max(...SEV[layer.kind]);
 
   // ---- タイルの読み込み（同じタイルは使い回す） ----
 
@@ -98,7 +107,14 @@
   function loadTile(layer, z, x, y) {
     const key = `${layer.id}/${z}/${x}/${y}`;
     if (cache.has(key)) return cache.get(key);
-    const p = fetch(`${layer.base || BASE}${key}.png`)
+    const p = layer.kind === "fill" ? fillTile(z, x, y) : fetchTile(layer, key);
+    cache.set(key, p);
+    if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
+    return p;
+  }
+
+  function fetchTile(layer, key) {
+    return fetch(`${layer.base || BASE}${key}.png`)
       .then((res) => (res.ok ? res.blob() : null)) // データのない場所は 404 になる
       .then((blob) => (blob ? createImageBitmap(blob) : null))
       .then((bmp) => {
@@ -119,9 +135,71 @@
         return any ? codes : null;
       })
       .catch(() => null);
-    cache.set(key, p);
-    if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
-    return p;
+  }
+
+  // ---- 大規模盛土造成地（区域のデータをタイルの形に塗る） ----
+
+  // ページから地域のデータの場所を渡してもらう（データがなければ盛土は判定しない）。
+  // データは 2MB ほどあるので、盛土を判定する段階を選んだときに初めて読み込む
+  let fillUrl = null;
+  let fillPolygons = null; // Promise<[{ rings, west, south, east, north }]>
+  function setFillData(url) {
+    fillUrl = url;
+    fillPolygons = null;
+  }
+  function getFillPolygons() {
+    if (!fillPolygons) {
+      fillPolygons = !fillUrl
+        ? Promise.resolve([])
+        : fetch(fillUrl)
+            .then((res) => (res.ok ? res.json() : { polygons: [] }))
+            .then((d) =>
+              d.polygons.map((rings) => {
+                const xs = rings[0].map((c) => c[0]);
+                const ys = rings[0].map((c) => c[1]);
+                return { rings, west: Math.min(...xs), east: Math.max(...xs), south: Math.min(...ys), north: Math.max(...ys) };
+              })
+            )
+            .catch(() => []);
+    }
+    return fillPolygons;
+  }
+
+  async function fillTile(z, x, y) {
+    const polys = await getFillPolygons();
+    const n = Math.pow(2, z);
+    const lonAt = (px) => (px / n) * 360 - 180;
+    const latAt = (py) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * py) / n))) * 180) / Math.PI;
+    const west = lonAt(x);
+    const east = lonAt(x + 1);
+    const north = latAt(y);
+    const south = latAt(y + 1);
+    const hits = polys.filter((p) => p.east >= west && p.west <= east && p.north >= south && p.south <= north);
+    if (!hits.length) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const scale = 256 * n;
+    ctx.fillStyle = "#000";
+    for (const p of hits) {
+      ctx.beginPath();
+      for (const ring of p.rings) {
+        ring.forEach(([lon, lat], i) => {
+          const s = Math.sin((lat * Math.PI) / 180);
+          const px = ((lon + 180) / 360) * scale - x * 256;
+          const py = (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * scale - y * 256;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.closePath();
+      }
+      ctx.fill("evenodd");
+    }
+    const rgba = ctx.getImageData(0, 0, 256, 256).data;
+    const codes = new Uint8Array(256 * 256);
+    for (let i = 0; i < codes.length; i++) codes[i] = rgba[i * 4 + 3] >= 128 ? 1 : 0;
+    return codes;
   }
 
   // 地点 (lat, lon) が、ズーム z のどのタイルの何番目の画素か
@@ -145,7 +223,7 @@
     const f = 1 << (z - hz);
     const ox = (x & (f - 1)) * (256 / f);
     const oy = (y & (f - 1)) * (256 / f);
-    const layers = LAYERS.filter((l) => hz >= l.minZoom);
+    const layers = LAYERS.filter((l) => hz >= l.minZoom && maxSev(l) >= threshold);
     const [water, ...datas] = await Promise.all([
       z >= WATER.minZoom ? loadTile(WATER, z, x, y) : null,
       ...layers.map((l) => loadTile(l, hz, x >> (z - hz), y >> (z - hz))),
@@ -199,14 +277,15 @@
     const hz = points.map(([la, lo]) => locate(la, lo, z));
     const wz = points.map(([la, lo]) => locate(la, lo, WATER_SHARE_ZOOM));
 
-    // 必要なタイルをまとめて読む
-    const hazardTiles = new Map(); // "x/y" -> [Uint8Array | null, ...]（LAYERS の順）
+    // 必要なタイルをまとめて読む（選んだ段階で除外されない層は読まない）
+    const layers = LAYERS.filter((l) => maxSev(l) >= threshold);
+    const hazardTiles = new Map(); // "x/y" -> [Uint8Array | null, ...]（layers の順）
     const waterTiles = new Map(); // "x/y" -> Uint8Array | null
     const jobs = [];
     for (const p of hz) {
       if (hazardTiles.has(p.key)) continue;
       hazardTiles.set(p.key, null);
-      jobs.push(Promise.all(LAYERS.map((l) => loadTile(l, z, p.x, p.y))).then((d) => hazardTiles.set(p.key, d)));
+      jobs.push(Promise.all(layers.map((l) => loadTile(l, z, p.x, p.y))).then((d) => hazardTiles.set(p.key, d)));
     }
     for (const p of wz) {
       if (waterTiles.has(p.key)) continue;
@@ -223,11 +302,11 @@
       land++;
       const datas = hazardTiles.get(hz[n].key);
       const i = hz[n].i;
-      const risky = LAYERS.some((layer, k) => datas[k] && SEV[layer.kind][datas[k][i]] >= threshold);
+      const risky = layers.some((layer, k) => datas[k] && SEV[layer.kind][datas[k][i]] >= threshold);
       if (!risky) safe++;
     });
     return land ? safe / land : 0;
   }
 
-  root.CommuteHazard = { LAYERS, maskForTile, risksAt, safeShare };
+  root.CommuteHazard = { LAYERS, maskForTile, risksAt, safeShare, setFillData };
 })(window);

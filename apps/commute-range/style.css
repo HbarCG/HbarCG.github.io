@@ -189,7 +189,13 @@
 .cr-table thead {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 3; /* 左に固定した駅名の列より手前に出す */
+  background: var(--color-bg);
+}
+
+/* thead の背景はセルに塗られないので、セルごとに塗る（下の行が透けないように） */
+.cr-table thead th,
+.cr-table thead td {
   background: var(--color-bg);
 }
 
@@ -270,6 +276,43 @@
 .cr-table tbody th {
   font-weight: bold;
   min-width: 8em;
+}
+
+/* 数字の下に添える小さな説明（揺れやすさの目安、2019年比など） */
+.cr-table .cr-sub {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* 列が多いので、表は横にもスクロールでき、駅名の列は左に固定する */
+.cr-table {
+  min-width: 52rem;
+}
+
+.cr-table tbody th,
+.cr-table thead tr > :first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--color-bg);
+}
+
+/* 左上（見出しの駅の欄）は、縦にも横にもスクロールしたとき手前に出す */
+.cr-table thead tr > :first-child {
+  z-index: 2;
+}
+
+.cr-table .cr-via {
+  min-width: 10em;
+}
+
+.cr-popup__info {
+  margin: 0.4rem 0 0.4rem;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
 }
 
 /* 駅名の下に、その駅を通る路線を小さく出す */
