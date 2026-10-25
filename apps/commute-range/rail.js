@@ -1,3 +1,4 @@
+// Copyright (c) 2026 HbarCG. All rights reserved. 無断での複製・転用を禁じます（apps/commute-range/LICENSE.txt）。
 // 通勤圏マップの電車の計算。画面には依存しない（Node からも require できる）。
 //
 // 時刻表は使わず、「駅間の距離と路線の種類から見積もった所要時間」と「乗るたびの待ち時間」で、
