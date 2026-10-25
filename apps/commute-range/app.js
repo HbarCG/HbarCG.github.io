@@ -19,7 +19,13 @@
   // 目的地は4か所まで。A〜D の記号で呼ぶ
   const MAX_DESTS = 4;
   const LETTERS = ["A", "B", "C", "D"];
-  const LIMIT_OPTIONS = Array.from({ length: 17 }, (_, i) => 10 + i * 5); // 10〜90分を5分刻み
+  const LIMIT_OPTIONS = Array.from({ length: 11 }, (_, i) => 10 + i * 5); // 10〜60分を5分刻み
+  // URL の上限時間を選択肢に合わせる（選択肢にない値は近い値に。60分を超えるものは60分に）
+  function limitFromUrl(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return DEFAULT_LIMIT;
+    return LIMIT_OPTIONS.reduce((best, m) => (Math.abs(m - n) < Math.abs(best - n) ? m : best), LIMIT_OPTIONS[0]);
+  }
   const DEFAULT_LIMIT = 30;
   const MAP_POINT_LABEL = "地図で選んだ地点";
 
@@ -1404,15 +1410,14 @@
       const lat = Number(la);
       const lon = Number(lo);
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-      found.push({ lat, lon, limit: LIMIT_OPTIONS.includes(Number(lim)) ? Number(lim) : DEFAULT_LIMIT, label: name.join(",") || MAP_POINT_LABEL });
+      found.push({ lat, lon, limit: limitFromUrl(lim), label: name.join(",") || MAP_POINT_LABEL });
     }
     // 目的地が1つだったころの形（lat=&lon=&limit=&name=）でも開けるようにする
     if (!found.length && params.has("lat")) {
       const lat = Number(params.get("lat"));
       const lon = Number(params.get("lon"));
-      const lim = Number(params.get("limit"));
       if (Number.isFinite(lat) && Number.isFinite(lon)) {
-        found.push({ lat, lon, limit: LIMIT_OPTIONS.includes(lim) ? lim : DEFAULT_LIMIT, label: params.get("name") || MAP_POINT_LABEL });
+        found.push({ lat, lon, limit: limitFromUrl(params.get("limit")), label: params.get("name") || MAP_POINT_LABEL });
       }
     }
     if (!found.length) return;
