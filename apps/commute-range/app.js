@@ -23,6 +23,10 @@
   const limitSelect = document.getElementById("cr-limit");
   const statusEl = document.getElementById("cr-status");
   const legendEl = document.getElementById("cr-legend");
+  const stationsSection = document.getElementById("cr-stations");
+  const stationsBody = document.getElementById("cr-stations-body");
+  const stationsCount = document.getElementById("cr-stations-count");
+  const stationsNote = document.getElementById("cr-stations-note");
 
   const state = {
     dest: null, // { lat, lon, label }
@@ -63,6 +67,12 @@
 
   let reachLayer = null;
   let destMarker = null;
+
+  // 範囲内の駅の点。数百個になることがあるので canvas で描く
+  map.createPane("stations");
+  map.getPane("stations").style.zIndex = 450;
+  const stationRenderer = L.canvas({ pane: "stations", padding: 0.5 });
+  const stationLayer = L.layerGroup().addTo(map);
 
   // ---- 電車の塗り ----
 
@@ -147,11 +157,9 @@
     }
     state.railSources = sources;
     railLayer.redraw();
-    const stationNames = new Set();
-    for (let i = 0; i < graph.n; i++) {
-      if (state.railResult.time[i] <= limit) stationNames.add(graph.stations[i].name);
-    }
-    let msg = `「${dest.label}」まで${MODE_LABELS.rail}で${limit}分以内の範囲です（使える駅 ${stationNames.size}）。`;
+    const groups = groupStations();
+    renderStations(groups);
+    let msg = `「${dest.label}」まで${MODE_LABELS.rail}で${limit}分以内の範囲です（駅 ${groups.length}）。`;
     if (!inRailArea(dest.lat, dest.lon)) {
       msg += " 電車のデータは関西圏だけなので、この目的地では徒歩の範囲しか出ません。";
     }
@@ -162,6 +170,100 @@
     state.railResult = null;
     state.railSources = [];
     railLayer.redraw();
+    renderStations([]);
+  }
+
+  // ---- 範囲内の駅の一覧と地図の点 ----
+
+  // データでは駅が路線ごとに分かれているので、同じ名前で近く（500m以内）にある駅を1つにまとめる。
+  // 時間はまとめた中でいちばん早い路線のもの
+  function groupStations() {
+    const { graph, railResult, limit } = state;
+    const idx = [];
+    for (let i = 0; i < graph.n; i++) {
+      if (railResult.time[i] <= limit) idx.push(i);
+    }
+    idx.sort((a, b) => railResult.time[a] - railResult.time[b]);
+    const groups = [];
+    for (const i of idx) {
+      const s = graph.stations[i];
+      const g = groups.find((g) => g.name === s.name && Rail.metersBetween(g.lat, g.lon, s.lat, s.lon) < 500);
+      const line = shortName(graph.lines[s.line][0]);
+      if (g) {
+        if (!g.lines.includes(line)) g.lines.push(line);
+        continue;
+      }
+      const rides = Rail.describeRoute(graph, railResult, i).filter((step) => step.type === "ride");
+      groups.push({
+        name: s.name,
+        lat: s.lat,
+        lon: s.lon,
+        station: i,
+        minutes: railResult.time[i],
+        lines: [line],
+        transfers: Math.max(0, rides.length - 1),
+        via: rides.map((r) => shortName(r.service)).join(" → "),
+      });
+    }
+    return groups;
+  }
+
+  function renderStations(groups) {
+    stationLayer.clearLayers();
+    if (!groups.length) {
+      stationsSection.hidden = state.mode === "rail" && !!state.dest ? false : true;
+      stationsBody.innerHTML = "";
+      stationsCount.textContent = "";
+      stationsNote.textContent = state.mode === "rail" ? "範囲内に駅はありません。" : "";
+      return;
+    }
+    for (const g of groups) {
+      const marker = L.circleMarker([g.lat, g.lon], {
+        renderer: stationRenderer,
+        radius: 5,
+        color: "#ffffff",
+        weight: 2,
+        fillColor: BAND_COLORS[bandOf(g.minutes)],
+        fillOpacity: 1,
+        bubblingMouseEvents: false, // 点のクリックを、地図のクリック（その地点からの時間）として扱わない
+      });
+      marker.bindTooltip(`${escapeHtml(g.name)}　約${Math.round(g.minutes)}分`, { direction: "top", offset: [0, -4] });
+      marker.on("click", () => openStationPopup(g));
+      marker.addTo(stationLayer);
+    }
+    stationsBody.innerHTML = groups
+      .map(
+        (g, k) =>
+          `<tr data-k="${k}" tabindex="0"><th scope="row"><span class="cr-swatch" style="background:${onLightMap(
+            bandOf(g.minutes)
+          )}"></span>${escapeHtml(g.name)}<span class="cr-lines">${escapeHtml(
+            g.lines.join("、")
+          )}</span></th><td class="cr-num">${Math.round(g.minutes)}分</td><td class="cr-num">${
+            g.transfers
+          }回</td><td class="cr-via">${g.via ? escapeHtml(g.via) : "徒歩"}</td></tr>`
+      )
+      .join("");
+    stationsBody.onclick = stationsBody.onkeydown = (e) => {
+      if (e.type === "keydown" && e.key !== "Enter") return;
+      const row = e.target.closest("tr[data-k]");
+      if (!row) return;
+      const g = groups[Number(row.dataset.k)];
+      map.setView([g.lat, g.lon], Math.max(map.getZoom(), 13));
+      openStationPopup(g);
+      document.getElementById("cr-map").scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+    stationsCount.textContent = `（${groups.length}駅）`;
+    stationsNote.textContent = "";
+    stationsSection.hidden = false;
+  }
+
+  function openStationPopup(g) {
+    const box = document.createElement("div");
+    box.className = "cr-popup";
+    box.innerHTML =
+      `<p class="cr-popup__time">${escapeHtml(g.name)}駅から約${Math.round(g.minutes)}分</p>` +
+      `<ol>${routeItems(g.station).map((t) => `<li>${t}</li>`).join("")}</ol>`;
+    L.popup({ offset: [0, -4] }).setLatLng([g.lat, g.lon]).setContent(box).openOn(map);
   }
 
   // ---- 徒歩・自転車・車（Valhalla） ----
@@ -317,16 +419,7 @@
       }
       const s = state.graph.stations[r.station];
       const toStation = Rail.walkMin(Rail.metersBetween(lat, lon, s.lat, s.lon), state.graph.params);
-      const items = [`${escapeHtml(s.name)}駅まで歩く（約${walk(toStation)}分）`];
-      for (const step of Rail.describeRoute(state.graph, state.railResult, r.station)) {
-        if (step.type === "ride") {
-          items.push(`${escapeHtml(shortName(step.service))}で${escapeHtml(step.to)}まで`);
-        } else if (step.type === "walk") {
-          items.push(`${escapeHtml(step.to)}駅まで歩いて乗り換え`);
-        } else if (step.type === "walk-to-dest") {
-          items.push(`目的地まで歩く（約${walk(step.minutes - state.graph.params.exitMin)}分）`);
-        }
-      }
+      const items = [`${escapeHtml(s.name)}駅まで歩く（約${walk(toStation)}分）`].concat(routeItems(r.station));
       return `<p class="cr-popup__time">約${Math.round(r.minutes)}分</p><ol>${items.map((t) => `<li>${t}</li>`).join("")}</ol>`;
     }
     if (state.reachGeo) {
@@ -337,6 +430,22 @@
       return `<p class="cr-popup__time">約${Math.round(Math.min(...inside))}分以内</p>`;
     }
     return "";
+  }
+
+  // 駅（ホーム）から目的地までの手順を、表示用の文の配列にする
+  function routeItems(station) {
+    const walk = (m) => Math.max(1, Math.round(m));
+    const items = [];
+    for (const step of Rail.describeRoute(state.graph, state.railResult, station)) {
+      if (step.type === "ride") {
+        items.push(`${escapeHtml(shortName(step.service))}で${escapeHtml(step.to)}まで`);
+      } else if (step.type === "walk") {
+        items.push(`${escapeHtml(step.to)}駅まで歩いて乗り換え`);
+      } else if (step.type === "walk-to-dest") {
+        items.push(`目的地まで歩く（約${walk(step.minutes - state.graph.params.exitMin)}分）`);
+      }
+    }
+    return items;
   }
 
   function containsPoint(geometry, x, y) {

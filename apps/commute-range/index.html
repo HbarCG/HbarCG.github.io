@@ -36,7 +36,7 @@
 
       <h1>通勤圏マップ（試作版）</h1>
       <p class="lede">
-        職場などの目的地を決めると、そこへ決めた時間内に着ける範囲を地図に塗ります。電車は関西圏のみで、時刻表ではなく駅間の距離から見積もった目安です。地図をクリックすると、その地点から目的地までの時間と使う路線が出ます。
+        職場などの目的地を決めると、そこへ決めた時間内に着ける範囲を地図に塗ります。電車は関西圏のみで、時刻表ではなく駅間の距離から見積もった目安です。地図をクリックすると、その地点から目的地までの時間と使う路線が出ます。電車のときは、範囲内の駅を目的地まで近い順に一覧にします。
       </p>
 
       <form id="cr-form" class="cr-controls" autocomplete="off">
@@ -74,6 +74,20 @@
         <div id="cr-map" class="cr-map"></div>
         <div id="cr-legend" class="cr-legend" hidden></div>
       </div>
+
+      <section id="cr-stations" class="cr-stations" hidden>
+        <h2>範囲内の駅<span id="cr-stations-count"></span></h2>
+        <p class="cr-stations__lead">時間は、その駅から目的地までのめやすです（駅で電車を待つ時間と、降りてから目的地まで歩く時間を含みます）。行を選ぶと地図でその駅と経路を表示します。</p>
+        <p id="cr-stations-note" class="cr-stations__note"></p>
+        <div class="cr-table-wrap">
+          <table class="cr-table">
+            <thead>
+              <tr><th scope="col">駅</th><th scope="col" class="cr-num">目的地まで</th><th scope="col" class="cr-num">乗り換え</th><th scope="col">経路</th></tr>
+            </thead>
+            <tbody id="cr-stations-body"></tbody>
+          </table>
+        </div>
+      </section>
 
       <details class="cr-notes">
         <summary>計算の前提と注意</summary>
