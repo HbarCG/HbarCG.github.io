@@ -75,6 +75,15 @@
             <option value="2">2回まで</option>
           </select>
         </div>
+        <div class="cr-field">
+          <label for="cr-hazard">災害リスク</label>
+          <select id="cr-hazard">
+            <option value="0" selected>除外しない</option>
+            <option value="1">危険度の高い場所を除く</option>
+            <option value="2">中程度以上を除く</option>
+            <option value="3">想定のある場所をすべて除く</option>
+          </select>
+        </div>
       </form>
 
       <p id="cr-status" class="cr-status" role="status">地図をクリックするか、駅名・住所で目的地を決めてください。</p>
@@ -86,12 +95,12 @@
 
       <section id="cr-stations" class="cr-stations" hidden>
         <h2>範囲内の駅<span id="cr-stations-count"></span></h2>
-        <p class="cr-stations__lead">時間は、その駅から目的地までのめやすです（駅で電車を待つ時間と、降りてから目的地まで歩く時間を含みます）。行を選ぶと地図でその駅と経路を表示します。</p>
+        <p class="cr-stations__lead">時間は、その駅から目的地までのめやすです（駅で電車を待つ時間と、降りてから目的地まで歩く時間を含みます）。行を選ぶと地図でその駅と経路を表示します。「災害リスク」で除外しているときは、駅から歩いて住める範囲（地図で塗られる範囲）のうち、除外されずに残る場所の割合を「安全な範囲」に出します。残る場所がない駅は一覧から外します。</p>
         <p id="cr-stations-note" class="cr-stations__note"></p>
         <div class="cr-table-wrap">
           <table class="cr-table">
             <thead>
-              <tr><th scope="col">駅</th><th scope="col" class="cr-num">目的地まで</th><th scope="col" class="cr-num">乗り換え</th><th scope="col">経路</th></tr>
+              <tr><th scope="col">駅</th><th scope="col" class="cr-num"><span class="cr-long">目的地まで</span><span class="cr-short">時間</span></th><th scope="col" class="cr-num cr-safe"><span class="cr-long">安全な範囲</span><span class="cr-short">安全</span></th><th scope="col" class="cr-num"><span class="cr-long">乗り換え</span><span class="cr-short">乗換</span></th><th scope="col">経路</th></tr>
             </thead>
             <tbody id="cr-stations-body"></tbody>
           </table>
@@ -107,6 +116,14 @@
           <li>駅までは歩く前提です（時速4.8km、道の曲がりを見込んで直線距離の1.3倍）。家から駅まで、駅から目的地までの徒歩は、それぞれ20分までにしています。バスは入っていません。</li>
           <li>「目的地から逆向きにたどった時間」なので、行きと帰りで時間が違う場所では少しずれます。</li>
           <li>徒歩・自転車・車の範囲は、OpenStreetMap の道路データをもとに公開サーバー（Valhalla）が計算します。車は渋滞を考えていません。</li>
+          <li>「災害リスク」は、国のハザードマップ（重ねるハザードマップ）の洪水・高潮・津波の浸水深と、家屋倒壊等氾濫想定区域、土砂災害警戒区域をもとに、該当する場所を通勤圏から消します。
+            <ul>
+              <li>危険度の高い場所: 家屋倒壊等氾濫想定区域、土砂災害特別警戒区域、浸水3m以上</li>
+              <li>中程度以上: 上に加えて、土砂災害警戒区域、浸水0.5m以上</li>
+              <li>想定のある場所すべて: 上に加えて、浸水0.5m未満</li>
+            </ul>
+            下水があふれる内水氾濫や、地震（揺れやすさ・液状化）は入っていません。高潮・津波は国のサイトでデータが公開されている地域だけです。市町村のハザードマップもあわせて確かめてください。
+          </li>
           <li>物件を決める前に、実際の経路は乗換案内などで確かめてください。</li>
         </ul>
       </details>
@@ -115,7 +132,8 @@
         地図: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>／
         鉄道: 国土交通省「<a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html" target="_blank" rel="noopener">国土数値情報（鉄道データ）</a>」を加工して作成（<a href="https://creativecommons.org/licenses/by/4.0/deed.ja" target="_blank" rel="noopener">CC BY 4.0</a>）／
         徒歩・自転車・車: <a href="https://valhalla.openstreetmap.de/" target="_blank" rel="noopener">Valhalla</a>（FOSSGIS e.V.）、道路データ <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>／
-        住所検索: 国土地理院
+        住所検索: 国土地理院／
+        災害リスク: <a href="https://disaportal.gsi.go.jp/" target="_blank" rel="noopener">ハザードマップポータルサイト</a>（国土交通省・国土地理院）、土砂災害は「国土数値情報（令和7年度土砂災害警戒区域）」をもとに国土地理院が加工
       </p>
     </main>
 
@@ -126,6 +144,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="/apps/commute-range/rail.js"></script>
+  <script src="/apps/commute-range/hazard.js"></script>
   <script src="/apps/commute-range/app.js"></script>
 </body>
 </html>
