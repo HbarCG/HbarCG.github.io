@@ -80,7 +80,11 @@
         </div>
       </form>
 
-      <p id="cr-status" class="cr-status" role="status">地図をクリックするか、駅名・住所で目的地を決めてください。</p>
+      <div class="cr-status-row">
+        <p id="cr-status" class="cr-status" role="status">地図をクリックするか、駅名・住所で目的地を決めてください。</p>
+        <button type="button" id="cr-share" class="cr-share" hidden>この条件を共有</button>
+      </div>
+      <p id="cr-share-note" class="cr-share-note" role="status" hidden></p>
 
       <div class="cr-map-wrap">
         <div id="cr-map" class="cr-map"></div>

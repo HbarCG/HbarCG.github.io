@@ -780,6 +780,7 @@
     };
     stationsCount.textContent = groups.length === all.length ? `（${all.length}駅）` : `（${all.length}駅中 ${groups.length}駅）`;
     stationsNote.textContent = groups.length ? "" : "条件に合う駅はありません。";
+    saveToUrl(); // 絞り込みと並べ替えも URL に残す（共有で同じ一覧を見られるように）
     stationsSection.hidden = false;
   }
 
@@ -1172,6 +1173,7 @@
       destsList.appendChild(li);
     });
     destsBox.hidden = !state.dests.length;
+    document.getElementById("cr-share").hidden = !state.dests.length;
     destInput.placeholder = state.dests.length
       ? state.dests.length >= MAX_DESTS
         ? `目的地は${MAX_DESTS}か所までです`
@@ -1389,8 +1391,85 @@
     params.set("mode", state.mode);
     if (state.maxTransfers !== null) params.set("transfers", String(state.maxTransfers));
     if (state.hazardLevel) params.set("hazard", String(state.hazardLevel));
+    // 駅の一覧の絞り込み（q_列名=値）と並べ替え（sort=列名、逆順なら desc=1）
+    for (const f of QUERY_FIELDS) {
+      const v = document.getElementById(`cr-q-${f}`).value.trim();
+      if (v !== "") params.set(`q_${f}`, v);
+    }
+    if (stationQuery.sortKey !== "minutes" || stationQuery.sortDir !== 1) {
+      params.set("sort", stationQuery.sortKey);
+      if (stationQuery.sortDir < 0) params.set("desc", "1");
+    }
     history.replaceState(null, "", "?" + params.toString());
   }
+
+  // 一覧の絞り込みの欄（id は cr-q-<名前>）。並べ替えの列の名前と、表示する列の番号の対応も持つ
+  const QUERY_FIELDS = ["name", "minutes", "safe", "transfers", "via", "land", "pop", "ground", "passengers"];
+  const FIELD_COLUMN = { minutes: 2, safe: 3, transfers: 4, via: 5, land: 6, pop: 7, ground: 8, passengers: 9 };
+
+  // URL の絞り込みと並べ替えを一覧に入れる。その列を非表示にしていたら、条件が見えるよう表示に戻す
+  function loadQueryFromUrl(params) {
+    const showColumn = (f) => {
+      const n = FIELD_COLUMN[f];
+      if (!n || !hiddenColumns.has(n)) return;
+      hiddenColumns.delete(n);
+      const box = columnsBox.querySelector(`input[value="${n}"]`);
+      if (box) box.checked = true;
+    };
+    for (const f of QUERY_FIELDS) {
+      const v = params.get(`q_${f}`);
+      if (v === null) continue;
+      const el = document.getElementById(`cr-q-${f}`);
+      el.value = v;
+      if (el.tagName === "SELECT" && el.value !== v) el.value = ""; // 選択肢にない値は使わない
+      if (el.value !== "") showColumn(f);
+    }
+    const sort = params.get("sort");
+    if (sort && SORT_VALUES[sort]) {
+      stationQuery.sortKey = sort;
+      stationQuery.sortDir = params.get("desc") === "1" ? -1 : 1;
+      showColumn(sort);
+    }
+    applyColumns();
+  }
+
+  // ---- 共有 ----
+  // スマホなど共有メニューがあるときはそれを開き、なければ URL をコピーする。
+  // コピーもできないときは、URL を選択した状態で見せる
+  const shareBtn = document.getElementById("cr-share");
+  const shareNote = document.getElementById("cr-share-note");
+  let shareNoteTimer = null;
+  function showShareNote(html, keep) {
+    shareNote.innerHTML = html;
+    shareNote.hidden = false;
+    clearTimeout(shareNoteTimer);
+    if (!keep) shareNoteTimer = setTimeout(() => (shareNote.hidden = true), 4000);
+  }
+  shareBtn.addEventListener("click", async () => {
+    saveToUrl();
+    const url = location.href;
+    const title = `通勤圏マップ: ${state.dests.map((d) => d.label).join("・")}`;
+    if (navigator.share && matchMedia("(pointer: coarse)").matches) {
+      try {
+        await navigator.share({ title, text: title, url });
+        return;
+      } catch (err) {
+        if (err && err.name === "AbortError") return; // 共有メニューを閉じただけ
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      showShareNote("この条件のURLをコピーしました。メールやチャットに貼り付けて送れます。");
+    } catch {
+      showShareNote(
+        `次のURLをコピーして送ってください。<input type="text" class="cr-share-url" readonly value="${escapeHtml(url)}">`,
+        true
+      );
+      const input = shareNote.querySelector("input");
+      input.focus();
+      input.select();
+    }
+  });
 
   function loadFromUrl() {
     const params = new URLSearchParams(location.search);
@@ -1403,6 +1482,7 @@
     const hazard = params.get("hazard");
     if (["1", "2", "3"].includes(hazard)) state.hazardLevel = Number(hazard);
     hazardSelect.value = String(state.hazardLevel);
+    loadQueryFromUrl(params);
 
     const found = [];
     for (const v of params.getAll("d").slice(0, MAX_DESTS)) {
