@@ -138,6 +138,86 @@
   cursor: pointer;
 }
 
+.cr-stations {
+  margin: 0 0 1.5rem;
+}
+
+.cr-stations h2 {
+  margin-bottom: 0.4rem;
+}
+
+.cr-stations__lead,
+.cr-stations__note {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin: 0 0 0.6rem;
+}
+
+.cr-stations__note:empty {
+  display: none;
+}
+
+/* 駅が数百になることがあるので、表は高さを決めてその中だけスクロールさせる */
+.cr-table-wrap {
+  max-height: 28rem;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+.cr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.cr-table th,
+.cr-table td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.cr-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-weight: normal;
+  white-space: nowrap;
+}
+
+.cr-table tbody th {
+  font-weight: bold;
+  min-width: 8em;
+}
+
+/* 駅名の下に、その駅を通る路線を小さく出す */
+.cr-table .cr-lines {
+  display: block;
+  margin-top: 0.15rem;
+  font-weight: normal;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.cr-table tbody tr {
+  cursor: pointer;
+}
+
+.cr-table tbody tr:hover,
+.cr-table tbody tr:focus {
+  background: color-mix(in srgb, var(--color-link) 8%, transparent);
+  outline: none;
+}
+
+.cr-table .cr-num {
+  text-align: right;
+  white-space: nowrap;
+}
+
 .cr-notes {
   margin: 0 0 1rem;
   font-size: 0.9rem;
@@ -170,5 +250,19 @@
   .cr-map-wrap {
     display: flex;
     flex-direction: column-reverse;
+  }
+
+  /* 狭い画面でも表が横にはみ出さないよう、余白を詰めて見出しも折り返す */
+  .cr-table th,
+  .cr-table td {
+    padding: 0.35rem 0.4rem;
+  }
+
+  .cr-table thead th {
+    white-space: normal;
+  }
+
+  .cr-table tbody th {
+    min-width: 0;
   }
 }
