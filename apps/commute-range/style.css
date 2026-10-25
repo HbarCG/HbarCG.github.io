@@ -108,6 +108,14 @@
   font-size: 0.75rem;
 }
 
+.cr-legend__note {
+  display: block;
+  margin-top: 0.2rem;
+  max-width: 11rem;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+
 .cr-swatch {
   display: inline-block;
   width: 0.9rem;

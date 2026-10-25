@@ -102,6 +102,7 @@
   // ---- タイルの読み込み（同じタイルは使い回す） ----
 
   const cache = new Map(); // "layer/z/x/y" -> Promise<Uint8Array(256*256) | null>（区分の番号）
+  let failures = 0; // 読み直しても読み込めなかったタイルの数（ページで注意を出すのに使う）
   const CACHE_LIMIT = 1200; // 1枚 64KB。データのない場所は null なのでほとんど場所を取らない
 
   function loadTile(layer, z, x, y) {
@@ -113,9 +114,28 @@
     return p;
   }
 
+  // データのない場所は 404 が返る（= その場所には想定がない）。それ以外の失敗（通信の途切れ、サーバーの混雑）を
+  // 「想定がない」と同じに扱うと、危険な場所を安全と数えてしまうので、少し待って読み直す
+  async function fetchBlob(url) {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) return await res.blob();
+        if (res.status === 404) return null;
+      } catch {}
+      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+    throw new Error(`タイルを読み込めませんでした: ${url}`);
+  }
+
   function fetchTile(layer, key) {
-    return fetch(`${layer.base || BASE}${key}.png`)
-      .then((res) => (res.ok ? res.blob() : null)) // データのない場所は 404 になる
+    return fetchBlob(`${layer.base || BASE}${key}.png`)
+      .catch((err) => {
+        cache.delete(key); // 次に必要になったときに読み直せるように
+        failures++;
+        console.warn(err.message);
+        return null;
+      })
       .then((blob) => (blob ? createImageBitmap(blob) : null))
       .then((bmp) => {
         if (!bmp) return null;
@@ -308,5 +328,5 @@
     return land ? safe / land : 0;
   }
 
-  root.CommuteHazard = { LAYERS, maskForTile, risksAt, safeShare, setFillData };
+  root.CommuteHazard = { LAYERS, maskForTile, risksAt, safeShare, setFillData, failureCount: () => failures };
 })(window);

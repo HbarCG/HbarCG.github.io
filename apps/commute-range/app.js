@@ -125,7 +125,10 @@
 
     // このタイルに届く駅だけに絞る（残り時間で歩ける距離がタイルにかかるもの）
     const near = [];
+    // 一覧で駅を絞り込んでいるときは、絞り込んだ駅の周りだけを塗る（目的地まで直接歩く範囲は塗らない）
+    const only = state.filteredStations;
     for (const s of state.railSources) {
+      if (only && (s.i === undefined || !only.has(s.i))) continue;
       const reach = Math.min(limit - s.t, s.maxWalk) / minPerMeter;
       const dx = Math.max(west - s.lon, 0, s.lon - east) * kx;
       const dy = Math.max(south - s.lat, 0, s.lat - north) * ky;
@@ -212,7 +215,7 @@
     const maxWalk = graph.params.maxStationWalkMin;
     for (let i = 0; i < graph.n; i++) {
       const t = state.railResult.time[i];
-      if (t <= limit) sources.push({ lat: graph.stations[i].lat, lon: graph.stations[i].lon, t, maxWalk });
+      if (t <= limit) sources.push({ i, lat: graph.stations[i].lat, lon: graph.stations[i].lon, t, maxWalk });
     }
     state.railSources = sources;
     reachTiles.redraw();
@@ -230,6 +233,7 @@
     setStatus(railStatus(null));
     const p = graph.params;
     const minPerMeter = p.walkDetour / p.walkMetersPerMin;
+    const failuresBefore = Hazard.failureCount();
     Promise.all(
       groups.map((g) => {
         const radius = Math.min(limit - g.minutes, p.maxStationWalkMin) / minPerMeter;
@@ -240,7 +244,11 @@
       groups.forEach((g, k) => (g.safeShare = shares[k]));
       const kept = groups.filter((g) => g.safeShare > 0);
       renderStations(kept);
-      setStatus(railStatus(kept.length, groups.length - kept.length));
+      let msg = railStatus(kept.length, groups.length - kept.length);
+      if (Hazard.failureCount() > failuresBefore) {
+        msg += " 一部のハザードマップを読み込めなかったため、結果が実際より安全側に出ている可能性があります。少し待ってから条件を選び直してください。";
+      }
+      setStatus(msg);
     });
   }
 
@@ -441,10 +449,37 @@
     return true;
   }
 
+  // 一覧の絞り込みを地図の塗りにも反映する。絞り込んでいるときは、残った駅の周りだけを塗る
+  let mapFilterKey = "";
+  let mapFilterTimer = null;
+  function updateMapFilter(q, groups) {
+    const active =
+      q !== null &&
+      (q.name !== "" ||
+        q.via !== "" ||
+        q.ground !== "" ||
+        q.maxMinutes !== null ||
+        q.maxTransfers !== null ||
+        q.maxLand !== null ||
+        q.minPop !== null ||
+        q.minPassengers !== null ||
+        (q.minSafe !== null && !!state.hazardLevel));
+    const ids = active ? groups.flatMap((g) => g.members) : null;
+    const key = active ? ids.slice().sort((a, b) => a - b).join(",") + "|" : "";
+    if (key === mapFilterKey) return;
+    mapFilterKey = key;
+    state.filteredStations = active ? new Set(ids) : null;
+    renderLegend();
+    // 入力のたびに塗り直すと重いので、手が止まってから塗り直す
+    clearTimeout(mapFilterTimer);
+    mapFilterTimer = setTimeout(() => reachTiles.redraw(), 200);
+  }
+
   function applyStationQuery() {
     const all = state.stationRows || [];
     stationLayer.clearLayers();
     if (!all.length) {
+      updateMapFilter(null, []);
       stationsSection.hidden = state.mode === "rail" && !!state.dest ? false : true;
       stationsBody.innerHTML = "";
       stationsCount.textContent = "";
@@ -464,6 +499,7 @@
         groundOk(g, q.ground) &&
         (q.minPassengers === null || (g.passengers && g.passengers / 10000 >= q.minPassengers))
     );
+    updateMapFilter(q, groups);
     const key = SORT_VALUES[stationQuery.sortKey];
     groups.sort((a, b) => {
       const va = key(a);
@@ -736,7 +772,8 @@
           `<span class="cr-legend__row"><span class="cr-swatch" style="background:${onLightMap(i)}"></span>${
             i === 0 ? "" : edges[i]
           }〜${edges[i + 1]}分</span>`
-      ).join("<br>");
+      ).join("<br>") +
+      (state.filteredStations ? `<span class="cr-legend__note">一覧で絞り込んだ駅の周りだけ表示中</span>` : "");
     legendEl.hidden = false;
   }
 
