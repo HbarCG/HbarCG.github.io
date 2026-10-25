@@ -4,8 +4,10 @@
 
   const Rail = window.CommuteRail;
   const Hazard = window.CommuteHazard;
+  Hazard.setFillData("/apps/commute-range/data/kansai-morido.json");
 
   const DATA_URL = "/apps/commute-range/data/kansai.json";
+  const INFO_URL = "/apps/commute-range/data/kansai-info.json";
   const VALHALLA_URL = "https://valhalla1.openstreetmap.de/isochrone";
   const ADDRESS_SEARCH_URL = "https://msearch.gsi.go.jp/address-search/AddressSearch?q=";
   const DEFAULT_CENTER = [34.7025, 135.4959]; // 大阪駅
@@ -286,6 +288,7 @@
       const line = shortName(graph.lines[s.line][0]);
       if (g) {
         if (!g.lines.includes(line)) g.lines.push(line);
+        g.members.push(i);
         continue;
       }
       const rides = Rail.describeRoute(graph, railResult, i).filter((step) => step.type === "ride");
@@ -294,13 +297,66 @@
         lat: s.lat,
         lon: s.lon,
         station: i,
+        members: [i],
         minutes: railResult.time[i],
         lines: [line],
         transfers: Math.max(0, rides.length - 1),
         via: rides.map((r) => shortName(r.service)).join(" → "),
       });
     }
+    // 範囲外の路線も含めて、同じ駅の路線をすべて members に入れる（乗降客数は路線ごとに分かれているため）
+    for (const g of groups) {
+      for (let i = 0; i < graph.n; i++) {
+        const s = graph.stations[i];
+        if (!g.members.includes(i) && s.name === g.name && Rail.metersBetween(g.lat, g.lon, s.lat, s.lon) < 500) {
+          g.members.push(i);
+        }
+      }
+      Object.assign(g, stationInfo(g.members));
+    }
     return groups;
+  }
+
+  // 駅ごとの情報（data/<地域>-info.json）をまとめる。
+  // 乗降客数は会社ごとに1つの路線にだけ入っていることが多い（ほかの路線は空）ので、
+  // 会社ごとにいちばん大きい値をとり、会社をまたいで合計する
+  function stationInfo(members) {
+    const rows = state.info ? members.map((i) => state.info.stations[i]).filter(Boolean) : [];
+    if (!rows.length) return {};
+    const first = (k) => {
+      for (const r of rows) if (r[k] !== null) return r[k];
+      return null;
+    };
+    const byOperator = new Map();
+    members.forEach((i, k) => {
+      const r = state.info.stations[i];
+      if (!r) return;
+      const op = state.graph.lines[state.graph.stations[i].line][0].split(" ")[0];
+      const cur = byOperator.get(op) || [null, null];
+      byOperator.set(op, [Math.max(cur[0] ?? 0, r[0] ?? 0) || null, Math.max(cur[1] ?? 0, r[1] ?? 0) || null]);
+    });
+    let p2024 = 0;
+    let p2019 = 0;
+    let p2019ok = true;
+    for (const [a, b] of byOperator.values()) {
+      if (a) {
+        p2024 += a;
+        if (b) p2019 += b;
+        else p2019ok = false;
+      }
+    }
+    const pop2020 = first(3);
+    const pop2050 = first(4);
+    const arvs = rows.map((r) => r[5]).filter((v) => v !== null);
+    return {
+      passengers: p2024 || null,
+      passengersChange: p2024 && p2019 && p2019ok ? p2024 / p2019 - 1 : null,
+      landPrice: first(2),
+      popChange: pop2020 && pop2050 !== null ? pop2050 / pop2020 - 1 : null,
+      arv: arvs.length ? Math.max(...arvs) : null,
+      landform: first(6),
+      liquefaction: rows.reduce((m, r) => (r[7] === null ? m : Math.max(m ?? 0, r[7])), null),
+    };
   }
 
   // 一覧の元になる駅をしまい、絞り込み・並べ替えをかけて表と地図に出す
@@ -314,10 +370,49 @@
   const SORT_VALUES = {
     name: (g) => g.name,
     minutes: (g) => g.minutes,
-    safe: (g) => (g.safeShare === undefined ? -1 : g.safeShare),
+    safe: (g) => (g.safeShare === undefined ? null : g.safeShare),
     transfers: (g) => g.transfers,
     via: (g) => g.via,
+    land: (g) => g.landPrice ?? null,
+    pop: (g) => g.popChange ?? null,
+    ground: (g) => g.arv ?? null,
+    passengers: (g) => g.passengers ?? null,
   };
+  // 最初に見出しを選んだときの向き（大きいほうがよいものは大きい順から）
+  const SORT_FIRST_DESC = ["safe", "pop", "passengers"];
+
+  // ---- 駅ごとの情報の表示 ----
+
+  const M2_PER_TSUBO = 3.30579;
+  function landText(g) {
+    return g.landPrice ? `${Math.round((g.landPrice * M2_PER_TSUBO) / 10000)}万円` : "—";
+  }
+  function percentText(r) {
+    const v = Math.round(r * 100);
+    return `${v > 0 ? "+" : v < 0 ? "−" : "±"}${Math.abs(v)}%`;
+  }
+  function popText(g) {
+    return g.popChange === null || g.popChange === undefined ? "—" : percentText(g.popChange);
+  }
+  // 地盤増幅率の目安（J-SHIS の地図の区分に近い分け方）
+  function shakeLabel(arv) {
+    if (arv === null || arv === undefined) return "";
+    if (arv >= 2.0) return "とても揺れやすい";
+    if (arv >= 1.6) return "揺れやすい";
+    return "比較的揺れにくい";
+  }
+  const LIQUEFACTION_LABELS = ["", "液状化にやや注意", "液状化しやすい"];
+  function groundText(g) {
+    if (g.arv === null || g.arv === undefined) return "—";
+    const liq = g.liquefaction ? `<span class="cr-sub">${LIQUEFACTION_LABELS[g.liquefaction]}</span>` : "";
+    return `${g.arv.toFixed(2)}<span class="cr-sub">${shakeLabel(g.arv)}</span>${liq}`;
+  }
+  function passengersText(g) {
+    if (!g.passengers) return "—";
+    const n = g.passengers >= 10000 ? `${(g.passengers / 10000).toFixed(1)}万` : g.passengers.toLocaleString("ja-JP");
+    const ch = g.passengersChange === null || g.passengersChange === undefined ? "" : `<span class="cr-sub">2019年比 ${percentText(g.passengersChange)}</span>`;
+    return `${n}${ch}`;
+  }
 
   function queryValues() {
     const num = (id) => {
@@ -330,7 +425,20 @@
       minSafe: num("cr-q-safe"),
       maxTransfers: num("cr-q-transfers"),
       via: document.getElementById("cr-q-via").value.trim(),
+      maxLand: num("cr-q-land"), // 万円/坪
+      minPop: num("cr-q-pop"), // %
+      ground: document.getElementById("cr-q-ground").value,
+      minPassengers: num("cr-q-passengers"), // 万人/日
     };
+  }
+
+  function groundOk(g, cond) {
+    if (!cond) return true;
+    if (g.arv === null || g.arv === undefined) return false;
+    if (cond === "firm") return g.arv < 1.6;
+    if (cond === "noliq") return !g.liquefaction || g.liquefaction < 2;
+    if (cond === "firm-noliq") return g.arv < 1.6 && (!g.liquefaction || g.liquefaction < 2);
+    return true;
   }
 
   function applyStationQuery() {
@@ -350,12 +458,18 @@
         (q.maxMinutes === null || g.minutes <= q.maxMinutes) &&
         (q.minSafe === null || !state.hazardLevel || (g.safeShare !== undefined && g.safeShare * 100 >= q.minSafe - 1e-9)) &&
         (q.maxTransfers === null || g.transfers <= q.maxTransfers) &&
-        (!q.via || (g.via || "徒歩").includes(q.via))
+        (!q.via || (g.via || "徒歩").includes(q.via)) &&
+        (q.maxLand === null || (g.landPrice && (g.landPrice * M2_PER_TSUBO) / 10000 <= q.maxLand)) &&
+        (q.minPop === null || (g.popChange !== null && g.popChange !== undefined && g.popChange * 100 >= q.minPop - 1e-9)) &&
+        groundOk(g, q.ground) &&
+        (q.minPassengers === null || (g.passengers && g.passengers / 10000 >= q.minPassengers))
     );
     const key = SORT_VALUES[stationQuery.sortKey];
     groups.sort((a, b) => {
       const va = key(a);
       const vb = key(b);
+      // 値のない駅は向きにかかわらず最後に
+      if (va === null || vb === null) return (va === null) - (vb === null) || a.minutes - b.minutes;
       const c = typeof va === "string" ? va.localeCompare(vb, "ja") : va - vb;
       return c * stationQuery.sortDir || a.minutes - b.minutes;
     });
@@ -389,7 +503,11 @@
             g.lines.join("、")
           )}</span></th><td class="cr-num">${Math.round(g.minutes)}分</td><td class="cr-num cr-safe">${safeText(
             g
-          )}</td><td class="cr-num">${g.transfers}回</td><td class="cr-via">${g.via ? escapeHtml(g.via) : "徒歩"}</td></tr>`
+          )}</td><td class="cr-num">${g.transfers}回</td><td class="cr-via">${
+            g.via ? escapeHtml(g.via) : "徒歩"
+          }</td><td class="cr-num">${landText(g)}</td><td class="cr-num">${popText(g)}</td><td class="cr-num">${groundText(
+            g
+          )}</td><td class="cr-num">${passengersText(g)}</td></tr>`
       )
       .join("");
     stationsTable.classList.toggle("has-hazard", !!state.hazardLevel);
@@ -412,8 +530,8 @@
     const th = e.target.closest("[data-sort]");
     if (!th || e.target.closest("input, select")) return;
     const k = th.dataset.sort;
-    // 同じ列なら向きを反対に。安全な範囲は大きい順から始める
-    stationQuery.sortDir = stationQuery.sortKey === k ? -stationQuery.sortDir : k === "safe" ? -1 : 1;
+    // 同じ列なら向きを反対に
+    stationQuery.sortDir = stationQuery.sortKey === k ? -stationQuery.sortDir : SORT_FIRST_DESC.includes(k) ? -1 : 1;
     stationQuery.sortKey = k;
     applyStationQuery();
   });
@@ -438,8 +556,24 @@
       (state.hazardLevel && g.safeShare !== undefined
         ? `<p class="cr-popup__risk">駅から歩いて住める範囲のうち、災害リスクで除外されない場所: 約${Math.round(g.safeShare * 100)}%</p>`
         : "") +
-      `<ol>${routeItems(g.station).map((t) => `<li>${t}</li>`).join("")}</ol>`;
-    L.popup({ offset: [0, -4] }).setLatLng([g.lat, g.lon]).setContent(box).openOn(map);
+      `<ol>${routeItems(g.station).map((t) => `<li>${t}</li>`).join("")}</ol>` +
+      stationDetailsHtml(g);
+    L.popup({ offset: [0, -4], maxWidth: 320 }).setLatLng([g.lat, g.lon]).setContent(box).openOn(map);
+  }
+
+  function stationDetailsHtml(g) {
+    const rows = [];
+    if (g.landPrice) rows.push(`住宅地の地価（駅の近くの公示地価の中央値）: 坪${landText(g)}（1m²あたり${(g.landPrice / 10000).toFixed(1)}万円）`);
+    if (g.popChange !== null && g.popChange !== undefined) rows.push(`駅から1km以内の人口の見通し: 2020年→2050年で${popText(g)}`);
+    if (g.arv) {
+      const liq = g.liquefaction ? `、${LIQUEFACTION_LABELS[g.liquefaction]}` : "";
+      rows.push(`地盤: 揺れやすさ（地盤増幅率）${g.arv.toFixed(2)}・${shakeLabel(g.arv)}${liq}${g.landform ? `（${escapeHtml(g.landform)}）` : ""}`);
+    }
+    if (g.passengers) {
+      const ch = g.passengersChange === null || g.passengersChange === undefined ? "" : `、2019年度比 ${percentText(g.passengersChange)}`;
+      rows.push(`乗降客数: 1日 ${g.passengers.toLocaleString("ja-JP")}人（2024年度${ch}）`);
+    }
+    return rows.length ? `<ul class="cr-popup__info">${rows.map((r) => `<li>${r}</li>`).join("")}</ul>` : "";
   }
 
   // ---- 徒歩・自転車・車（Valhalla） ----
@@ -777,9 +911,14 @@
 
   async function loadRail() {
     try {
+      // 駅ごとの情報（乗降客数・地価・将来人口・地盤）は、読めなくても電車の計算は続ける
+      const infoPromise = fetch(INFO_URL)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
       const res = await fetch(DATA_URL);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      state.info = await infoPromise;
       state.graph = Rail.build(data);
       const lats = state.graph.stations.map((s) => s.lat);
       const lons = state.graph.stations.map((s) => s.lon);

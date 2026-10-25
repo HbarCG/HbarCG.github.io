@@ -3,7 +3,7 @@
 Copyright (c) 2026 HbarCG. All rights reserved.
 
 このフォルダ（apps/commute-range/）のプログラム・画面の文章・計算の仕組みを記述したコードと、
-データを作るスクリプト（scripts/commute-rail-build.mjs）の著作権は HbarCG に帰属します。
+データを作るスクリプト（scripts/commute-rail-build.mjs、scripts/commute-info-build.mjs）の著作権は HbarCG に帰属します。
 ソースコードは閲覧できるように公開していますが、オープンソースではありません。
 HbarCG の許可なく、複製・改変・再配布・他のサービスへの転用をすることはできません。
 （ページを開いて使うこと、リンクを張ることは自由です。）
@@ -12,6 +12,9 @@ HbarCG の許可なく、複製・改変・再配布・他のサービスへの�
 
 - data/kansai.json … 国土交通省「国土数値情報（鉄道データ）」を加工して作成（CC BY 4.0）
   https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html
+- data/kansai-info.json … 国土交通省「国土数値情報（駅別乗降客数・地価公示・500mメッシュ別将来推計人口）」（CC BY 4.0）と、
+  防災科学技術研究所 J-SHIS の表層地盤情報を加工して作成
+- data/kansai-morido.json … 国土交通省「国土数値情報（大規模盛土造成地）」を加工して作成（CC BY 4.0）
 - 地図 … 国土地理院「地理院タイル」
 - 災害リスク … ハザードマップポータルサイト（国土交通省・国土地理院）。土砂災害は「国土数値情報（令和7年度土砂災害警戒区域）」をもとに国土地理院が加工
 - 徒歩・自転車・車の範囲 … Valhalla（FOSSGIS e.V.）、道路データ © OpenStreetMap contributors
