@@ -286,9 +286,49 @@
   white-space: nowrap;
 }
 
-/* 列が多いので、表は横にもスクロールでき、駅名の列は左に固定する */
-.cr-table {
-  min-width: 52rem;
+/* 列が多いので、表は横にもスクロールでき、駅名の列は左に固定する。
+   表の最小の幅は、表示している列の数に合わせて app.js が決める */
+
+/* 「表示する列」で外した列（列の位置で指定。1列目の駅は常に出す） */
+.cr-table.hide-2 tr > :nth-child(2),
+.cr-table.hide-3 tr > :nth-child(3),
+.cr-table.hide-4 tr > :nth-child(4),
+.cr-table.hide-5 tr > :nth-child(5),
+.cr-table.hide-6 tr > :nth-child(6),
+.cr-table.hide-7 tr > :nth-child(7),
+.cr-table.hide-8 tr > :nth-child(8),
+.cr-table.hide-9 tr > :nth-child(9) {
+  display: none;
+}
+
+.cr-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.9rem;
+  margin: 0 0 0.6rem;
+  padding: 0.4rem 0.7rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.cr-columns legend {
+  padding: 0 0.3rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.cr-columns label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cr-columns label.is-disabled {
+  color: var(--color-text-muted);
+  cursor: default;
 }
 
 .cr-table tbody th,

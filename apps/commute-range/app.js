@@ -511,6 +511,7 @@
       )
       .join("");
     stationsTable.classList.toggle("has-hazard", !!state.hazardLevel);
+    applyColumns();
     stationsBody.onclick = stationsBody.onkeydown = (e) => {
       if (e.type === "keydown" && e.key !== "Enter") return;
       const row = e.target.closest("tr[data-k]");
@@ -541,6 +542,66 @@
     stationQuery.sortDir = 1;
     applyStationQuery();
   });
+
+  // ---- 表示する列の選択 ----
+  // n は表の何列目か（1列目の駅は常に出す）。選んだ内容はこのブラウザに覚えておく
+  const COLUMNS = [
+    { n: 2, label: "目的地まで", sort: "minutes", filter: "cr-q-minutes" },
+    { n: 3, label: "安全な範囲", sort: "safe", filter: "cr-q-safe", hazardOnly: true },
+    { n: 4, label: "乗り換え", sort: "transfers", filter: "cr-q-transfers" },
+    { n: 5, label: "経路", sort: "via", filter: "cr-q-via" },
+    { n: 6, label: "地価", sort: "land", filter: "cr-q-land" },
+    { n: 7, label: "人口 2050年", sort: "pop", filter: "cr-q-pop" },
+    { n: 8, label: "揺れやすさ", sort: "ground", filter: "cr-q-ground" },
+    { n: 9, label: "乗降客数", sort: "passengers", filter: "cr-q-passengers" },
+  ];
+  const COLUMNS_KEY = "commute-range-hidden-columns";
+  let hiddenColumns = new Set();
+  try {
+    hiddenColumns = new Set(JSON.parse(localStorage.getItem(COLUMNS_KEY) || "[]"));
+  } catch {}
+
+  const columnsBox = document.getElementById("cr-columns");
+  for (const c of COLUMNS) {
+    const label = document.createElement("label");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.value = String(c.n);
+    box.checked = !hiddenColumns.has(c.n);
+    label.append(box, c.label);
+    columnsBox.appendChild(label);
+    box.addEventListener("change", () => {
+      if (box.checked) {
+        hiddenColumns.delete(c.n);
+      } else {
+        hiddenColumns.add(c.n);
+        // 見えない列で絞り込んだり並べ替えたりしたままにしない
+        document.getElementById(c.filter).value = "";
+        if (stationQuery.sortKey === c.sort) {
+          stationQuery.sortKey = "minutes";
+          stationQuery.sortDir = 1;
+        }
+      }
+      try {
+        localStorage.setItem(COLUMNS_KEY, JSON.stringify([...hiddenColumns]));
+      } catch {}
+      applyColumns();
+      applyStationQuery();
+    });
+  }
+
+  function applyColumns() {
+    for (const c of COLUMNS) stationsTable.classList.toggle(`hide-${c.n}`, hiddenColumns.has(c.n));
+    // 「安全な範囲」は災害リスクで除外しているときだけ意味があるので、それ以外は選べないようにする
+    const safeBox = columnsBox.querySelector('input[value="3"]');
+    safeBox.disabled = !state.hazardLevel;
+    safeBox.parentElement.classList.toggle("is-disabled", !state.hazardLevel);
+    safeBox.parentElement.title = state.hazardLevel ? "" : "「災害リスク」で除外しているときに表示されます";
+    // 表の最小の幅は、表示している列の数に合わせる（狭い画面では横にスクロールする）
+    const visible = COLUMNS.filter((c) => !hiddenColumns.has(c.n) && (!c.hazardOnly || state.hazardLevel)).length;
+    stationsTable.style.minWidth = `${8 + visible * 6}rem`;
+  }
+  applyColumns();
 
   // 駅から歩いて住める範囲のうち、災害リスクで除外されずに残る場所の割合
   function safeText(g) {
