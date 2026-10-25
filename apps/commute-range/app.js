@@ -302,15 +302,69 @@
     return groups;
   }
 
+  // 一覧の元になる駅をしまい、絞り込み・並べ替えをかけて表と地図に出す
   function renderStations(groups) {
+    state.stationRows = groups;
+    applyStationQuery();
+  }
+
+  // 表の見出しの下の入力欄（列ごとの絞り込み）と、見出しのクリック（並べ替え）
+  const stationQuery = { sortKey: "minutes", sortDir: 1 };
+  const SORT_VALUES = {
+    name: (g) => g.name,
+    minutes: (g) => g.minutes,
+    safe: (g) => (g.safeShare === undefined ? -1 : g.safeShare),
+    transfers: (g) => g.transfers,
+    via: (g) => g.via,
+  };
+
+  function queryValues() {
+    const num = (id) => {
+      const v = document.getElementById(id).value.trim();
+      return v === "" ? null : Number(v);
+    };
+    return {
+      name: document.getElementById("cr-q-name").value.trim(),
+      maxMinutes: num("cr-q-minutes"),
+      minSafe: num("cr-q-safe"),
+      maxTransfers: num("cr-q-transfers"),
+      via: document.getElementById("cr-q-via").value.trim(),
+    };
+  }
+
+  function applyStationQuery() {
+    const all = state.stationRows || [];
     stationLayer.clearLayers();
-    if (!groups.length) {
+    if (!all.length) {
       stationsSection.hidden = state.mode === "rail" && !!state.dest ? false : true;
       stationsBody.innerHTML = "";
       stationsCount.textContent = "";
       stationsNote.textContent = state.mode === "rail" ? "範囲内に駅はありません。" : "";
       return;
     }
+    const q = queryValues();
+    const groups = all.filter(
+      (g) =>
+        (!q.name || g.name.includes(q.name) || g.lines.some((l) => l.includes(q.name))) &&
+        (q.maxMinutes === null || g.minutes <= q.maxMinutes) &&
+        (q.minSafe === null || !state.hazardLevel || (g.safeShare !== undefined && g.safeShare * 100 >= q.minSafe - 1e-9)) &&
+        (q.maxTransfers === null || g.transfers <= q.maxTransfers) &&
+        (!q.via || (g.via || "徒歩").includes(q.via))
+    );
+    const key = SORT_VALUES[stationQuery.sortKey];
+    groups.sort((a, b) => {
+      const va = key(a);
+      const vb = key(b);
+      const c = typeof va === "string" ? va.localeCompare(vb, "ja") : va - vb;
+      return c * stationQuery.sortDir || a.minutes - b.minutes;
+    });
+    for (const th of stationsTable.querySelectorAll("thead [data-sort]")) {
+      th.setAttribute(
+        "aria-sort",
+        th.dataset.sort === stationQuery.sortKey ? (stationQuery.sortDir > 0 ? "ascending" : "descending") : "none"
+      );
+    }
+
     for (const g of groups) {
       const marker = L.circleMarker([g.lat, g.lon], {
         renderer: stationRenderer,
@@ -347,10 +401,27 @@
       openStationPopup(g);
       document.getElementById("cr-map").scrollIntoView({ behavior: "smooth", block: "center" });
     };
-    stationsCount.textContent = `（${groups.length}駅）`;
-    stationsNote.textContent = "";
+    stationsCount.textContent = groups.length === all.length ? `（${all.length}駅）` : `（${all.length}駅中 ${groups.length}駅）`;
+    stationsNote.textContent = groups.length ? "" : "条件に合う駅はありません。";
     stationsSection.hidden = false;
   }
+
+  stationsTable.querySelector("thead").addEventListener("input", applyStationQuery);
+  stationsTable.querySelector("thead").addEventListener("click", (e) => {
+    const th = e.target.closest("[data-sort]");
+    if (!th || e.target.closest("input, select")) return;
+    const k = th.dataset.sort;
+    // 同じ列なら向きを反対に。安全な範囲は大きい順から始める
+    stationQuery.sortDir = stationQuery.sortKey === k ? -stationQuery.sortDir : k === "safe" ? -1 : 1;
+    stationQuery.sortKey = k;
+    applyStationQuery();
+  });
+  document.getElementById("cr-q-clear").addEventListener("click", () => {
+    for (const el of stationsTable.querySelectorAll("thead input, thead select")) el.value = "";
+    stationQuery.sortKey = "minutes";
+    stationQuery.sortDir = 1;
+    applyStationQuery();
+  });
 
   // 駅から歩いて住める範囲のうち、災害リスクで除外されずに残る場所の割合
   function safeText(g) {
@@ -582,7 +653,7 @@
     [/阪神電気鉄道 /g, "阪神 "],
     [/阪急電鉄 /g, "阪急 "],
     [/山陽電気鉄道 /g, "山陽電鉄 "],
-    [/北大阪急行電鉄 南北線/g, "北大阪急行"],
+    [/北大阪急行電鉄 南北線/g, "北急"], // 「北大阪急行」だと「阪急」で絞り込んだときに当たってしまう
     [/京都市 /g, "京都市営地下鉄 "],
     [/神戸市 /g, "神戸市営地下鉄 "],
   ];
