@@ -58,6 +58,100 @@
   border-color: var(--color-link);
 }
 
+/* ---- 目的地の一覧（A〜D） ---- */
+
+.cr-dests {
+  flex: 1 1 100%;
+  min-width: 0; /* 長い住所でも、上限の選択と消すボタンが画面の外に出ないように */
+}
+
+.cr-dests__title {
+  margin: 0 0 0.3rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.cr-dests__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.cr-dest {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cr-dest__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.95rem;
+}
+
+.cr-dest__letter,
+.cr-dest-pin span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: var(--color-text);
+  color: var(--color-bg);
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.cr-dest__letter {
+  margin-right: 0.4rem;
+  vertical-align: 0.05rem;
+}
+
+.cr-controls .cr-dest__remove {
+  padding: 0.2rem 0.55rem;
+  line-height: 1;
+}
+
+/* 地図の上の A〜D の印。地図の上では明るさの設定にかかわらず同じ見た目にする */
+.cr-dest-pin {
+  background: none;
+  border: none;
+}
+
+.cr-dest-pin span {
+  width: 28px;
+  height: 28px;
+  background: #1f1f1f;
+  color: #ffffff;
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  box-sizing: border-box;
+  font-size: 14px;
+}
+
+/* 目的地が複数あるときの「A 12分」「B 25分」 */
+.cr-table .cr-per-dest {
+  display: block;
+  white-space: nowrap;
+}
+
+.cr-table .cr-via .cr-per-dest {
+  white-space: normal;
+}
+
+.cr-popup__name {
+  margin: 0 0 0.3rem;
+  font-weight: bold;
+  font-size: 1rem;
+}
+
 .cr-status {
   font-size: 0.9rem;
   margin: 0 0 0.75rem;
